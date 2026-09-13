@@ -54,3 +54,6 @@ next-env.d.ts
 
 # README
 README.md
+
+# agent-bridge sidecar (its own build context; not part of the app image)
+/agent-bridge
