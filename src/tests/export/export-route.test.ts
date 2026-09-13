@@ -38,16 +38,19 @@ const now = new Date("2026-05-06T12:00:00.000Z");
  * lint rule).
  */
 function queueSelect(rows: unknown[]) {
-    const chain = {
-        from: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue(
-                Object.assign(Promise.resolve(rows), {
-                    limit: vi.fn().mockResolvedValue(rows),
-                }),
-            ),
+    const where = vi.fn().mockReturnValue(
+        Object.assign(Promise.resolve(rows), {
+            limit: vi.fn().mockResolvedValue(rows),
         }),
-    };
-    (db.select as Mock).mockReturnValueOnce(chain);
+    );
+    // `innerJoin` returns the same shape so the joined read that resolves
+    // speaker names chains exactly as an unjoined one does.
+    const from: Record<string, unknown> = { where };
+    from.innerJoin = vi.fn().mockReturnValue(from);
+    from.leftJoin = vi.fn().mockReturnValue(from);
+    (db.select as Mock).mockReturnValueOnce({
+        from: vi.fn().mockReturnValue(from),
+    });
 }
 
 describe("GET /api/export (regression: summary decryption)", () => {
@@ -74,7 +77,9 @@ describe("GET /api/export (regression: summary decryption)", () => {
             },
         ]);
         // 3) transcriptions
-        queueSelect([{ recordingId: "rec-1", text: "enc:hello world" }]);
+        queueSelect([
+            { id: "tr-1", recordingId: "rec-1", text: "enc:hello world" },
+        ]);
         // 4) aiEnhancements
         queueSelect([
             {
@@ -84,6 +89,8 @@ describe("GET /api/export (regression: summary decryption)", () => {
                 keyPoints: ["enc:key point"],
             },
         ]);
+        // 5) confirmed speaker attributions, for the name projection
+        queueSelect([]);
 
         const request = new Request(
             "https://app.example.com/api/export?format=json",

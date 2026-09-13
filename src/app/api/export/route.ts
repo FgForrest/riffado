@@ -11,6 +11,10 @@ import { requireApiSession } from "@/lib/auth-server";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { isExportFormat } from "@/lib/export/formats";
+import {
+    buildResolverMap,
+    projectTranscript,
+} from "@/lib/knowledge/project-transcript";
 import { captureServerEvent } from "@/lib/posthog-server";
 
 // GET - Export recordings in specified format
@@ -96,10 +100,24 @@ export const GET = apiHandler(async (request: Request) => {
         ]),
     );
 
+    // Speaker names are applied here rather than stored: the exported file
+    // is a rendering for the user, so it should read the way the app does.
+    // Only confirmed attributions project; a machine guess never reaches a
+    // file the user will treat as a record.
+    const resolvers = await buildResolverMap(
+        session.user.id,
+        userTranscriptions.map((t) => t.id),
+    );
     const transcriptionMap = new Map(
         userTranscriptions.map((t) => [
             t.recordingId,
-            { ...t, text: decryptText(t.text) },
+            {
+                ...t,
+                text: projectTranscript(
+                    { id: t.id, text: decryptText(t.text), turns: t.turns },
+                    resolvers.get(t.id),
+                ),
+            },
         ]),
     );
     const decryptedRecordings = userRecordings.map((r) => ({

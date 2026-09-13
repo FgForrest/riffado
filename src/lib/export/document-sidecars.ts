@@ -7,6 +7,8 @@ import {
     userSettings,
 } from "@/db/schema";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
+import { buildNameResolver } from "@/lib/knowledge/attribution";
+import { projectTranscript } from "@/lib/knowledge/project-transcript";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import { resolvePrimaryTranscript } from "@/lib/v1/serialize";
 
@@ -158,7 +160,16 @@ export async function exportRecordingSidecars(
         );
 
         if (primary) {
-            const text = decryptText(primary.text);
+            // The sidecar is a file the user reads, so it carries names
+            // rather than raw provider labels. Confirmed attributions only.
+            const text = projectTranscript(
+                {
+                    id: primary.id,
+                    text: decryptText(primary.text),
+                    turns: primary.turns,
+                },
+                await buildNameResolver(userId, primary.id),
+            );
             if (text?.trim()) {
                 storage ??= await createUserStorageProvider(userId);
                 await storage.uploadFile(

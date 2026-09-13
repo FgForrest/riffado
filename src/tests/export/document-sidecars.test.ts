@@ -30,14 +30,22 @@ const RECORDED_AT = new Date("2026-09-11T18:42:00.000Z");
 type QueryChain = Promise<unknown[]> & {
     from: () => QueryChain;
     where: () => QueryChain;
+    innerJoin: () => QueryChain;
+    leftJoin: () => QueryChain;
     limit: () => Promise<unknown[]>;
 };
 
-/** Resolves a Drizzle-style chain whether or not `.limit()` is called. */
+/**
+ * Resolves a Drizzle-style chain whether or not `.limit()` is called, and
+ * whether or not it joins -- the speaker-name resolver reads through an
+ * `innerJoin` and chains identically otherwise.
+ */
 function rows(result: unknown[]): QueryChain {
     const chain: QueryChain = Object.assign(Promise.resolve(result), {
         from: () => chain,
         where: () => chain,
+        innerJoin: () => chain,
+        leftJoin: () => chain,
         limit: () => Promise.resolve(result),
     });
     return chain;
@@ -182,6 +190,7 @@ describe("exportRecordingSidecars", () => {
             .mockReturnValueOnce(
                 rows([
                     {
+                        id: "tr-1",
                         source: "riffado",
                         text: "Hello there.",
                         detectedLanguage: "en",
@@ -191,7 +200,9 @@ describe("exportRecordingSidecars", () => {
                 ]) as never,
             )
             // settings (preferred transcript source)
-            .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never);
+            .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never)
+            // confirmed speaker attributions, for the name projection
+            .mockReturnValueOnce(rows([]) as never);
 
         const written = await exportRecordingSidecars("user-1", "rec-1", {
             transcript: true,
