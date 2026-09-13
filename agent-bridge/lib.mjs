@@ -38,12 +38,21 @@ const MODEL_ID_PATTERN = /^[A-Za-z0-9._:+/-]{1,128}$/;
  * away.
  */
 export function sanitizeForLog(value, maxLength = 128) {
-    // C0 controls (which covers CR and LF), DEL, and the C1 range.
-    // Written as escapes rather than literals so the intent survives a
-    // copy/paste that would otherwise embed raw control bytes.
-    return String(value)
-        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
-        .slice(0, maxLength);
+    return (
+        String(value)
+            // CR and LF are spelled out rather than folded into the
+            // range below because they are the whole point -- they are
+            // what ends a log line -- and because a character-class
+            // range is opaque to static analysis (CodeQL alert 15 on
+            // PR #12 kept firing until these were explicit).
+            .replace(/\n/g, "")
+            .replace(/\r/g, "")
+            // Remaining C0 controls, DEL, and the C1 range. Written as
+            // escapes so the intent survives a copy/paste that would
+            // otherwise embed raw control bytes.
+            .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+            .slice(0, maxLength)
+    );
 }
 
 /**
