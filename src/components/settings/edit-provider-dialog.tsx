@@ -102,6 +102,9 @@ export function EditProviderDialog({
             if (preset.transcriptionOnly) {
                 setIsDefaultEnhancement(false);
             }
+            if (preset.enhancementOnly) {
+                setIsDefaultTranscription(false);
+            }
         }
     };
 
@@ -129,7 +132,9 @@ export function EditProviderDialog({
             } = {
                 baseUrl: baseUrl || null,
                 defaultModel: defaultModel || null,
-                isDefaultTranscription,
+                isDefaultTranscription: enhancementOnly
+                    ? false
+                    : isDefaultTranscription,
                 isDefaultEnhancement: transcriptionOnly
                     ? false
                     : isDefaultEnhancement,
@@ -176,6 +181,7 @@ export function EditProviderDialog({
 
     const selectedPreset = findPreset(providerName);
     const transcriptionOnly = selectedPreset?.transcriptionOnly === true;
+    const enhancementOnly = selectedPreset?.enhancementOnly === true;
 
     if (!open || !provider) return null;
 
@@ -295,14 +301,22 @@ export function EditProviderDialog({
                     />
 
                     <Panel variant="inset" className="space-y-2 text-sm">
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        <label
+                            className={
+                                enhancementOnly
+                                    ? "flex items-center gap-2 opacity-60"
+                                    : "flex items-center gap-2 cursor-pointer"
+                            }
+                        >
                             <input
                                 type="checkbox"
-                                checked={isDefaultTranscription}
+                                checked={
+                                    isDefaultTranscription && !enhancementOnly
+                                }
                                 onChange={(e) =>
                                     setIsDefaultTranscription(e.target.checked)
                                 }
-                                disabled={isLoading}
+                                disabled={isLoading || enhancementOnly}
                             />
                             <span>Use for transcription</span>
                         </label>
@@ -329,6 +343,12 @@ export function EditProviderDialog({
                             <p className="text-xs text-muted-foreground">
                                 {providerName} transcribes only. Summaries need
                                 an OpenAI-compatible provider.
+                            </p>
+                        )}
+                        {enhancementOnly && (
+                            <p className="text-xs text-muted-foreground">
+                                {providerName} summarizes only. Transcription
+                                needs a provider that accepts audio.
                             </p>
                         )}
                     </Panel>

@@ -12,6 +12,12 @@ export interface ProviderPreset {
     modelLabels?: Readonly<Record<string, string>>;
     /** Provider has no chat/completions surface, so it cannot summarize. */
     transcriptionOnly?: boolean;
+    /**
+     * Provider speaks `chat/completions` but takes no audio input, so it
+     * can summarize and title but never transcribe. The mirror image of
+     * `transcriptionOnly`; the two are mutually exclusive.
+     */
+    enhancementOnly?: boolean;
 }
 
 export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
@@ -104,6 +110,34 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
             "scribe_v2+diarize": "scribe_v2 (speaker labels)",
         },
     },
+    // Both agent CLIs are reached through the bridge sidecar in
+    // `agent-bridge/`, which re-wraps `chat/completions` onto `claude -p`
+    // and `codex exec` so a subscription can drive summaries instead of a
+    // metered API key. They share one base URL and are told apart by the
+    // model id. The API key is the bridge's own `BRIDGE_TOKEN`, not a
+    // vendor key -- the subscription credential never leaves the sidecar.
+    //
+    // `defaultModel` is a routing hint the bridge passes through to the
+    // CLI verbatim, so the usable set tracks whatever the installed CLI
+    // supports rather than a list Riffado has to keep current. That is
+    // also why neither preset carries `knownTranscriptionModels`: the
+    // picker falls back to a freeform field.
+    {
+        name: "Claude Code",
+        baseUrl: "http://agent-bridge:8787/v1",
+        placeholder: "bridge token",
+        defaultModel: "claude-sonnet-5",
+        transcriptionStyle: "whisper",
+        enhancementOnly: true,
+    },
+    {
+        name: "Codex",
+        baseUrl: "http://agent-bridge:8787/v1",
+        placeholder: "bridge token",
+        defaultModel: "gpt-5-codex",
+        transcriptionStyle: "whisper",
+        enhancementOnly: true,
+    },
     {
         name: "Custom",
         baseUrl: "",
@@ -113,9 +147,18 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
     },
 ] as const;
 
+// Presets whose base URL is a private address the hosted app cannot
+// reach: loopback for LM Studio / Ollama, a compose service name for the
+// agent bridge. Hidden from the hosted provider picker. Only the loopback
+// ones are also rejected server-side by `validateAiBaseUrl` -- a compose
+// service name is a syntactically ordinary host, so the bridge presets
+// rely on this list alone. That is cosmetic, not a control: on hosted
+// the name simply does not resolve.
 export const LOCAL_PRESET_NAMES: ReadonlySet<string> = new Set([
     "LM Studio",
     "Ollama",
+    "Claude Code",
+    "Codex",
 ]);
 
 export function getVisiblePresets({
@@ -156,4 +199,22 @@ export function getDefaultTranscriptionModel(providerName: string): string {
  */
 export function isTranscriptionOnlyProvider(providerName: string): boolean {
     return findPreset(providerName)?.transcriptionOnly === true;
+}
+
+/**
+ * True for providers that summarize but cannot transcribe, because they
+ * take no audio input -- the agent CLIs behind the bridge sidecar. Unknown
+ * providers are assumed capable, matching `isTranscriptionOnlyProvider`.
+ *
+ * Only the three write paths that can point transcription at a credential
+ * consult this (`POST`/`PUT /api/settings/ai/providers`, `PUT
+ * .../default-transcription`). The runtime path in `transcribe-recording.ts`
+ * needs no guard: it resolves a provider from
+ * `userSettings.defaultTranscriptionProviderId` or an explicit
+ * `isDefaultTranscription` row and never falls back to "any credential",
+ * so an enhancement-only provider can only be reached by first passing
+ * through one of those three.
+ */
+export function isEnhancementOnlyProvider(providerName: string): boolean {
+    return findPreset(providerName)?.enhancementOnly === true;
 }

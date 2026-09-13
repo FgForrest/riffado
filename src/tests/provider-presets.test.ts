@@ -3,6 +3,7 @@ import {
     findPreset,
     getDefaultTranscriptionModel,
     getVisiblePresets,
+    isEnhancementOnlyProvider,
     isLocalPreset,
     isTranscriptionOnlyProvider,
     LOCAL_PRESET_NAMES,
@@ -112,6 +113,63 @@ describe("provider-presets", () => {
             expect(isTranscriptionOnlyProvider("OpenRouter")).toBe(false);
             expect(isTranscriptionOnlyProvider("Custom")).toBe(false);
             expect(isTranscriptionOnlyProvider("Nope")).toBe(false);
+        });
+    });
+
+    describe("isEnhancementOnlyProvider", () => {
+        it("flags the agent CLIs reached through the bridge", () => {
+            expect(isEnhancementOnlyProvider("Claude Code")).toBe(true);
+            expect(isEnhancementOnlyProvider("Codex")).toBe(true);
+        });
+
+        it("leaves audio-capable and unknown providers usable", () => {
+            expect(isEnhancementOnlyProvider("OpenAI")).toBe(false);
+            expect(isEnhancementOnlyProvider("ElevenLabs")).toBe(false);
+            expect(isEnhancementOnlyProvider("Custom")).toBe(false);
+            expect(isEnhancementOnlyProvider("Nope")).toBe(false);
+        });
+
+        it("is never set together with transcriptionOnly", () => {
+            for (const p of PROVIDER_PRESETS) {
+                expect(p.transcriptionOnly && p.enhancementOnly).toBeFalsy();
+            }
+        });
+    });
+
+    describe("agent bridge presets", () => {
+        // Both CLIs are served by the one `agent-bridge` sidecar and told
+        // apart by model id, so a drift in either base URL would silently
+        // point one of them at nothing.
+        it("share the bridge base URL", () => {
+            expect(findPreset("Claude Code")?.baseUrl).toBe(
+                "http://agent-bridge:8787/v1",
+            );
+            expect(findPreset("Codex")?.baseUrl).toBe(
+                "http://agent-bridge:8787/v1",
+            );
+        });
+
+        it("are hidden on hosted, where the bridge is unreachable", () => {
+            const hostedNames = getVisiblePresets({ isHosted: true }).map(
+                (p) => p.name,
+            );
+            expect(hostedNames).not.toContain("Claude Code");
+            expect(hostedNames).not.toContain("Codex");
+            expect(isLocalPreset("Claude Code")).toBe(true);
+            expect(isLocalPreset("Codex")).toBe(true);
+        });
+
+        it("carry a default model that survives the summarizer's whisper rewrite", () => {
+            // `generateSummaryForRecording` rewrites any model whose id
+            // contains "whisper" to a chat model, assuming the credential
+            // was set up for transcription. A bridge default that tripped
+            // that would be swapped out for `gpt-4o-mini` and never reach
+            // the CLI.
+            for (const name of ["Claude Code", "Codex"]) {
+                const model = findPreset(name)?.defaultModel ?? "";
+                expect(model).not.toBe("");
+                expect(model).not.toContain("whisper");
+            }
         });
     });
 
