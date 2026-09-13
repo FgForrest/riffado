@@ -151,5 +151,11 @@ jobs:
             "${source_tag}-arm64"
 
       - name: Inspect image
+        env:
+          # `github.repository` keeps the owner's casing, and an OCI
+          # reference must be lowercase. metadata-action already emits
+          # lowercased tags, so reuse those rather than rebuilding the
+          # reference by hand.
+          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          docker buildx imagetools inspect ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.version }}
+          docker buildx imagetools inspect "$(head -n1 <<< "$TAGS")"
