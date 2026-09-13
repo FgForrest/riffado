@@ -1,0 +1,82 @@
+import { and, eq, isNull } from "drizzle-orm";
+import { headers } from "next/headers";
+import { notFound, redirect } from "next/navigation";
+import { AppNav } from "@/components/app-nav";
+import { PersonDetail } from "@/components/people/person-detail";
+import { db } from "@/db";
+import { recordings, transcriptions, transcriptSpeakers } from "@/db/schema";
+import { auth } from "@/lib/auth";
+import { decryptText } from "@/lib/encryption/fields";
+import { getPerson } from "@/lib/knowledge/people";
+
+export const dynamic = "force-dynamic";
+
+type Params = { params: Promise<{ id: string }> };
+
+export default async function PersonPage({ params }: Params) {
+    const session = await auth.api.getSession({ headers: await headers() });
+    if (!session?.user) {
+        redirect("/login");
+    }
+
+    const { id } = await params;
+    const userId = session.user.id;
+
+    const person = await getPerson(userId, id);
+    if (!person) {
+        notFound();
+    }
+
+    // Where this person has been heard. Joined through the transcript rather
+    // than the recording, because an attribution belongs to one transcript
+    // and a recording may hold two.
+    const appearances = await db
+        .select({
+            recordingId: recordings.id,
+            filename: recordings.filename,
+            startTime: recordings.startTime,
+            label: transcriptSpeakers.label,
+            status: transcriptSpeakers.status,
+            source: transcriptSpeakers.source,
+        })
+        .from(transcriptSpeakers)
+        .innerJoin(
+            transcriptions,
+            eq(transcriptions.id, transcriptSpeakers.transcriptionId),
+        )
+        .innerJoin(recordings, eq(recordings.id, transcriptions.recordingId))
+        .where(
+            and(
+                eq(transcriptSpeakers.userId, userId),
+                eq(transcriptSpeakers.personId, id),
+                isNull(recordings.deletedAt),
+            ),
+        );
+
+    return (
+        <div className="mx-auto w-full max-w-5xl px-4">
+            <div className="sticky top-0 z-30 -mx-4 mb-6 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+                <AppNav className="min-w-0" />
+            </div>
+
+            <PersonDetail
+                person={{
+                    id: person.id,
+                    displayName: person.displayName,
+                    primaryEmail: person.primaryEmail,
+                    notes: person.notes,
+                }}
+                appearances={appearances
+                    .map((row) => ({
+                        recordingId: row.recordingId,
+                        title: decryptText(row.filename),
+                        recordedAt: row.startTime.toISOString(),
+                        label: row.label,
+                        status: row.status,
+                        source: row.source,
+                    }))
+                    .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))}
+            />
+        </div>
+    );
+}
