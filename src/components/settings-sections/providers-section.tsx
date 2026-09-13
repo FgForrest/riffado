@@ -9,7 +9,10 @@ import { EditProviderDialog } from "@/components/settings/edit-provider-dialog";
 import { SettingsSectionHeader } from "@/components/settings/section-header";
 import { PromptManager } from "@/components/settings-sections/prompt-manager";
 import { Button } from "@/components/ui/button";
-import { isEnhancementOnlyProvider } from "@/lib/ai/provider-presets";
+import {
+    isEnhancementOnlyProvider,
+    isTranscriptionOnlyProvider,
+} from "@/lib/ai/provider-presets";
 
 type AISubSection = "providers" | "prompts";
 
@@ -123,6 +126,33 @@ export function ProvidersSection({
         })();
     };
 
+    const handleSetDefaultEnhancement = (providerId: string) => {
+        void (async () => {
+            try {
+                const res = await fetch(
+                    "/api/settings/ai/providers/default-enhancement",
+                    {
+                        method: "PUT",
+                        headers: { "content-type": "application/json" },
+                        body: JSON.stringify({ providerId }),
+                    },
+                );
+                if (!res.ok) {
+                    const b = (await res.json().catch(() => ({}))) as {
+                        error?: string;
+                    };
+                    throw new Error(b.error ?? `HTTP ${res.status}`);
+                }
+                toast.success("Default AI enhancement provider updated");
+                await refreshProviders();
+            } catch (e) {
+                toast.error(
+                    e instanceof Error ? e.message : "Failed to update default",
+                );
+            }
+        })();
+    };
+
     const handleDelete = (id: string) => {
         void confirm({
             title: "Delete this provider?",
@@ -208,6 +238,7 @@ export function ProvidersSection({
                         onEdit={handleEdit}
                         onDelete={handleDelete}
                         onSetDefault={handleSetDefaultTranscription}
+                        onSetDefaultEnhancement={handleSetDefaultEnhancement}
                     />
                 )}
 
@@ -260,6 +291,7 @@ function ProvidersList({
     onEdit,
     onDelete,
     onSetDefault,
+    onSetDefaultEnhancement,
 }: {
     providers: Provider[];
     deletingId: string | null;
@@ -267,6 +299,7 @@ function ProvidersList({
     onEdit: (provider: Provider) => void;
     onDelete: (id: string) => void;
     onSetDefault: (id: string) => void;
+    onSetDefaultEnhancement: (id: string) => void;
 }) {
     if (providers.length === 0) {
         return (
@@ -376,6 +409,20 @@ function ProvidersList({
                                         size="sm"
                                     >
                                         Use for transcription
+                                    </Button>
+                                )}
+                            {!provider.isDefaultEnhancement &&
+                                !isTranscriptionOnlyProvider(
+                                    provider.provider,
+                                ) && (
+                                    <Button
+                                        onClick={() =>
+                                            onSetDefaultEnhancement(provider.id)
+                                        }
+                                        variant="outline"
+                                        size="sm"
+                                    >
+                                        Use for AI enhancements
                                     </Button>
                                 )}
                             <Button

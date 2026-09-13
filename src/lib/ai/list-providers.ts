@@ -52,7 +52,13 @@ export async function listUserProviders(
             createdAt: apiCredentials.createdAt,
         })
         .from(apiCredentials)
-        .where(eq(apiCredentials.userId, userId));
+        .where(eq(apiCredentials.userId, userId))
+        // Postgres has no default order, and an UPDATE rewrites the row,
+        // moving it in the heap -- so without this the list reshuffled
+        // every time the user clicked "Use for transcription". Oldest
+        // first, with id as the tiebreaker for rows created in the same
+        // millisecond.
+        .orderBy(apiCredentials.createdAt, apiCredentials.id);
 
     const credentials: ProviderListItem[] = rows.map((row) => ({
         ...row,
