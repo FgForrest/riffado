@@ -9,7 +9,13 @@
 
 import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { asyncJobs } from "@/db/schema";
+import { asyncJobStatusEnum, asyncJobs } from "@/db/schema";
+
+/**
+ * `async_job_status`, named from the schema so a rename cannot leave a stale
+ * literal behind in the raw SQL below.
+ */
+const STATUS_TYPE = sql.identifier(asyncJobStatusEnum.enumName);
 
 export type AsyncJobStatus = "pending" | "processing" | "completed" | "failed";
 
@@ -347,12 +353,14 @@ export async function failJobAttempt(input: {
     // One expression, evaluated once per column, rather than five copies of
     // the same condition drifting apart later.
     const buried = sql`(${!input.retryable}::boolean or attempts >= max_attempts)`;
+    // The cast on `status` is load-bearing: a `case` over bare literals
+    // resolves to `text`, which Postgres will not assign to an enum column.
     const result = await db.execute(sql`
         update ${asyncJobs}
         set last_error = ${input.message},
             error_code = ${input.code ?? null},
             updated_at = now(),
-            status = case when ${buried} then 'failed' else 'pending' end,
+            status = (case when ${buried} then 'failed' else 'pending' end)::${STATUS_TYPE},
             claim_token = case when ${buried} then claim_token else null end,
             started_at = case when ${buried} then started_at else null end,
             completed_at = case when ${buried} then now() else null end,
