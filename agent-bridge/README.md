@@ -32,18 +32,7 @@ CODEX_VERSION=x.y.z
 docker compose --profile agent-bridge up -d --build agent-bridge
 ```
 
-**4. Authenticate each CLI**, once. Claude takes either a token or an interactive login; Codex needs the login:
-
-```sh
-# Claude -- either a long-lived token in .env ...
-claude setup-token          # on your workstation, then paste into .env as CLAUDE_CODE_OAUTH_TOKEN
-
-# ... or an interactive login stored in the agent_creds volume
-docker compose run -it --rm agent-bridge claude
-
-# Codex -- interactive only
-docker compose run -it --rm agent-bridge codex login
-```
+**4. Authenticate each CLI**, once. See [Authentication](#authentication) below — this is the only fiddly step, because the container has no browser and publishes no port.
 
 **5. Verify before wiring anything up:**
 
@@ -51,9 +40,67 @@ docker compose run -it --rm agent-bridge codex login
 ./agent-bridge/smoke.sh
 ```
 
-This checks both CLIs run, both are authenticated, `/health` answers, and each backend completes a real round trip returning the JSON shape Riffado parses. It fails with the CLI's own error rather than a 502 three layers up.
+This checks both CLIs run, both are authenticated *against a subscription*, `/health` answers, and each backend completes a real round trip returning the JSON shape Riffado parses. It fails with the CLI's own error rather than a 502 three layers up.
 
 **6. Add the provider in Riffado** — Settings → AI Providers → Add, pick **Claude Code** or **Codex**. Base URL and model prefill; paste `BRIDGE_TOKEN` into the API Key field and tick *Use for AI enhancements*.
+
+> If your Riffado build predates those presets, add a **Custom** provider instead: Base URL `http://agent-bridge:8787/v1`, API Key `BRIDGE_TOKEN`, Default Model `claude-sonnet-5` or `gpt-5-codex`. Leave *Use for transcription* unticked — the bridge takes no audio.
+
+## Authentication
+
+Both flows below are **headless**: you authorize on whatever machine has a browser, and the credential lands in the `agent_creds` volume, where the CLIs refresh it in place. Neither needs a browser or an open port inside the container.
+
+`docker compose run` mounts the same named volume as the long-running service, so a login done this way persists across recreates. It also implicitly enables the `agent-bridge` profile, so no `--profile` flag is needed.
+
+### Claude
+
+Either put a long-lived token in `.env` — nothing to do inside the container, compose passes it through:
+
+```sh
+claude setup-token          # on any machine with Claude Code installed
+# paste the result into .env as CLAUDE_CODE_OAUTH_TOKEN, then:
+docker compose up -d agent-bridge
+```
+
+…or log in from inside the container. `claude auth login` prints a URL and accepts a pasted code, which is what makes it work without a browser:
+
+```sh
+docker compose run --rm agent-bridge claude auth login
+docker compose run --rm agent-bridge claude auth status
+```
+
+### Codex
+
+Codex needs a login; it has no env-var equivalent. Use **`--device-auth`**:
+
+```sh
+docker compose run --rm agent-bridge codex login --device-auth
+```
+
+It prints a verification URL and a one-time code — open the URL anywhere, enter the code, and it polls until you're done.
+
+Plain `codex login` (no flag) is the wrong call here: it starts a loopback callback server *inside the container* and waits for a browser to redirect to it. There is no browser in the container and nothing published, so it can never complete. `--device-auth` is the flag that exists for exactly this situation.
+
+Verify, and read the answer carefully:
+
+```sh
+docker compose run --rm agent-bridge codex login status
+```
+
+`Logged in using ChatGPT` is what you want. **`Logged in using an API key` means you are on metered billing**, not your subscription — `codex login --with-api-key` writes a perfectly valid `auth.json` too, so the file existing proves nothing. `smoke.sh` checks for this.
+
+### Revoking
+
+```sh
+docker compose run --rm agent-bridge codex logout
+docker compose run --rm agent-bridge claude auth logout
+docker compose down agent-bridge
+
+# To wipe both credentials entirely. The volume carries the compose
+# project name as a prefix, so look it up rather than guessing:
+docker volume ls --filter name=agent_creds
+docker volume rm <the name it printed>
+```
 
 ## Configuration
 
@@ -110,6 +157,22 @@ Model ids pass through to the CLI unchanged, so the usable set tracks whatever t
 **The credentials volume is sensitive.** `agent_creds` holds `~/.claude` and `~/.codex` — live OAuth tokens for two paid accounts, which the CLIs rotate in place. Treat it like `ENCRYPTION_KEY`. It is why this is a separate container rather than code inside the app image.
 
 **The bridge publishes no port.** It is reachable only from other services on the compose network. Do not add a `ports:` mapping; the bearer token is the only thing between a caller and your subscription.
+
+## Troubleshooting
+
+Errors surface in Riffado as a failed summary. `docker compose logs -f agent-bridge` shows the bridge side; the message in the 502 is the CLI's own stderr tail.
+
+| Symptom | Cause |
+|---|---|
+| `connect ECONNREFUSED agent-bridge:8787` | Container isn't up. The profile means `docker compose up -d` alone skips it — pass `--profile agent-bridge`. |
+| `401 missing or invalid bearer token` | `BRIDGE_TOKEN` in `.env` and the API Key on the provider have drifted. The bridge compares them exactly. |
+| `400 unknown model "gpt-4o-mini"` | The provider's Default Model is blank, so Riffado substituted its own fallback. Set it. |
+| `502 … exited with code 1: … unknown/unexpected argument` | A flag in `CLAUDE_EXTRA_ARGS` / `CODEX_EXTRA_ARGS` isn't in the installed version. Check with `docker compose exec agent-bridge claude --help`. |
+| `502 … exited with code 1` mentioning login, credits, or a plan | Authentication or rate limit. Re-run the status commands under [Authentication](#authentication). |
+| `502 … produced output that is not the expected JSON envelope` | The Claude CLI's `--output-format json` envelope changed shape. Pin the version and check `parseClaudeEnvelope` in `lib.mjs`. |
+| `504 … exceeded BRIDGE_TIMEOUT_MS` | A long transcript against a slow model. Raise `BRIDGE_TIMEOUT_MS`. |
+| Summary contains the agent's prose, `keyPoints` empty | The reply wasn't recognisably JSON, so `extractJson` passed it through untouched and Riffado stored the whole thing. Usually a model that ignores the format instruction — try a stronger one. |
+| Everything is slow when several recordings sync at once | Working as designed: `BRIDGE_MAX_CONCURRENCY=1` queues them so they don't burn the rolling window in parallel. |
 
 ## Not verified in this repo's CI
 

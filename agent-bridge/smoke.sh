@@ -47,20 +47,31 @@ for bin in claude codex; do
 done
 
 step "subscription auth"
-# Both CLIs refresh tokens in place, so the credential files must exist
-# AND be writable by the container user.
-if docker compose exec -T "$SERVICE" test -s /home/node/.claude/.credentials.json 2>/dev/null; then
-    ok "claude credentials present"
+# Ask each CLI rather than stat-ing its credential file. The file layout
+# is an implementation detail, and for Codex a present auth.json proves
+# nothing useful: `codex login --with-api-key` writes one too, and that
+# bills per token -- the exact thing this bridge exists to avoid.
+if claude_status=$(docker compose exec -T "$SERVICE" claude auth status 2>&1); then
+    ok "claude: $(echo "$claude_status" | tail -1)"
 elif [ -n "$(docker compose exec -T "$SERVICE" printenv CLAUDE_CODE_OAUTH_TOKEN 2>/dev/null)" ]; then
     ok "claude using CLAUDE_CODE_OAUTH_TOKEN"
+elif docker compose exec -T "$SERVICE" test -s /home/node/.claude/.credentials.json 2>/dev/null; then
+    # Fallback for CLI versions predating `claude auth status`.
+    ok "claude credential file present"
 else
-    bad "no claude credential -- set CLAUDE_CODE_OAUTH_TOKEN (claude setup-token) or run 'docker compose run -it --rm $SERVICE claude'"
+    bad "no claude credential -- see 'Authentication' in agent-bridge/README.md"
 fi
 
-if docker compose exec -T "$SERVICE" test -s /home/node/.codex/auth.json 2>/dev/null; then
-    ok "codex credentials present"
+# `codex login status` exits 0 for API-key auth too, so read the mode.
+if codex_status=$(docker compose exec -T "$SERVICE" codex login status 2>&1); then
+    case "$codex_status" in
+        *ChatGPT*)
+            ok "codex: $(echo "$codex_status" | tail -1)" ;;
+        *)
+            bad "codex is logged in, but NOT with a ChatGPT subscription: $(echo "$codex_status" | tail -1)" ;;
+    esac
 else
-    bad "no codex credential -- run 'docker compose run -it --rm $SERVICE codex login'"
+    bad "codex not logged in -- 'docker compose run --rm $SERVICE codex login --device-auth'"
 fi
 
 step "health"
