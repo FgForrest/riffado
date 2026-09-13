@@ -45,6 +45,13 @@ export enum ErrorCode {
 
     RECORDING_NOT_FOUND = "RECORDING_NOT_FOUND",
     RECORDING_STREAM_INVALID_RANGE = "RECORDING_STREAM_INVALID_RANGE",
+    /**
+     * The recording exists, but this part of it was removed by the user's
+     * retention policy. Distinct from NOT_FOUND on purpose: the data was
+     * deliberately deleted, not mislaid, and clients should say so rather
+     * than implying the recording is broken. Served as 410 Gone.
+     */
+    RECORDING_DATA_REAPED = "RECORDING_DATA_REAPED",
 
     EMAIL_SEND_FAILED = "EMAIL_SEND_FAILED",
     SMTP_NOT_CONFIGURED = "SMTP_NOT_CONFIGURED",

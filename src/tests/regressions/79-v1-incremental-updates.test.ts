@@ -256,6 +256,9 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
         expect(tx.update).toHaveBeenCalledWith(recordings);
         expect(recordingBumpSet).toHaveBeenCalledWith({
             updatedAt: expect.any(Date),
+            // Writing a transcript also clears any retention marker, so a
+            // row can never claim the transcript is gone while holding one.
+            transcriptReapedAt: null,
         });
     });
 
@@ -331,6 +334,8 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
         expect(tx.update).toHaveBeenCalledWith(recordings);
         expect(recordingBumpSet).toHaveBeenCalledWith({
             updatedAt: expect.any(Date),
+            // A summary now exists, so any retention marker is stale.
+            summaryReapedAt: null,
         });
     });
 
@@ -409,6 +414,8 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
         expect(tx.update).toHaveBeenCalledWith(recordings);
         expect(recordingBumpSet).toHaveBeenCalledWith({
             updatedAt: expect.any(Date),
+            // A summary now exists, so any retention marker is stale.
+            summaryReapedAt: null,
         });
     });
 

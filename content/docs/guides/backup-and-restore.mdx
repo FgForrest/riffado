@@ -130,6 +130,44 @@ become objects next to the audio keys.
 Export failures never cost you data: a storage error is logged and the
 transcript or summary is still saved.
 
+## Retention: deleting old data on purpose
+
+**Settings → Storage → Auto-delete old data** removes data from
+recordings that have passed a retention period you set (1-365 days,
+counted from when the recording was made).
+
+Three kinds can be selected independently:
+
+| Kind | What goes | Recoverable? |
+|---|---|---|
+| Audio | The blob in storage | No. Re-syncing only brings it back if Plaud bumps the recording's version. |
+| Transcript | The `transcriptions` rows | Only by re-transcribing, which needs the audio. |
+| Summary | The `ai_enhancements` row | Only by regenerating, which needs the transcript. |
+
+Audio is almost all of the disk footprint, so "delete audio, keep the
+text" reclaims nearly everything while leaving the library searchable.
+The other combinations are available because they are sometimes what you
+want — keeping only summaries, for instance.
+
+Some specifics worth knowing before you switch it on:
+
+- **The recording itself is never deleted.** Its title, date and duration
+  stay in the list, marked with what was removed. A recording whose audio
+  is gone shows a note instead of a player, and its audio endpoints return
+  `410 Gone` rather than an error.
+- **Nothing is selected by default**, including audio. The sweep does
+  nothing until you pick at least one kind, so upgrading an instance that
+  had the old (inert) auto-delete toggle switched on cannot start deleting
+  behind your back.
+- **Settings shows how many recordings the policy applies to** before you
+  save it.
+- **Markdown sidecars are left alone.** `<recording>.transcript.md` in your
+  storage folder is an export you asked for, not Riffado's copy; retention
+  removes the database rows and the audio blob and does not touch files it
+  did not put there on your behalf. Delete those yourself if you want them
+  gone.
+- The sweep runs hourly, in batches, and logs what it removed per user.
+
 ## Restore
 
 There is no `POST /api/backup/restore` endpoint today. The backup file

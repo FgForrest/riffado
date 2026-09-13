@@ -17,6 +17,24 @@ interface StorageSectionProps {
     isHosted?: boolean;
 }
 
+const RETENTION_KINDS = [
+    {
+        key: "audio",
+        label: "Audio",
+        hint: "The recording itself. Almost all of the disk space, and it cannot be re-transcribed once gone.",
+    },
+    {
+        key: "transcript",
+        label: "Transcript",
+        hint: "Deleted from the database. Can be regenerated later only if the audio is kept.",
+    },
+    {
+        key: "summary",
+        label: "Summary",
+        hint: "Summary, key points and action items.",
+    },
+] as const;
+
 interface StorageUsage {
     storageType: string;
     usedBytes: number;
@@ -38,6 +56,14 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
         useSettings();
     const [autoDeleteRecordings, setAutoDeleteRecordings] = useState(false);
     const [retentionDays, setRetentionDays] = useState<number | null>(null);
+    const [deleteAudio, setDeleteAudio] = useState(false);
+    const [deleteTranscript, setDeleteTranscript] = useState(false);
+    const [deleteSummary, setDeleteSummary] = useState(false);
+    // How many recordings the current selection would reap right now.
+    // `null` = not asked yet or nothing selected.
+    const [reapPreview, setReapPreview] = useState<{ count: number } | null>(
+        null,
+    );
     const [usage, setUsage] = useState<StorageUsage | null>(null);
     // Distinct from `usage === null` so we can tell "haven't loaded
     // yet" apart from "loaded and the API returned no shape we can
@@ -65,6 +91,11 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                     if (cancelled) return;
                     setAutoDeleteRecordings(data.autoDeleteRecordings ?? false);
                     setRetentionDays(data.retentionDays ?? null);
+                    setDeleteAudio(data.retentionDeleteAudio ?? false);
+                    setDeleteTranscript(
+                        data.retentionDeleteTranscript ?? false,
+                    );
+                    setDeleteSummary(data.retentionDeleteSummary ?? false);
                 }
             } catch (error) {
                 if (cancelled) return;
@@ -141,6 +172,58 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
         };
     }, []);
 
+    // Ask the server how much the current selection would delete. This is
+    // the whole safety story of the feature: retention is the one setting
+    // here that destroys data, and a number in front of the user before
+    // the first sweep beats finding out afterwards. Driven by the live
+    // form values rather than the saved ones, so the answer is about the
+    // choice being made, not the one already in effect.
+    useEffect(() => {
+        const anySelected = deleteAudio || deleteTranscript || deleteSummary;
+        if (!autoDeleteRecordings || !retentionDays || !anySelected) {
+            setReapPreview(null);
+            return;
+        }
+
+        const controller = new AbortController();
+        const params = new URLSearchParams({
+            days: String(retentionDays),
+            audio: String(deleteAudio),
+            transcript: String(deleteTranscript),
+            summary: String(deleteSummary),
+        });
+
+        // Debounced on the same 500ms as the save below. The days field
+        // updates state on every keystroke, so typing "365" would
+        // otherwise issue three counts against the recordings table for
+        // two intermediate values nobody asked about.
+        const timer = setTimeout(() => {
+            fetch(`/api/settings/retention/preview?${params}`, {
+                signal: controller.signal,
+            })
+                .then((res) => (res.ok ? res.json() : null))
+                .then((data) => {
+                    if (typeof data?.count !== "number") return;
+                    setReapPreview({ count: data.count });
+                })
+                .catch(() => {
+                    // A missing hint is not worth a toast; the setting
+                    // still saves and the sweep still reports what it did.
+                });
+        }, 500);
+
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [
+        autoDeleteRecordings,
+        retentionDays,
+        deleteAudio,
+        deleteTranscript,
+        deleteSummary,
+    ]);
+
     const cancelPendingRetentionSave = () => {
         if (saveTimeoutRef.current) {
             clearTimeout(saveTimeoutRef.current);
@@ -159,6 +242,9 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
     const handleStorageSettingChange = async (updates: {
         autoDeleteRecordings?: boolean;
         retentionDays?: number | null;
+        retentionDeleteAudio?: boolean;
+        retentionDeleteTranscript?: boolean;
+        retentionDeleteSummary?: boolean;
     }) => {
         const previousValues: Record<string, unknown> = {};
         if (updates.autoDeleteRecordings !== undefined) {
@@ -168,6 +254,18 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
         if (updates.retentionDays !== undefined) {
             previousValues.retentionDays = retentionDays;
             setRetentionDays(updates.retentionDays);
+        }
+        if (updates.retentionDeleteAudio !== undefined) {
+            previousValues.retentionDeleteAudio = deleteAudio;
+            setDeleteAudio(updates.retentionDeleteAudio);
+        }
+        if (updates.retentionDeleteTranscript !== undefined) {
+            previousValues.retentionDeleteTranscript = deleteTranscript;
+            setDeleteTranscript(updates.retentionDeleteTranscript);
+        }
+        if (updates.retentionDeleteSummary !== undefined) {
+            previousValues.retentionDeleteSummary = deleteSummary;
+            setDeleteSummary(updates.retentionDeleteSummary);
         }
 
         try {
@@ -189,6 +287,18 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                 const prev = previousValues.retentionDays;
                 if (typeof prev === "number" || prev === null)
                     setRetentionDays(prev);
+            }
+            if (updates.retentionDeleteAudio !== undefined) {
+                const prev = previousValues.retentionDeleteAudio;
+                if (typeof prev === "boolean") setDeleteAudio(prev);
+            }
+            if (updates.retentionDeleteTranscript !== undefined) {
+                const prev = previousValues.retentionDeleteTranscript;
+                if (typeof prev === "boolean") setDeleteTranscript(prev);
+            }
+            if (updates.retentionDeleteSummary !== undefined) {
+                const prev = previousValues.retentionDeleteSummary;
+                if (typeof prev === "boolean") setDeleteSummary(prev);
             }
             toast.error("Failed to save settings. Changes reverted.");
         }
@@ -263,8 +373,8 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
             )}
 
             <SettingsCard
-                title="Auto-delete old recordings"
-                description="Automatically delete recordings older than the retention period."
+                title="Auto-delete old data"
+                description="Once a recording passes the retention period, remove the kinds of data you select below. The recording itself stays in your library."
                 action={
                     <Switch
                         id="auto-delete"
@@ -278,9 +388,24 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                             if (!checked) {
                                 setRetentionDays(null);
                             }
+                            // Nothing is selected by default, so switching
+                            // this on would otherwise arm a policy that
+                            // deletes nothing. Pre-tick audio -- the one
+                            // people mean when they say "delete old
+                            // recordings", and the only one whose absence
+                            // frees real space -- while leaving the text
+                            // alone until it is asked for explicitly.
+                            const armAudio =
+                                checked &&
+                                !deleteAudio &&
+                                !deleteTranscript &&
+                                !deleteSummary;
                             handleStorageSettingChange({
                                 autoDeleteRecordings: checked,
                                 retentionDays: checked ? retentionDays : null,
+                                ...(armAudio
+                                    ? { retentionDeleteAudio: true }
+                                    : {}),
                             });
                         }}
                         disabled={isSavingSettings}
@@ -343,9 +468,84 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                             placeholder="30"
                         />
                         <p className="text-xs text-muted-foreground">
-                            Recordings older than this will be automatically
-                            deleted (1-365 days)
+                            Counted from when the recording was made (1-365
+                            days)
                         </p>
+
+                        <div className="space-y-3 rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                                <Label className="text-sm">
+                                    What to delete
+                                </Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Each kind is independent. Dropping the audio
+                                    and keeping the text reclaims almost all the
+                                    space; keeping only the summary is equally
+                                    valid.
+                                </p>
+                            </div>
+
+                            {RETENTION_KINDS.map(({ key, label, hint }) => (
+                                <div
+                                    key={key}
+                                    className="flex items-center justify-between gap-4"
+                                >
+                                    <div className="space-y-0.5">
+                                        <Label
+                                            htmlFor={`retention-${key}`}
+                                            className="text-sm font-normal"
+                                        >
+                                            {label}
+                                        </Label>
+                                        <p className="text-xs text-muted-foreground">
+                                            {hint}
+                                        </p>
+                                    </div>
+                                    <Switch
+                                        id={`retention-${key}`}
+                                        checked={
+                                            key === "audio"
+                                                ? deleteAudio
+                                                : key === "transcript"
+                                                  ? deleteTranscript
+                                                  : deleteSummary
+                                        }
+                                        onCheckedChange={(checked) =>
+                                            handleStorageSettingChange(
+                                                key === "audio"
+                                                    ? {
+                                                          retentionDeleteAudio:
+                                                              checked,
+                                                      }
+                                                    : key === "transcript"
+                                                      ? {
+                                                            retentionDeleteTranscript:
+                                                                checked,
+                                                        }
+                                                      : {
+                                                            retentionDeleteSummary:
+                                                                checked,
+                                                        },
+                                            )
+                                        }
+                                        disabled={isSavingSettings}
+                                    />
+                                </div>
+                            ))}
+
+                            <p className="text-xs text-muted-foreground">
+                                {reapPreview === null
+                                    ? "Pick at least one kind and a retention period — nothing is deleted until you do."
+                                    : reapPreview.count === 0
+                                      ? "No recordings are old enough yet, so this deletes nothing today."
+                                      : `Applies to ${reapPreview.count} recording${reapPreview.count === 1 ? "" : "s"} right now. The first sweep runs within the hour and cannot be undone.`}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                                Markdown files written alongside your audio by
+                                Export/Backup are left alone — retention removes
+                                Riffado's copy, not the export in your folder.
+                            </p>
+                        </div>
                     </div>
                 )}
             </SettingsCard>

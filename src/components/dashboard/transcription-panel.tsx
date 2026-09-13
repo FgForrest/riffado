@@ -117,7 +117,17 @@ export function TranscriptionPanel({
                                     onClick={onTranscribe}
                                     size="sm"
                                     variant="outline"
-                                    disabled={isTranscribing}
+                                    // No audio, nothing to re-transcribe
+                                    // from. Both the server route and the
+                                    // browser one would only fetch a 410.
+                                    disabled={
+                                        isTranscribing || recording.audioReaped
+                                    }
+                                    title={
+                                        recording.audioReaped
+                                            ? "Audio was removed by your retention policy"
+                                            : undefined
+                                    }
                                 >
                                     <RefreshCw className="size-4 mr-2" />
                                     Re-transcribe
@@ -128,14 +138,25 @@ export function TranscriptionPanel({
                                     <Button
                                         onClick={onTranscribe}
                                         size="sm"
-                                        disabled={isTranscribing}
+                                        disabled={
+                                            isTranscribing ||
+                                            recording.audioReaped
+                                        }
+                                        title={
+                                            recording.audioReaped
+                                                ? "Audio was removed by your retention policy"
+                                                : undefined
+                                        }
                                     >
                                         <Sparkles className="size-4 mr-2" />
                                         Transcribe
                                     </Button>
                                     <TranscribeInBrowserButton
                                         recordingId={recording.id}
-                                        disabled={isTranscribing}
+                                        disabled={
+                                            isTranscribing ||
+                                            recording.audioReaped
+                                        }
                                         onComplete={
                                             // Falling back to `onTranscribe` here
                                             // would kick off a redundant SERVER

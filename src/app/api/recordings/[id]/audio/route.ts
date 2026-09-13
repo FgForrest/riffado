@@ -40,6 +40,18 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
         );
     }
 
+    // Retention removed the blob but kept the row. Without this the
+    // download below throws a generic storage error and the player gets a
+    // 500, which reads as "Riffado is broken" rather than "you asked for
+    // this audio to be deleted after N days, and it was".
+    if (recording.audioReapedAt) {
+        throw new AppError(
+            ErrorCode.RECORDING_DATA_REAPED,
+            "Audio was removed by your retention policy",
+            410,
+        );
+    }
+
     const storage = await createUserStorageProvider(session.user.id);
     const audioBuffer = await storage.downloadFile(recording.storagePath);
     const contentType = getAudioMimeType(recording.storagePath);

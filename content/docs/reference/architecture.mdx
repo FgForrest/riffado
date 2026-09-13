@@ -121,6 +121,12 @@ webhook worker all claim work at the database level with
 Docker Compose deployment runs a single app container against one
 Postgres, but the code doesn't depend on that.
 
+The retention sweep (`src/lib/retention/worker.ts`) is the exception,
+and is safe for a different reason: it is idempotent. Two processes
+sweeping the same user at once issue the same deletes, and a delete that
+finds nothing there is treated as already done. Its per-kind markers on
+`recordings` are what make a second pass a no-op rather than a race.
+
 ## Where to look next
 
 - [Public API](./public-api) — the stable external surface.

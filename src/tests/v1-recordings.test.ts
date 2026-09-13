@@ -43,6 +43,9 @@ const recording = {
     isTrash: false,
     waveformPeaks: null,
     deletedAt: null,
+    audioReapedAt: null,
+    transcriptReapedAt: null,
+    summaryReapedAt: null,
     createdAt: now,
     updatedAt: now,
 };
@@ -115,6 +118,9 @@ describe("v1 recordings", () => {
             },
             has_transcription: true,
             has_summary: true,
+            // Tells a client the audio link will answer 410 before it
+            // spends a request finding out.
+            audio_reaped: false,
             links: {
                 self: "/api/v1/recordings/rec-1",
                 transcript: "/api/v1/recordings/rec-1/transcript",

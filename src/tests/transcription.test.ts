@@ -417,6 +417,8 @@ describe("Transcription", () => {
             expect(txUpdate).toHaveBeenCalledWith(recordings);
             expect(recordingBumpSet).toHaveBeenCalledWith({
                 updatedAt: expect.any(Date),
+                // Persisting a transcript also clears any retention marker.
+                transcriptReapedAt: null,
             });
             expect(titleUpdateSet).toHaveBeenCalledWith({
                 filename: "v1:encrypted:Generated Title",

@@ -54,6 +54,8 @@ export type TranscribeErrorCode =
     | "RECORDING_NOT_FOUND"
     | "NO_TRANSCRIPTION_PROVIDER"
     | "RECORDING_DELETED"
+    /** The retention sweep deleted the audio; nothing left to transcribe. */
+    | "AUDIO_REAPED"
     | "HOSTED_LOCKED_OUT"
     | "MYNAH_BUDGET_EXHAUSTED"
     | "TRANSCRIPTION_FAILED";
@@ -302,6 +304,19 @@ async function transcribeRecordingInner(
                 success: false,
                 error: "Recording not found",
                 errorCode: "RECORDING_NOT_FOUND",
+            };
+        }
+
+        // A retention sweep deleted the audio. There is nothing to send to
+        // a provider, so fail here with a message that explains the state
+        // instead of letting `downloadFile` throw a storage error that
+        // reads like a bug -- and, on a paid provider, without having
+        // first spent a request finding that out.
+        if (recording.audioReapedAt) {
+            return {
+                success: false,
+                error: "Audio was removed by your retention policy, so this recording can no longer be transcribed",
+                errorCode: "AUDIO_REAPED",
             };
         }
 

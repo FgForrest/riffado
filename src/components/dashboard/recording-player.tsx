@@ -61,6 +61,12 @@ export function RecordingPlayer({
         initialAutoPlayNext,
     });
 
+    // With the audio gone there is nothing to decode and nothing to
+    // scrub. The header keys every waveform affordance off this value,
+    // so collapsing it here is what removes the "Generate waveform"
+    // button that would otherwise sit there fetching a 410.
+    const effectiveScrubber = recording.audioReaped ? "slider" : scrubberStyle;
+
     usePlaybackKeyboard({
         onToggle: togglePlayPause,
         onSeekRelative: seekRelative,
@@ -83,8 +89,9 @@ export function RecordingPlayer({
         initialPeaks: recording.waveformPeaks ?? null,
         // Skip auto-decode entirely when the user has opted out of the
         // waveform UI -- there's no point spending CPU on peaks the
-        // player will never display.
-        autoStart: scrubberStyle === "waveform",
+        // player will never display -- or when retention has removed the
+        // audio, where the decode could only ever fetch a 410.
+        autoStart: effectiveScrubber === "waveform",
     });
 
     return (
@@ -92,35 +99,49 @@ export function RecordingPlayer({
             <RecordingPlayerHeader
                 recording={recording}
                 duration={duration}
-                scrubberStyle={scrubberStyle}
+                scrubberStyle={effectiveScrubber}
                 waveformStatus={waveformStatus}
                 onDecodeWaveform={triggerWaveformDecode}
                 onRenamed={onRenamed}
             />
             <CardContent>
-                <RecordingPlayerControls
-                    isPlaying={isPlaying}
-                    onTogglePlay={togglePlayPause}
-                    currentTime={currentTime}
-                    duration={duration}
-                    onSeekRatio={seekToRatio}
-                    playbackSpeed={playbackSpeed}
-                    onCycleSpeed={cycleSpeed}
-                    volume={volume}
-                    onVolumeChange={setVolume}
-                    onToggleMute={toggleMute}
-                    scrubberStyle={scrubberStyle}
-                    waveformPeaks={waveformPeaks}
-                />
+                {recording.audioReaped ? (
+                    // Retention deleted the blob but kept the recording.
+                    // Rendering the transport here would offer a play
+                    // button that can only ever produce an error, so say
+                    // what happened instead. The transcript and summary
+                    // panes are unaffected and still render below.
+                    <p className="text-sm text-muted-foreground">
+                        Audio was removed by your retention policy. The
+                        transcript and summary below are unaffected.
+                    </p>
+                ) : (
+                    <>
+                        <RecordingPlayerControls
+                            isPlaying={isPlaying}
+                            onTogglePlay={togglePlayPause}
+                            currentTime={currentTime}
+                            duration={duration}
+                            onSeekRatio={seekToRatio}
+                            playbackSpeed={playbackSpeed}
+                            onCycleSpeed={cycleSpeed}
+                            volume={volume}
+                            onVolumeChange={setVolume}
+                            onToggleMute={toggleMute}
+                            scrubberStyle={scrubberStyle}
+                            waveformPeaks={waveformPeaks}
+                        />
 
-                <audio
-                    ref={audioRef}
-                    src={`/api/recordings/${recording.id}/audio`}
-                    preload="metadata"
-                    className="hidden"
-                >
-                    <track kind="captions" />
-                </audio>
+                        <audio
+                            ref={audioRef}
+                            src={`/api/recordings/${recording.id}/audio`}
+                            preload="metadata"
+                            className="hidden"
+                        >
+                            <track kind="captions" />
+                        </audio>
+                    </>
+                )}
             </CardContent>
         </Card>
     );

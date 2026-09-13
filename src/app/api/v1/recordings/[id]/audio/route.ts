@@ -47,6 +47,19 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
         );
     }
 
+    // Same guard as the web route: the row outlives the blob when a
+    // retention sweep reaps the audio. On S3 this matters even more --
+    // without it we would hand out a signed URL to a key that no longer
+    // exists and the client would get an opaque 404 from the object store.
+    if (recording.audioReapedAt) {
+        throw new AppError(
+            ErrorCode.RECORDING_DATA_REAPED,
+            "Audio was removed by the retention policy",
+            410,
+            { id },
+        );
+    }
+
     const storage = await createUserStorageProvider(authn.user.id);
 
     if (recording.storageType === "s3") {

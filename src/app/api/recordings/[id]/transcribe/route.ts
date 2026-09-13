@@ -63,6 +63,8 @@ function mapErrorCodeToAppError(
             return new AppError(ErrorCode.RECORDING_NOT_FOUND, msg, 404);
         case "RECORDING_DELETED":
             return new AppError(ErrorCode.NOT_FOUND, msg, 410);
+        case "AUDIO_REAPED":
+            return new AppError(ErrorCode.RECORDING_DATA_REAPED, msg, 410);
         case "NO_TRANSCRIPTION_PROVIDER":
             return new AppError(ErrorCode.NO_TRANSCRIPTION_PROVIDER, msg, 400);
         case "HOSTED_LOCKED_OUT":
