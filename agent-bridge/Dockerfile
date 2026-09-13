@@ -39,7 +39,10 @@ RUN npm install -g \
 RUN mkdir -p /work /home/node/.claude /home/node/.codex /srv/agent-bridge \
     && chown -R node:node /work /home/node /srv/agent-bridge
 
-COPY --chown=node:node server.mjs /srv/agent-bridge/server.mjs
+# Both files. `server.mjs` imports `./lib.mjs`, and copying only the
+# entrypoint produced an image that died at startup with
+# ERR_MODULE_NOT_FOUND -- the first thing that happened on a real host.
+COPY --chown=node:node server.mjs lib.mjs /srv/agent-bridge/
 
 USER node
 ENV HOME=/home/node \
