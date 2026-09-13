@@ -45,13 +45,17 @@ export function SettingsNavSidebar({
         [isHosted],
     );
     return (
-        // Sidebar needs an explicit height to match <main>'s h-[600px],
-        // otherwise SidebarContent's overflow-y-auto has no bound to
-        // scroll against: DialogContent uses max-h (a constraint, not
-        // a definite height) so the sidebar's h-full would resolve to
-        // its content height and grow rather than scroll once we cross
-        // ~13 nav items.
-        <Sidebar className="hidden md:flex md:h-[600px]">
+        // Sidebar needs an explicit height to match <main>'s, otherwise
+        // SidebarContent's overflow-y-auto has no bound to scroll against:
+        // DialogContent uses max-h (a constraint, not a definite height) so
+        // the sidebar's h-full would resolve to its content height and grow
+        // rather than scroll once we cross ~13 nav items.
+        //
+        // `--settings-h` is set on DialogContent in `settings-dialog.tsx`, the
+        // only place this component is used. The `600px` fallback is the old
+        // fixed height, so a future consumer that forgets the variable gets
+        // today's layout rather than a collapsed sidebar.
+        <Sidebar className="hidden md:flex md:h-[var(--settings-h,600px)]">
             {/*
               Header sits outside SidebarContent so it doesn't scroll
               away with the nav. Match the main panel <header>'s h-16

@@ -55,7 +55,19 @@ export function SettingsDialog({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="overflow-hidden p-0 md:max-h-[600px] md:max-w-[800px] lg:max-w-[900px]">
+            {/*
+              `--settings-h` is the modal's height, declared once here and
+              consumed by both the sidebar and the content pane below. It was
+              previously the literal `600px`, repeated in three files that had
+              to agree -- which is why the modal stayed exactly 600px tall on a
+              1440p monitor and scrolled sections that had screen to spare.
+              `min(85dvh,900px)` grows with the viewport and still stops short
+              of a full-height wall of settings on a very tall display; `dvh`
+              (not `vh`) keeps it correct under a mobile browser's collapsing
+              toolbar. Width gains xl/2xl steps for the same reason -- it used
+              to cap at 900px no matter how wide the screen got.
+            */}
+            <DialogContent className="overflow-hidden p-0 [--settings-h:min(85dvh,900px)] md:max-h-[var(--settings-h)] md:max-w-[800px] lg:max-w-[900px] xl:max-w-[1100px] 2xl:max-w-[1280px]">
                 <DialogTitle className="sr-only">Settings</DialogTitle>
                 <DialogDescription className="sr-only">
                     Customize your settings here. Use arrow keys to navigate
@@ -69,7 +81,7 @@ export function SettingsDialog({
                         isHosted={isHosted}
                     />
 
-                    <main className="flex h-[600px] flex-1 flex-col overflow-hidden">
+                    <main className="flex h-[var(--settings-h,600px)] flex-1 flex-col overflow-hidden">
                         {/*
                           Desktop: header bar is intentionally empty -- the
                           sidebar's active item plus the section h2 inside
