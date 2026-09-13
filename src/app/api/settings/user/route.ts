@@ -9,6 +9,7 @@ import {
 import { requireApiSession } from "@/lib/auth-server";
 import { decryptJsonField, encryptJsonField } from "@/lib/encryption/fields";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { EXPORT_FORMATS } from "@/lib/export/formats";
 
 // Enum allowlists. DB columns are `varchar`, not pg enums, so validation
 // must happen here.
@@ -19,7 +20,11 @@ const ENUM_FIELDS = {
     dateTimeFormat: ["relative", "absolute", "iso"],
     recordingListSortOrder: ["newest", "oldest", "name"],
     transcriptionQuality: ["fast", "balanced", "accurate"],
-    defaultExportFormat: ["json", "csv", "zip"],
+    // Shared with the exporter and the settings picker -- see
+    // `src/lib/export/formats.ts`. Hand-maintaining a second copy here is
+    // what let this list accept `csv`/`zip` (which the exporter cannot
+    // produce) while rejecting `txt`/`srt`/`vtt` (which it can).
+    defaultExportFormat: EXPORT_FORMATS,
     transcriptMode: ["plaud_only", "keep_both"],
     preferredTranscriptSource: ["plaud", "riffado"],
 } as const satisfies Record<string, readonly string[]>;

@@ -10,6 +10,7 @@ import {
 import { requireApiSession } from "@/lib/auth-server";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { isExportFormat } from "@/lib/export/formats";
 import { captureServerEvent } from "@/lib/posthog-server";
 
 // GET - Export recordings in specified format
@@ -31,6 +32,23 @@ export const GET = apiHandler(async (request: Request) => {
         .limit(1);
 
     const exportFormat = formatParam || settings?.defaultExportFormat || "json";
+
+    // Reject an unsupported format before running the four queries below.
+    // The `default` branch of the switch still catches it, but only after
+    // the whole dataset has been read and decrypted for nothing. A stored
+    // `defaultExportFormat` can reach here without passing through the
+    // settings validator (older rows, direct DB edits), so this is not
+    // purely redundant with it.
+    if (!isExportFormat(exportFormat)) {
+        throw new AppError(
+            ErrorCode.INVALID_INPUT,
+            "Invalid export format",
+            400,
+            {
+                field: "format",
+            },
+        );
+    }
 
     // Get all recordings for user
     const userRecordings = await db
