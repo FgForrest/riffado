@@ -3,14 +3,18 @@
 ## [Unreleased]
 
 ### Added
+- Multi-pass summarization (Settings → Summary). Runs the summary prompt several times in parallel and merges the results, so a point that only one pass happened to catch still reaches the summary. Configurable pass count (2–5), an optional custom merge prompt, and a separate opt-in for the auto-summary path, which stays off by default because one sync can generate many summaries and each multiplies by the pass count. Off by default; the single-pass path is unchanged when it is off. Every pass re-sends the full transcript, so N passes costs roughly N× the tokens of one summary. Degrades rather than fails: failed passes are dropped, a lone survivor is returned unmerged, and a failed or unparseable merge falls back to the richest pass — only an all-passes-failed run is an error.
 - Custom summary prompts are now reachable from Settings → Summary: create, edit, view, and delete custom prompts, and select one as the default alongside the built-in presets. The per-recording summary dropdown also lists custom prompts and now initializes to the saved default instead of always defaulting to "General Summary" ([#199](https://github.com/riffado/riffado/issues/199)).
 - Download the original audio file from the recording player and the recording row menu (`GET /api/recordings/[id]/audio?download=1`) ([#229](https://github.com/riffado/riffado/issues/229)).
 - Inline rename for recording titles. Click the title in the player (or the recording page heading), edit, and press Enter. Persists via `PATCH /api/recordings/[id]` ([#217](https://github.com/riffado/riffado/issues/217)).
 
 ### Fixed
+- A summary whose `keyPoints`/`actionItems` came back as arrays of objects rather than strings — which smaller models and OpenAI-compatible shims do — was stored that way, and then crashed the recording's panel on every open (`point.slice is not a function`). Entries are now coerced to strings before they are persisted.
+- The settings dialog was a fixed 600×900px on every display, so sections scrolled even when the screen had room to show them whole. It now scales with the viewport, up to 1280px wide.
 - Changing the default summary prompt in Settings → Summary wiped any custom summary prompts on every save, since the request always sent `customPrompts: []` instead of the current list ([#199](https://github.com/riffado/riffado/issues/199)).
 
 ### Changed
+- Migration `0040_natural_absorbing_man` adds `summary_multi_pass`, `summary_multi_pass_rounds`, `summary_multi_pass_auto` and `summary_merge_prompt` to `user_settings`. Purely additive and defaulted, so it is inert until multi-pass summarization is switched on, and an older image runs unchanged against a migrated database.
 - Migration `0036_wide_raider` upgrades `stripe_webhook_events` to a durable Stripe event inbox. Inert on self-host unless hosted billing is configured.
 
 ## [0.6.4] - 2026-07-24

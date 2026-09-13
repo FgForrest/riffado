@@ -21,6 +21,12 @@ import { AppError, ErrorCode } from "@/lib/errors";
 import { exportRecordingSidecarsIfEnabled } from "@/lib/export/document-sidecars";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { upsertEnhancement } from "@/lib/transcription/persist";
+import {
+    clampRounds,
+    type MultiPassProgress,
+    runMultiPassSummary,
+} from "./multi-pass";
+import { parseSummaryPayload, type SummaryPayload } from "./payload";
 
 export interface GenerateSummaryOptions {
     /**
@@ -31,6 +37,16 @@ export interface GenerateSummaryOptions {
     presetId?: string;
     /** Analytics `trigger` property on the `summary_generated` event. */
     trigger?: "manual" | "auto";
+    /**
+     * Called as multi-pass work advances. Never called on the single-pass
+     * path, which has nothing to report between "started" and "finished".
+     *
+     * Exists so a caller that can stream -- the route, and later the job
+     * worker -- can show which pass is in flight. `generateSummaryForRecording`
+     * itself stays a plain awaitable; progress is a side channel, never a
+     * requirement.
+     */
+    onProgress?: (progress: MultiPassProgress) => void;
 }
 
 export interface GenerateSummaryResult {
@@ -47,6 +63,17 @@ export interface GenerateSummaryResult {
      * the default prompt instead.
      */
     promptFallback: boolean;
+    /**
+     * Present only when this run used multi-pass. Lets the caller say what
+     * actually happened -- "3 passes, merged" versus "2 of 3 passes, merge
+     * failed" -- instead of silently presenting a degraded result as if it
+     * were the full one.
+     */
+    multiPass?: {
+        roundsRequested: number;
+        passesUsed: number;
+        merged: boolean;
+    };
 }
 
 /** Coarse length bucket -- never send raw transcript length or content. */
@@ -55,39 +82,6 @@ function bucketLength(chars: number): string {
     if (chars < 10_000) return "medium";
     if (chars < 50_000) return "long";
     return "very_long";
-}
-
-/**
- * Coerce a parsed `keyPoints` / `actionItems` value into the `string[]` that
- * the column type, the API response and the render path all assume.
- *
- * `Array.isArray` on its own was not enough. Models -- especially smaller ones
- * and OpenAI-compatible shims -- answer with `[{ owner, task }]` instead of
- * `["[owner] task"]`, and the old check waved any array through. The objects
- * were encrypted, stored, and later reached `point.slice(0, 32)` in the key
- * points list, so a single malformed response made that recording throw
- * `point.slice is not a function` on every open, permanently, with nothing in
- * the UI to explain it or undo it.
- *
- * Non-strings are stringified rather than dropped: a visibly wrong entry can be
- * regenerated, whereas silently discarding it looks exactly like the model
- * finding nothing to report.
- */
-function toStringList(value: unknown): string[] {
-    if (!Array.isArray(value)) return [];
-    const out: string[] = [];
-    for (const entry of value) {
-        if (typeof entry === "string") {
-            if (entry.trim()) out.push(entry);
-        } else if (entry !== null && entry !== undefined) {
-            out.push(
-                typeof entry === "object"
-                    ? JSON.stringify(entry)
-                    : String(entry),
-            );
-        }
-    }
-    return out;
 }
 
 /**
@@ -271,46 +265,89 @@ export async function generateSummaryForRecording(
         ? `${baseSystem} ${languageDirective}`
         : baseSystem;
 
-    const response = await openai.chat.completions.create(
-        buildChatCompletionParams({
-            model,
-            messages: [
-                { role: "system", content: systemContent },
-                { role: "user", content: prompt },
-            ],
-            temperature: 0.5,
-            maxTokens: 2000,
-        }),
-    );
+    /** One summary pass. Identical every time -- multi-pass relies on
+     * sampling variance between runs, not on varying the prompt. */
+    const runPass = async (): Promise<string> => {
+        const response = await openai.chat.completions.create(
+            buildChatCompletionParams({
+                model,
+                messages: [
+                    { role: "system", content: systemContent },
+                    { role: "user", content: prompt },
+                ],
+                temperature: 0.5,
+                maxTokens: 2000,
+            }),
+        );
+        return response.choices[0]?.message?.content?.trim() || "";
+    };
 
-    const rawContent = response.choices[0]?.message?.content?.trim() || "";
+    const runMerge = async (
+        mergeInput: string,
+        mergePrompt: string,
+    ): Promise<string> => {
+        const response = await openai.chat.completions.create(
+            buildChatCompletionParams({
+                model,
+                messages: [
+                    {
+                        role: "system",
+                        // The language directive rides along because the merge
+                        // rewrites the summary paragraph; without it the merged
+                        // prose can come back in a different language from the
+                        // passes it was built from.
+                        content: languageDirective
+                            ? `${mergePrompt}\n\n${languageDirective}`
+                            : mergePrompt,
+                    },
+                    { role: "user", content: mergeInput },
+                ],
+                // Lower than a pass: union-and-dedup is close to mechanical,
+                // and the variance that makes several passes worth running is
+                // exactly what we do not want in the step that combines them.
+                temperature: 0.2,
+                // Deliberately above the per-pass ceiling. The merged output
+                // is the union of every pass, so it is longer than any one of
+                // them -- leaving this at 2000 would truncate away the very
+                // points the feature exists to preserve.
+                maxTokens: 4000,
+            }),
+        );
+        return response.choices[0]?.message?.content?.trim() || "";
+    };
 
-    let summary = "";
-    let keyPoints: string[] = [];
-    let actionItems: string[] = [];
+    // Multi-pass applies to the auto path only if separately enabled: a manual
+    // summary is one recording the user is waiting on, while a sync can fire a
+    // dozen, and each one multiplies by `rounds`.
+    const multiPassOn =
+        userSettingsRow?.summaryMultiPass === true &&
+        (opts.trigger !== "auto" || userSettingsRow?.summaryMultiPassAuto);
 
-    try {
-        const cleanContent = rawContent
-            .replace(/^```(?:json)?\s*/i, "")
-            .replace(/\s*```$/i, "")
-            .trim();
-        const parsed = JSON.parse(cleanContent);
-        // If the JSON parses but the `summary` key is missing or empty,
-        // treat the entire raw response as the summary text rather than
-        // persisting an empty string. Some models (smaller chat models,
-        // and providers that wrap the shape) return
-        // `{ "keyPoints": [...], "actionItems": [...] }` without a
-        // `summary` key. Falling back to `rawContent` keeps the recording
-        // useful instead of showing a silently blank summary.
-        summary =
-            typeof parsed.summary === "string" && parsed.summary
-                ? parsed.summary
-                : rawContent;
-        keyPoints = toStringList(parsed.keyPoints);
-        actionItems = toStringList(parsed.actionItems);
-    } catch {
-        summary = rawContent;
+    let payload: SummaryPayload;
+    let multiPass: GenerateSummaryResult["multiPass"];
+
+    if (multiPassOn) {
+        const result = await runMultiPassSummary({
+            rounds: clampRounds(userSettingsRow?.summaryMultiPassRounds),
+            runPass,
+            runMerge,
+            // User-authored, so encrypted at rest like the summary prompts.
+            mergePrompt: userSettingsRow?.summaryMergePrompt
+                ? decryptText(userSettingsRow.summaryMergePrompt)
+                : null,
+            onProgress: opts.onProgress,
+        });
+        payload = result.payload;
+        multiPass = {
+            roundsRequested: result.roundsRequested,
+            passesUsed: result.passesUsed,
+            merged: result.merged,
+        };
+    } else {
+        payload = parseSummaryPayload(await runPass());
     }
+
+    const { summary, keyPoints, actionItems } = payload;
 
     // Persist the riffado-generated summary via the shared, tombstone-aware
     // upsert. Summaries stay single per recording; `source` records the origin.
@@ -338,6 +375,13 @@ export async function generateSummaryForRecording(
             trigger: opts.trigger ?? "manual",
             provider: credentials.provider,
             transcript_length_bucket: bucketLength(transcriptText.length),
+            // Counts only -- never prompt or transcript content. Recorded
+            // because a degraded run (fewer passes used than requested, or no
+            // merge) is otherwise indistinguishable from a clean one.
+            multi_pass: multiPass !== undefined,
+            multi_pass_rounds: multiPass?.roundsRequested,
+            multi_pass_passes_used: multiPass?.passesUsed,
+            multi_pass_merged: multiPass?.merged,
         },
     });
 
@@ -349,5 +393,6 @@ export async function generateSummaryForRecording(
         model,
         promptId: usedPromptId,
         promptFallback: usedPromptId !== selectedPreset,
+        multiPass,
     };
 }

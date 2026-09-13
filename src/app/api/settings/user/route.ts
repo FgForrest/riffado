@@ -7,9 +7,18 @@ import {
     normalizeAiOutputLanguage,
 } from "@/lib/ai/summary-presets";
 import { requireApiSession } from "@/lib/auth-server";
-import { decryptJsonField, encryptJsonField } from "@/lib/encryption/fields";
+import {
+    decryptJsonField,
+    decryptText,
+    encryptJsonField,
+    encryptText,
+} from "@/lib/encryption/fields";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { EXPORT_FORMATS } from "@/lib/export/formats";
+import {
+    clampRounds,
+    MULTI_PASS_ROUNDS_DEFAULT,
+} from "@/lib/summary/multi-pass";
 
 // Enum allowlists. DB columns are `varchar`, not pg enums, so validation
 // must happen here.
@@ -37,6 +46,9 @@ const DEFAULT_SETTINGS = {
     autoTranscribe: false,
     autoSummarize: false,
     autoSummarizePreset: null,
+    summaryMultiPass: false,
+    summaryMultiPassRounds: MULTI_PASS_ROUNDS_DEFAULT,
+    summaryMultiPassAuto: false,
     syncInterval: 300000,
     autoSyncEnabled: true,
     syncOnMount: true,
@@ -82,6 +94,9 @@ const SETTINGS_FIELDS = [
     "autoTranscribe",
     "autoSummarize",
     "autoSummarizePreset",
+    "summaryMultiPass",
+    "summaryMultiPassRounds",
+    "summaryMultiPassAuto",
     "syncInterval",
     "autoSyncEnabled",
     "syncOnMount",
@@ -173,6 +188,9 @@ export const GET = apiHandler(async (request: Request) => {
     if (settings.summaryPrompt) {
         settingsData.summaryPrompt = decryptJsonField(settings.summaryPrompt);
     }
+    settingsData.summaryMergePrompt = settings.summaryMergePrompt
+        ? decryptText(settings.summaryMergePrompt)
+        : null;
     return NextResponse.json({
         ...settingsData,
         userEmail,
@@ -227,6 +245,12 @@ export const PUT = apiHandler(async (request: Request) => {
             }
             value = normalized;
         }
+        // Clamped here rather than trusted from the body: this is the only
+        // write path, so a value out of range can never reach the column --
+        // whatever the client sends, and whatever a future client forgets.
+        if (field === "summaryMultiPassRounds" && value !== undefined) {
+            value = clampRounds(value);
+        }
         if (value !== undefined) {
             updateData[field] = value;
             insertData[field] = value;
@@ -266,6 +290,22 @@ export const PUT = apiHandler(async (request: Request) => {
         insertData.summaryPrompt = encrypted;
     } else if (!existing) {
         insertData.summaryPrompt = null;
+    }
+
+    // User-authored prose that can name people, clients and projects, so it
+    // is encrypted at rest like the summary prompts. Blank means "use the
+    // built-in merge prompt" and is stored as NULL rather than an empty
+    // string, so there is one representation of "not set".
+    if (body.summaryMergePrompt !== undefined) {
+        const trimmed =
+            typeof body.summaryMergePrompt === "string"
+                ? body.summaryMergePrompt.trim()
+                : null;
+        const stored = trimmed ? encryptText(trimmed) : null;
+        updateData.summaryMergePrompt = stored;
+        insertData.summaryMergePrompt = stored;
+    } else if (!existing) {
+        insertData.summaryMergePrompt = null;
     }
 
     if (body.barkPushUrl !== undefined) {
