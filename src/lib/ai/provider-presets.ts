@@ -134,7 +134,18 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
         name: "Codex",
         baseUrl: "http://agent-bridge:8787/v1",
         placeholder: "bridge token",
-        defaultModel: "gpt-5-codex",
+        // The model Codex's own catalog describes as "fast and
+        // affordable". Summarizing a transcript into three JSON fields
+        // does not need a frontier model, and the bare id `codex` --
+        // which omits --model -- resolves to the account's *most
+        // capable* one (gpt-6-astra), quietly spending the rolling
+        // window on every recording.
+        //
+        // A slug can be absent from another plan's catalog, but that
+        // fails loudly with the backend's own message, which beats
+        // failing expensively. `agent-bridge/README.md` explains how to
+        // list your account's models.
+        defaultModel: "gpt-5.6-luna",
         transcriptionStyle: "whisper",
         enhancementOnly: true,
     },

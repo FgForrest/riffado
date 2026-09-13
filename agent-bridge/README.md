@@ -136,11 +136,37 @@ One sidecar serves both CLIs; the `model` field picks the backend.
 |---|---|
 | `claude…` (e.g. `claude-sonnet-5`, `claude-haiku-4-5-20251001`) | Claude Code CLI |
 | `codex…`, `gpt-5…` | Codex CLI |
+| exactly `claude` or `codex` | that CLI, with **no `--model`** — the account's own default |
 | anything else | **400** |
 
 The 400 is deliberate. Riffado falls back to `gpt-4o-mini` when a credential has no Default Model, and silently routing that to Codex would be a confusing way to find out the field was left blank.
 
-Model ids pass through to the CLI unchanged, so the usable set tracks whatever the installed CLI supports rather than a list this bridge has to keep current.
+### Pin a cheap model; the default is the expensive one
+
+Setting the Default Model to exactly **`claude`** or **`codex`** makes the bridge omit `--model`, so each CLI resolves whatever your plan grants. Convenient, but **that resolves to the account's most capable model** — on a ChatGPT plan, `gpt-6-astra`, "our most capable model for complex, demanding work". Summarizing a transcript into three JSON fields does not need that, and it draws on the same rolling window as your interactive coding.
+
+The `Codex` preset therefore ships `gpt-5.6-luna`, the model the catalog calls "fast and affordable". To see what your own account offers:
+
+```sh
+docker compose exec -T agent-bridge node -e '
+const j = JSON.parse(require("fs").readFileSync("/home/node/.codex/models_cache.json","utf8"));
+for (const m of (j.models || j)) {
+  if (m.visibility === "list") console.log(m.slug, "--", m.description);
+}
+'
+```
+
+That cache is written after login and reflects your plan. If a pinned slug is not in it, the run fails with the backend's own message (`The '<slug>' model is not supported when using Codex with a ChatGPT account.`) — loud, which is what you want; the alternative is failing expensively.
+
+Slugs are gated by tier, and the failure is not graceful: `gpt-5-codex` is refused outright on a ChatGPT account —
+
+```
+The 'gpt-5-codex' model is not supported when using Codex with a ChatGPT account.
+```
+
+— while the same CLI, given no `--model`, resolved `gpt-6-astra` on the same account.
+
+Anything other than a bare id passes through to the CLI unchanged, so the usable set tracks whatever the installed CLI supports rather than a list this bridge has to keep current.
 
 ## Things worth knowing
 

@@ -17,9 +17,12 @@ ARG CLAUDE_CODE_VERSION=latest
 ARG CODEX_VERSION=latest
 
 # git: both CLIs shell out to it for repo context and warn loudly without
-# it. ca-certificates: TLS to the vendor APIs.
+# it. ca-certificates: TLS to the vendor APIs. bubblewrap: Codex uses it
+# to enforce `--sandbox read-only`; without it the CLI warns on every run
+# and falls back to a bundled copy, and that warning ends up in the tail
+# of any error the bridge reports.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git ca-certificates \
+    && apt-get install -y --no-install-recommends git ca-certificates bubblewrap \
     && rm -rf /var/lib/apt/lists/*
 
 # Install scripts run here by necessity -- the Codex package places a

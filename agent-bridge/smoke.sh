@@ -20,6 +20,10 @@ FAILED=0
 step() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 ok()   { printf '   \033[32mok\033[0m  %s\n' "$1"; }
 bad()  { printf '   \033[31mFAIL\033[0m %s\n' "$1"; FAILED=1; }
+# `docker compose` writes its own warnings to stderr -- upstream's compose
+# file still carries an obsolete `version` key -- and they would otherwise
+# be reported as the CLI's version string or auth state.
+denoise() { grep -vE 'level=warning|^WARN\[' ; }
 
 if [ -z "${BRIDGE_TOKEN:-}" ] && [ -f .env ]; then
     BRIDGE_TOKEN="$(grep -E '^BRIDGE_TOKEN=' .env | head -1 | cut -d= -f2-)"
@@ -40,9 +44,9 @@ fi
 step "CLIs installed"
 for bin in claude codex; do
     if v=$(docker compose exec -T "$SERVICE" "$bin" --version 2>&1); then
-        ok "$bin $(echo "$v" | head -1)"
+        ok "$bin $(printf '%s\n' "$v" | denoise | head -1)"
     else
-        bad "$bin not runnable: $(echo "$v" | head -1)"
+        bad "$bin not runnable: $(printf '%s\n' "$v" | denoise | head -1)"
     fi
 done
 
@@ -51,8 +55,17 @@ step "subscription auth"
 # is an implementation detail, and for Codex a present auth.json proves
 # nothing useful: `codex login --with-api-key` writes one too, and that
 # bills per token -- the exact thing this bridge exists to avoid.
-if claude_status=$(docker compose exec -T "$SERVICE" claude auth status 2>&1); then
-    ok "claude: $(echo "$claude_status" | tail -1)"
+# `claude auth status` prints a JSON object, so match on content rather
+# than tailing a line -- a plain `tail -1` reported the closing brace.
+claude_status=$(docker compose exec -T "$SERVICE" claude auth status 2>&1 \
+    | denoise | tr -d ' \n')
+if [ "${claude_status#*\"loggedIn\":true}" != "$claude_status" ]; then
+    case "$claude_status" in
+        *'"authMethod":"claude.ai"'*)
+            ok "claude: subscription (claude.ai)" ;;
+        *)
+            ok "claude: logged in, but not via claude.ai -- confirm this is not a metered API key" ;;
+    esac
 elif [ -n "$(docker compose exec -T "$SERVICE" printenv CLAUDE_CODE_OAUTH_TOKEN 2>/dev/null)" ]; then
     ok "claude using CLAUDE_CODE_OAUTH_TOKEN"
 elif docker compose exec -T "$SERVICE" test -s /home/node/.claude/.credentials.json 2>/dev/null; then
@@ -121,7 +134,7 @@ probe() {
 }
 
 [ "$ONLY" = "codex" ]  || probe "Claude Code" "${CLAUDE_PROBE_MODEL:-claude-sonnet-5}"
-[ "$ONLY" = "claude" ] || probe "Codex" "${CODEX_PROBE_MODEL:-gpt-5-codex}"
+[ "$ONLY" = "claude" ] || probe "Codex" "${CODEX_PROBE_MODEL:-gpt-5.6-luna}"
 
 printf '\n'
 if [ "$FAILED" -eq 0 ]; then
