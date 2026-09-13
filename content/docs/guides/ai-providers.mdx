@@ -79,7 +79,9 @@ the legacy `scribe_v1`. Diarization is a request flag rather than a
 separate model, so the dropdown exposes it as **scribe_v2 (speaker
 labels)**, stored as `scribe_v2+diarize`. With it selected, transcripts
 come back as `speaker_0: …` lines, the same shape Riffado stores for
-OpenAI's diarizing model.
+OpenAI's diarizing model, and the workstation renders them as a dialog
+instead of a block of prose. See [How transcripts and summaries are
+displayed](#how-transcripts-and-summaries-are-displayed).
 
 Leave **Base URL** blank to use `api.elevenlabs.io`. To keep audio in a
 specific region, set a residency host instead, for example
@@ -113,6 +115,43 @@ On any recording, the workstation panel exposes a transcription provider
 picker and a summary provider picker. Changes apply immediately; you can
 re-run a transcription with a different provider if the first result was
 poor.
+
+## How transcripts and summaries are displayed
+
+**Summaries are Markdown.** The model is asked for a JSON object, and the
+`summary` value inside it is written in Markdown and rendered as such:
+headings, bullet and numbered lists, bold, links and tables all come
+through. The instruction to format this way is appended to every prompt,
+including a custom one you wrote yourself, so your own prompts do not
+need to mention it.
+
+The JSON envelope is still a bare object with no code fences around it.
+If a model ignores that and answers with prose instead, the reply is
+shown as-is rather than discarded, and because it is rendered as Markdown
+it usually still reads correctly.
+
+Raw HTML in a summary is dropped, not rendered.
+
+**Diarized transcripts are shown as a dialog.** When a transcript came
+from a path that labels speakers, the workstation renders one block per
+turn with the speaker's name above it, colour-coded, with consecutive
+turns from the same speaker grouped together. That applies to
+`gpt-4o-transcribe-diarize`, `scribe_v2+diarize`, and transcripts
+imported from Plaud.
+
+Every other transcript is rendered exactly as before, as plain text.
+That is deliberate rather than a limitation: Gemini and the chat-style
+providers are explicitly asked not to emit speaker labels, so a line in
+one of those transcripts that happens to read `Note: send the deck` is
+never mistaken for a speaker called "Note". A diarized transcript that
+comes back without any labels — which happens when a model finds only one
+voice — also falls back to plain text rather than showing a dialog with a
+single anonymous participant.
+
+Speaker names are shown close to what the provider stored: `speaker_0`
+is displayed as `Speaker 0`, but it is not renumbered or renamed.
+Summaries quote these labels back verbatim, so a summary that mentions
+`speaker_0` still points at something you can find in the transcript.
 
 ## Auto-summarize after transcription
 

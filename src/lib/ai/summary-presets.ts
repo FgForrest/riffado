@@ -29,14 +29,16 @@ export const SUMMARY_PRESETS: Record<SummaryPreset, SummaryPromptConfig> = {
         id: "general",
         name: "General Summary",
         description: "Concise summary of any audio transcription",
-        prompt: `Provide a concise summary of this audio transcription. Then extract key points and action items if any exist.
+        prompt: `Summarize this audio transcription, then extract key points and action items if any exist.
 
-Respond in the following JSON format (no markdown, no code fences):
+Respond with a single JSON object and nothing else. Do not wrap it in code fences.
 {
-  "summary": "A concise paragraph summarizing the transcription",
+  "summary": "A Markdown summary of the transcription",
   "keyPoints": ["key point 1", "key point 2"],
   "actionItems": ["action item 1", "action item 2"]
 }
+
+Match the summary to the recording. A short or single-topic recording wants one tight paragraph. A long one that moves through several distinct topics is far easier to read as a short opening paragraph followed by a "###" section per topic, so use that shape when the recording earns it.
 
 If there are no key points or action items, return empty arrays.
 
@@ -50,12 +52,16 @@ Transcription:
             "Structured meeting summary with attendees, decisions, and action items",
         prompt: `Summarize this meeting recording. Include attendees mentioned, decisions made, and action items.
 
-Respond in the following JSON format (no markdown, no code fences):
+Respond with a single JSON object and nothing else. Do not wrap it in code fences.
 {
-  "summary": "A structured summary of the meeting including attendees and decisions",
+  "summary": "A Markdown summary of the meeting",
   "keyPoints": ["decision 1", "decision 2", "key discussion point"],
   "actionItems": ["action item with owner if mentioned", "follow-up task"]
 }
+
+Write the summary as "###" sections, using only the ones this meeting actually supports: Attendees, Purpose, Discussion, Open questions. Leave a section out entirely rather than writing "None" under it. List attendees as bullets once there are more than two, with their role or team when it was mentioned.
+
+The decisions belong in keyPoints and the tasks in actionItems, so the summary covers who met, what it was about, and how the discussion went, not a second copy of those two lists.
 
 If there are no key points or action items, return empty arrays.
 
@@ -68,7 +74,7 @@ Transcription:
         description: "Extract the key points as a bullet list",
         prompt: `Extract the key points from this transcription. Focus on the most important information, facts, and insights.
 
-Respond in the following JSON format (no markdown, no code fences):
+Respond with a single JSON object and nothing else. Do not wrap it in code fences.
 {
   "summary": "A brief one-sentence overview of the transcription",
   "keyPoints": ["key point 1", "key point 2", "key point 3"],
@@ -85,7 +91,7 @@ Transcription:
             "Extract all action items, tasks, and follow-ups mentioned",
         prompt: `Extract all action items, tasks, and follow-ups mentioned in this transcription. Include who is responsible if mentioned.
 
-Respond in the following JSON format (no markdown, no code fences):
+Respond with a single JSON object and nothing else. Do not wrap it in code fences.
 {
   "summary": "A brief overview of what was discussed",
   "keyPoints": [],
@@ -192,6 +198,22 @@ export function getAiOutputLanguageDirective(
     if (!match) return null;
     return `IMPORTANT: Write all natural-language output in ${match.label}, regardless of the transcription's language. Keep any JSON keys in English exactly as specified.`;
 }
+
+/**
+ * Appended to every summary prompt, including custom ones.
+ *
+ * Carries the rules that hold regardless of which prompt asked for the
+ * summary, so the presets do not restate them and a prompt the user wrote
+ * gets them too. A user-written prompt is in fact the one most likely to
+ * still carry the old "no markdown" wording, which models read as applying to
+ * the prose and not just to the envelope.
+ */
+export const SUMMARY_MARKDOWN_DIRECTIVE = `FORMATTING: the "summary" value is rendered as Markdown.
+
+- Use formatting only where it earns its place: bullets for a genuine list, bold for a term the reader should catch, "###" headings when the recording really does cover several distinct topics. A short summary reads better as one plain paragraph. Never impose structure the recording does not have, and never open a heading above level 3.
+- Do not restate the key points or action items as a list inside "summary". They are rendered as their own lists directly beneath it, so a copy there is read twice. Referring to them in prose is fine.
+- Key points and action items are rendered as Markdown as well, but each is already one entry in a list, so keep each to a single line and do not give it a bullet marker of its own.
+- The reply itself is still one raw JSON object: escape newlines inside strings as \\n, and do not wrap the object in code fences.`;
 
 export function getSummaryPromptById(
     id: string,
