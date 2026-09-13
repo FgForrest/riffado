@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import type { TranscriptTurn } from "@/lib/transcription/turns";
 
 const DEFAULT_API_BASE = "https://api.elevenlabs.io";
 const DIARIZE_SUFFIX = "+diarize";
@@ -15,6 +16,8 @@ export interface ElevenLabsTranscribeArgs {
 export interface ElevenLabsTranscribeResult {
     text: string;
     detectedLanguage: string | null;
+    /** Present only for a diarized job that attributed at least one word. */
+    turns?: TranscriptTurn[];
 }
 
 export class ElevenLabsTranscribeError extends Error {
@@ -37,6 +40,9 @@ interface ElevenLabsWord {
     text?: string;
     type?: string;
     speaker_id?: string | null;
+    /** Seconds from the start of the audio. */
+    start?: number | null;
+    end?: number | null;
 }
 
 interface ElevenLabsTranscriptionResponse {
@@ -116,10 +122,8 @@ export async function elevenLabsTranscribe({
 
     const payload = (await response.json()) as ElevenLabsTranscriptionResponse;
     const plainText = payload.text?.trim() ?? "";
-    const diarizedText = diarize
-        ? formatDiarizedText(payload.words ?? [])
-        : null;
-    const text = diarizedText ?? plainText;
+    const diarized = diarize ? formatDiarizedText(payload.words ?? []) : null;
+    const text = diarized?.text ?? plainText;
 
     if (!text) {
         throw new ElevenLabsTranscribeError(
@@ -131,11 +135,19 @@ export async function elevenLabsTranscribe({
     return {
         text,
         detectedLanguage: payload.language_code || language || null,
+        ...(diarized ? { turns: diarized.turns } : {}),
     };
 }
 
-function formatDiarizedText(words: ElevenLabsWord[]): string | null {
-    const segments: { speaker: string; text: string }[] = [];
+function formatDiarizedText(
+    words: ElevenLabsWord[],
+): { text: string; turns: TranscriptTurn[] } | null {
+    const segments: {
+        speaker: string;
+        text: string;
+        startMs: number;
+        endMs: number;
+    }[] = [];
     let sawSpeaker = false;
 
     for (const word of words) {
@@ -144,9 +156,12 @@ function formatDiarizedText(words: ElevenLabsWord[]): string | null {
             continue;
         }
         const last = segments.at(-1);
+        // Spacing carries no identity of its own: it extends the run it
+        // trails, including that run's span.
         if (word.type === "spacing") {
             if (last) {
                 last.text += text;
+                last.endMs = Math.max(last.endMs, toMs(word.end));
             }
             continue;
         }
@@ -155,9 +170,15 @@ function formatDiarizedText(words: ElevenLabsWord[]): string | null {
             sawSpeaker = true;
         }
         if (!last || last.speaker !== speaker) {
-            segments.push({ speaker, text });
+            segments.push({
+                speaker,
+                text,
+                startMs: toMs(word.start),
+                endMs: toMs(word.end),
+            });
         } else {
             last.text += text;
+            last.endMs = Math.max(last.endMs, toMs(word.end));
         }
     }
 
@@ -165,15 +186,35 @@ function formatDiarizedText(words: ElevenLabsWord[]): string | null {
         return null;
     }
 
-    const lines = segments
+    const rendered = segments
         .map((segment) => ({
             speaker: segment.speaker || "speaker",
             text: segment.text.trim(),
+            startMs: segment.startMs,
+            endMs: segment.endMs,
         }))
-        .filter((segment) => segment.text.length > 0)
-        .map((segment) => `${segment.speaker}: ${segment.text}`);
+        .filter((segment) => segment.text.length > 0);
 
-    return lines.length > 0 ? lines.join("\n") : null;
+    if (rendered.length === 0) {
+        return null;
+    }
+
+    return {
+        text: rendered
+            .map((segment) => `${segment.speaker}: ${segment.text}`)
+            .join("\n"),
+        turns: rendered.map(({ speaker, text, startMs, endMs }) => ({
+            speaker,
+            text,
+            startMs,
+            endMs,
+        })),
+    };
+}
+
+/** Seconds to whole milliseconds; a missing time is the start of the audio. */
+function toMs(seconds: number | null | undefined): number {
+    return Math.round((seconds ?? 0) * 1000);
 }
 
 async function describeError(response: Response): Promise<string> {

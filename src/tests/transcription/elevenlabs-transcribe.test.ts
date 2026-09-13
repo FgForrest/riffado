@@ -1,3 +1,4 @@
+import { renderTurnsAsText } from "@/lib/transcription/turns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/env", () => ({
@@ -228,3 +229,59 @@ describe("elevenlabs-transcribe", () => {
         ).rejects.toBeInstanceOf(ElevenLabsTranscribeError);
     });
 });
+
+describe("elevenLabsTranscribe turns", () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it("returns turns with millisecond timings for a diarized job", async () => {
+        stubJson({
+            text: "ignored",
+            language_code: "cs",
+            words: [
+                { text: "Ahoj", type: "word", speaker_id: "speaker_0", start: 0, end: 0.4 },
+                { text: " ", type: "spacing", speaker_id: "speaker_0", start: 0.4, end: 0.5 },
+                { text: "Jan", type: "word", speaker_id: "speaker_0", start: 0.5, end: 0.9 },
+                { text: "Zdravim", type: "word", speaker_id: "speaker_1", start: 1.5, end: 2.25 },
+            ],
+        });
+
+        const result = await elevenLabsTranscribe({
+            apiKey: "k",
+            model: "scribe_v1+diarize",
+            file: new File([new Uint8Array([1])], "a.mp3"),
+        });
+
+        expect(result.turns).toEqual([
+            { speaker: "speaker_0", startMs: 0, endMs: 900, text: "Ahoj Jan" },
+            { speaker: "speaker_1", startMs: 1500, endMs: 2250, text: "Zdravim" },
+        ]);
+        expect(renderTurnsAsText(result.turns ?? [])).toBe(result.text);
+    });
+
+    it("returns no turns when diarization is not requested", async () => {
+        stubJson({ text: "Ahoj Jan", language_code: "cs", words: [] });
+
+        const result = await elevenLabsTranscribe({
+            apiKey: "k",
+            model: "scribe_v1",
+            file: new File([new Uint8Array([1])], "a.mp3"),
+        });
+
+        expect(result.turns).toBeUndefined();
+    });
+});
+
+function stubJson(body: unknown): void {
+    vi.stubGlobal(
+        "fetch",
+        vi.fn(
+            async () =>
+                new Response(JSON.stringify(body), {
+                    status: 200,
+                    headers: { "Content-Type": "application/json" },
+                }),
+        ),
+    );
+}
