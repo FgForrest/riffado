@@ -25,9 +25,32 @@ export interface SummaryPromptOption {
 }
 
 import {
+    followJob,
+    type JobProgressSnapshot,
+    type JobSnapshot,
+} from "@/lib/jobs/client";
+import {
     createStreamEventParser,
     type SummaryStatusProgress,
 } from "@/lib/summary/progress-stream";
+
+/**
+ * A job's stored progress, narrowed to what the status line can render.
+ *
+ * The job row's `progress` is deliberately loose -- it is shared by every job
+ * kind -- so anything that does not look like multi-pass progress is dropped
+ * rather than rendered as `NaN/NaN`.
+ */
+function toSummaryProgress(
+    raw: JobProgressSnapshot | null | undefined,
+): SummaryStatusProgress | null {
+    if (!raw) return null;
+    if (raw.phase !== "passes" && raw.phase !== "merging") return null;
+    const completed = Number(raw.completed);
+    const total = Number(raw.total);
+    if (!Number.isFinite(completed) || !Number.isFinite(total)) return null;
+    return { phase: raw.phase, completed, total };
+}
 
 export interface SummaryData {
     summary: string | null;
@@ -43,6 +66,17 @@ export interface SummaryData {
         roundsRequested: number;
         passesUsed: number;
         merged: boolean;
+    };
+    /**
+     * Present on GET when a summary job for this recording is queued or
+     * running -- started in another tab, by an automatic run after a sync, or
+     * picked back up by a worker after a restart. Lets a freshly opened page
+     * show that work is in progress instead of an empty panel.
+     */
+    activeJob?: {
+        jobId: string;
+        status: "pending" | "processing" | "completed" | "failed";
+        progress: JobProgressSnapshot | null;
     };
     /** Prompt id actually used server-side. Only present on POST responses. */
     promptId?: string;
@@ -158,6 +192,19 @@ export function useTranscriptionSummary({
     );
     const getAbortRef = useRef<AbortController | null>(null);
     const summaryStartedAtRef = useRef<number | null>(null);
+    // Stops job polling when the hook goes away. Without it, a component
+    // unmounted while a summary is running would keep requesting the job
+    // until it settled -- for minutes, on a page nobody is looking at.
+    const followAbortRef = useRef<AbortController | null>(null);
+    if (followAbortRef.current === null) {
+        followAbortRef.current = new AbortController();
+    }
+    useEffect(
+        () => () => {
+            followAbortRef.current?.abort();
+        },
+        [],
+    );
     if (recordingId !== recordingIdRef.current) {
         recordingIdRef.current = recordingId;
         setSummaryData(null);
@@ -184,6 +231,89 @@ export function useTranscriptionSummary({
     ) {
         bumpContentGeneration(contentGenByIdRef.current, recordingId);
     }
+
+    /**
+     * Adopt a summary job that is already running.
+     *
+     * The job may have been started by another tab, by an automatic run after
+     * a sync, or by this very page before a deploy replaced the container
+     * underneath it. In all three cases the alternative is an idle-looking
+     * panel while work the user is waiting for happens invisibly.
+     */
+    const attachToActiveJob = useCallback(
+        async (
+            targetId: string,
+            job: NonNullable<SummaryData["activeJob"]>,
+        ) => {
+            if (summarizingIdsRef.current.has(targetId)) return;
+            const generation = contentGenerationFor(
+                contentGenByIdRef.current,
+                targetId,
+            );
+            const isCurrent = () =>
+                shouldApplyFetchedSummary(
+                    recordingIdRef.current,
+                    targetId,
+                    contentGenerationFor(contentGenByIdRef.current, targetId),
+                    generation,
+                );
+
+            summarizingIdsRef.current = addSummarizingId(
+                summarizingIdsRef.current,
+                targetId,
+            );
+            setSummarizingIds(summarizingIdsRef.current);
+            setSummaryProgress(toSummaryProgress(job.progress));
+            setSummaryElapsedMs(0);
+            // The clock starts now rather than when the job did. Showing a
+            // duration this page did not witness would be a guess: the job
+            // row records when it was created, not how long the user has been
+            // waiting, and those differ by however long it sat in the queue.
+            summaryStartedAtRef.current = Date.now();
+
+            try {
+                const snapshot: JobSnapshot | null = await followJob(
+                    job.jobId,
+                    {
+                        signal: followAbortRef.current?.signal,
+                        onProgress: (raw) => {
+                            if (!isCurrent()) return;
+                            const narrowed = toSummaryProgress(raw);
+                            if (narrowed) setSummaryProgress(narrowed);
+                        },
+                    },
+                );
+                if (!snapshot || !isCurrent()) return;
+                if (snapshot.status === "completed") {
+                    const response = await fetch(
+                        `/api/recordings/${targetId}/summary`,
+                    );
+                    if (!response.ok) return;
+                    const data = (await response.json()) as SummaryData;
+                    if (data.summary && isCurrent()) {
+                        fetchGenerationRef.current += 1;
+                        setSummaryData(data);
+                        toast.success("Summary generated");
+                    }
+                } else if (isCurrent()) {
+                    toast.error(snapshot.error || "Summary generation failed");
+                }
+            } catch {
+                // Nothing to report: this client only ever observed the job,
+                // and an observation that fails says nothing about the work.
+            } finally {
+                summarizingIdsRef.current = removeSummarizingId(
+                    summarizingIdsRef.current,
+                    targetId,
+                );
+                setSummarizingIds(summarizingIdsRef.current);
+                summaryStartedAtRef.current = null;
+                setSummaryProgress(null);
+                setSummaryElapsedMs(0);
+            }
+        },
+        [],
+    );
 
     // Fetch when recording id changes or the re-fetch key bumps.
     // Abort on cleanup is an optimization; apply only if this fetch's
@@ -219,6 +349,14 @@ export function useTranscriptionSummary({
                 } else {
                     setSummaryData(null);
                 }
+                const active = (data as SummaryData).activeJob;
+                if (
+                    active &&
+                    (active.status === "pending" ||
+                        active.status === "processing")
+                ) {
+                    void attachToActiveJob(requestedId, active);
+                }
             })
             .catch(() => {});
         return () => {
@@ -227,7 +365,7 @@ export function useTranscriptionSummary({
                 getAbortRef.current = null;
             }
         };
-    }, [recordingId, summaryFetchKey]);
+    }, [recordingId, summaryFetchKey, attachToActiveJob]);
 
     const handleSummarize = useCallback(async () => {
         if (!recordingId) return;
@@ -268,6 +406,60 @@ export function useTranscriptionSummary({
             }
         };
 
+        /**
+         * Fetch a summary the server has already written.
+         *
+         * Needed when a job completes somewhere this client was not watching:
+         * the job itself records only provenance, so the text has to be read
+         * back from the recording. Returns whether a summary was found.
+         */
+        const applyStoredSummary = async (): Promise<boolean> => {
+            try {
+                const response = await fetch(
+                    `/api/recordings/${targetId}/summary`,
+                );
+                if (!response.ok) return false;
+                const data = (await response.json()) as SummaryData;
+                if (!data.summary) return false;
+                applyResult(data);
+                return true;
+            } catch {
+                return false;
+            }
+        };
+
+        /**
+         * Follow a job whose stream this client lost, and report how it ended.
+         *
+         * Returns false only when the outcome is genuinely unknown -- the job
+         * could not be found, or following was abandoned -- so the caller can
+         * fall back to saying so rather than inventing a verdict.
+         */
+        const followSummaryJob = async (jobId: string): Promise<boolean> => {
+            const snapshot = await followJob(jobId, {
+                signal: followAbortRef.current?.signal,
+                onProgress: (raw) => {
+                    if (!postIsCurrent()) return;
+                    const narrowed = toSummaryProgress(raw);
+                    if (narrowed) setSummaryProgress(narrowed);
+                },
+            });
+            if (!snapshot) return false;
+            if (snapshot.status === "completed") {
+                if (await applyStoredSummary()) return true;
+                if (postIsCurrent()) {
+                    toast.error(
+                        "The summary finished but could not be loaded. Reload to try again.",
+                    );
+                }
+                return true;
+            }
+            if (postIsCurrent()) {
+                toast.error(snapshot.error || "Summary generation failed");
+            }
+            return true;
+        };
+
         try {
             const response = await fetch(
                 `/api/recordings/${targetId}/summary`,
@@ -295,6 +487,7 @@ export function useTranscriptionSummary({
                 const decoder = new TextDecoder();
                 const parse = createStreamEventParser();
                 let settled = false;
+                let jobId: string | null = null;
 
                 while (true) {
                     const { done, value } = await reader.read();
@@ -302,7 +495,11 @@ export function useTranscriptionSummary({
                     for (const event of parse(
                         decoder.decode(value, { stream: true }),
                     )) {
-                        if (event.type === "progress") {
+                        if (event.type === "queued") {
+                            // Kept so the work can be followed if this
+                            // connection does not survive it.
+                            jobId = event.jobId;
+                        } else if (event.type === "progress") {
                             if (!postIsCurrent()) continue;
                             setSummaryProgress({
                                 phase: event.phase,
@@ -323,9 +520,16 @@ export function useTranscriptionSummary({
                     }
                 }
 
-                // The stream ended without saying how it went -- a dropped
-                // connection or a killed process. Silence would leave the
-                // spinner's disappearance as the only signal.
+                // The stream ended without saying how it went. Since the work
+                // belongs to a job rather than to this request, that almost
+                // always means the connection died and the summary did not --
+                // a deploy, a proxy timeout, a laptop lid. Go and ask.
+                if (!settled && jobId) {
+                    settled = await followSummaryJob(jobId);
+                }
+
+                // No job id, or the job itself could not be found: now the
+                // silence really is all there is to report.
                 if (!settled && postIsCurrent()) {
                     toast.error("Summary generation was interrupted");
                 }

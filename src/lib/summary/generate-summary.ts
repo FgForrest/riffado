@@ -19,6 +19,8 @@ import { decrypt } from "@/lib/encryption";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { exportRecordingSidecarsIfEnabled } from "@/lib/export/document-sidecars";
+import { retryWithBackoff } from "@/lib/jobs/backoff";
+import { isRetryableError } from "@/lib/jobs/retryable";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { upsertEnhancement } from "@/lib/transcription/persist";
 import {
@@ -75,6 +77,17 @@ export interface GenerateSummaryResult {
         merged: boolean;
     };
 }
+
+/**
+ * Attempts for a single provider call, and the wait between them.
+ *
+ * Three attempts over a few seconds -- short, because someone may be watching
+ * this happen, and the job-level retry (minutes apart, in the worker) is the
+ * right instrument for an outage that lasts longer than a moment.
+ */
+const PASS_RETRY_ATTEMPTS = 3;
+const PASS_RETRY_BASE_MS = 1_500;
+const PASS_RETRY_MAX_MS = 15_000;
 
 /** Coarse length bucket -- never send raw transcript length or content. */
 function bucketLength(chars: number): string {
@@ -265,56 +278,93 @@ export async function generateSummaryForRecording(
         ? `${baseSystem} ${languageDirective}`
         : baseSystem;
 
+    /**
+     * Retry one provider call, not the whole job.
+     *
+     * A rate limit or a 502 on one of three passes is the common transient
+     * failure, and the job-level retry is the wrong instrument for it: it
+     * would re-run every pass, paying again for the ones that already
+     * succeeded, and make the user wait through the backoff for all of them.
+     * Retrying here costs one call and a few seconds.
+     *
+     * Only genuinely transient failures qualify -- see `isRetryableError`. A
+     * transcript past the model's context window fails the same way three
+     * times, and this must not turn one wasted call into three.
+     */
+    const withPassRetry = <T>(
+        label: string,
+        run: () => Promise<T>,
+    ): Promise<T> =>
+        retryWithBackoff({
+            attempts: PASS_RETRY_ATTEMPTS,
+            baseMs: PASS_RETRY_BASE_MS,
+            maxMs: PASS_RETRY_MAX_MS,
+            // Multi-pass fires its passes simultaneously, so a provider rate
+            // limit rejects them all at the same instant. Without jitter they
+            // would then retry at the same instant, recreating the burst.
+            jitter: 0.5,
+            isRetryable: isRetryableError,
+            run,
+            onRetry: ({ attempt, delayMs }) => {
+                console.warn(
+                    `[summary] ${label} attempt ${attempt} failed, retrying in ${delayMs}ms`,
+                );
+            },
+        });
+
     /** One summary pass. Identical every time -- multi-pass relies on
      * sampling variance between runs, not on varying the prompt. */
-    const runPass = async (): Promise<string> => {
-        const response = await openai.chat.completions.create(
-            buildChatCompletionParams({
-                model,
-                messages: [
-                    { role: "system", content: systemContent },
-                    { role: "user", content: prompt },
-                ],
-                temperature: 0.5,
-                maxTokens: 2000,
-            }),
-        );
-        return response.choices[0]?.message?.content?.trim() || "";
-    };
+    const runPass = async (): Promise<string> =>
+        withPassRetry("pass", async () => {
+            const response = await openai.chat.completions.create(
+                buildChatCompletionParams({
+                    model,
+                    messages: [
+                        { role: "system", content: systemContent },
+                        { role: "user", content: prompt },
+                    ],
+                    temperature: 0.5,
+                    maxTokens: 2000,
+                }),
+            );
+            return response.choices[0]?.message?.content?.trim() || "";
+        });
 
     const runMerge = async (
         mergeInput: string,
         mergePrompt: string,
-    ): Promise<string> => {
-        const response = await openai.chat.completions.create(
-            buildChatCompletionParams({
-                model,
-                messages: [
-                    {
-                        role: "system",
-                        // The language directive rides along because the merge
-                        // rewrites the summary paragraph; without it the merged
-                        // prose can come back in a different language from the
-                        // passes it was built from.
-                        content: languageDirective
-                            ? `${mergePrompt}\n\n${languageDirective}`
-                            : mergePrompt,
-                    },
-                    { role: "user", content: mergeInput },
-                ],
-                // Lower than a pass: union-and-dedup is close to mechanical,
-                // and the variance that makes several passes worth running is
-                // exactly what we do not want in the step that combines them.
-                temperature: 0.2,
-                // Deliberately above the per-pass ceiling. The merged output
-                // is the union of every pass, so it is longer than any one of
-                // them -- leaving this at 2000 would truncate away the very
-                // points the feature exists to preserve.
-                maxTokens: 4000,
-            }),
-        );
-        return response.choices[0]?.message?.content?.trim() || "";
-    };
+    ): Promise<string> =>
+        withPassRetry("merge", async () => {
+            const response = await openai.chat.completions.create(
+                buildChatCompletionParams({
+                    model,
+                    messages: [
+                        {
+                            role: "system",
+                            // The language directive rides along because the
+                            // merge rewrites the summary paragraph; without it
+                            // the merged prose can come back in a different
+                            // language from the passes it was built from.
+                            content: languageDirective
+                                ? `${mergePrompt}\n\n${languageDirective}`
+                                : mergePrompt,
+                        },
+                        { role: "user", content: mergeInput },
+                    ],
+                    // Lower than a pass: union-and-dedup is close to
+                    // mechanical, and the variance that makes several passes
+                    // worth running is exactly what we do not want in the step
+                    // that combines them.
+                    temperature: 0.2,
+                    // Deliberately above the per-pass ceiling. The merged
+                    // output is the union of every pass, so it is longer than
+                    // any one of them -- leaving this at 2000 would truncate
+                    // away the very points the feature exists to preserve.
+                    maxTokens: 4000,
+                }),
+            );
+            return response.choices[0]?.message?.content?.trim() || "";
+        });
 
     // Multi-pass applies to the auto path only if separately enabled: a manual
     // summary is one recording the user is waiting on, while a sync can fire a

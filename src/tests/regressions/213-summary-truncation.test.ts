@@ -11,8 +11,11 @@
  * over-long transcripts fail loudly instead of being silently clipped.
  *
  * These tests cover:
- *   1. POST /api/recordings/[id]/summary sends the FULL transcript to the
- *      chat model (no 8000-char clip), including text past the old limit.
+ *   1. `generateSummaryForRecording` sends the FULL transcript to the chat
+ *      model (no 8000-char clip), including text past the old limit. It is
+ *      exercised directly rather than through the route, which now queues the
+ *      work for a background worker instead of running it inline -- the
+ *      truncation this pins is a property of generation, not of the endpoint.
  *   2. mapErrorToAppError turns an OpenAI `context_length_exceeded` error
  *      into a 400 AI_CONTEXT_LENGTH_EXCEEDED instead of a generic 500, and
  *      maps the other provider failure classes (429 / 5xx / generic 4xx).
@@ -117,7 +120,7 @@ vi.mock("@/db", () => ({
     },
 }));
 
-describe("POST /api/recordings/[id]/summary — no transcript truncation (#213)", () => {
+describe("summary generation — no transcript truncation (#213)", () => {
     beforeEach(() => {
         createMock.mockReset();
         selectResults.clear();
@@ -176,23 +179,14 @@ describe("POST /api/recordings/[id]/summary — no transcript truncation (#213)"
             ],
         });
 
-        const { POST } = await import(
-            "@/app/api/recordings/[id]/summary/route"
+        const { generateSummaryForRecording } = await import(
+            "@/lib/summary/generate-summary"
         );
 
-        const request = new Request(
-            "http://localhost/api/recordings/rec-1/summary",
-            {
-                method: "POST",
-                body: JSON.stringify({}),
-                headers: { "Content-Type": "application/json" },
-            },
-        );
-        const res = await POST(request, {
-            params: Promise.resolve({ id: "rec-1" }),
+        await generateSummaryForRecording("user-1", "rec-1", {
+            trigger: "manual",
         });
 
-        expect(res.status).toBe(200);
         expect(createMock).toHaveBeenCalledTimes(1);
 
         const params = createMock.mock.calls[0][0] as {

@@ -5,14 +5,16 @@ description: How the pieces fit together — Next.js app, Postgres, sync worker,
 
 Riffado is a single Next.js application backed by Postgres. There's
 no separate API service, no separate worker container, no message
-queue. Everything runs in one process; horizontal scaling means
-running more copies of that process behind a load balancer.
+broker. Everything runs in one process; horizontal scaling means
+running more copies of that process behind a load balancer. Work that
+has to outlive the request or the process that started it is queued in
+Postgres rather than in a broker — see [Durable jobs](#durable-jobs).
 
 ## The runtime
 
 - **Web + API + worker** — all one Next.js process. The sync worker,
-  the transcription worker, and the webhook delivery worker are
-  background tasks inside the same process.
+  the transcription worker, the webhook delivery worker and the durable
+  job worker are background tasks inside the same process.
 - **Postgres** — the only stateful dependency. Better Auth uses it
   for sessions, Drizzle ORM for everything else.
 - **Storage** — local filesystem or any S3-compatible bucket. Audio
@@ -111,21 +113,84 @@ model, changeable from the workstation panel. See
 - `src/app/api/v1/` — public, key-authenticated, stable read surface.
   See [Public API](./public-api).
 
+## Durable jobs
+
+Work that must not be lost when the process running it goes away lives
+in `async_jobs`, drained by the generic worker in
+`src/lib/jobs/worker.ts`. Summarization is its first user; the table is
+deliberately not summary-shaped, so a future long-running operation is a
+handler and a registration rather than another table and another worker.
+
+A job carries a `kind`, which selects its handler from the registry in
+`src/lib/jobs/registry.ts`, and a `subject_id` — the domain object it
+acts on, a recording id for a summary. A partial unique index over
+`(kind, subject_id)` for live rows is what makes a double-clicked button
+one job rather than two.
+
+**Recovery after a restart** is the reason it exists. A claimed job is
+stamped with a random `claim_token` and heartbeated while it runs; every
+write the claiming worker makes is scoped to that token, so a job
+reclaimed out from under a stalled process cannot then be corrupted by
+that process's late write. When a container is upgraded or killed
+mid-job, the heartbeat simply stops, and any instance reclaims the job
+about two minutes later and runs it again. Nothing is asked of the dying
+process — which is the only design that survives an `OOM` kill.
+
+Retries are bounded (`max_attempts`, counted from the first claim, so a
+job that kills its host still runs out of attempts) and spaced by
+exponential backoff with jitter. Failures that another attempt cannot
+fix — a missing provider, a transcript past the model's context window —
+are buried immediately rather than retried at three times the cost. See
+`src/lib/jobs/retryable.ts` for the classification.
+
+A job row is **not encrypted**, unlike `transcriptions.text` or
+`ai_enhancements.summary`. Its `payload`, `progress` and `result`
+therefore hold identifiers, counts and provenance only: a handler that
+produces content writes it to that content's own encrypted home and
+returns a description of what it did.
+
+`GET /api/jobs/{id}` exposes a job to its owner, which is how a client
+whose connection dropped mid-summary finds out how the work actually
+ended instead of reporting an interruption.
+
 ## Multi-process safety
 
 Background workers are safe to run with multiple Riffado processes
-against the same database. The sync worker, transcription worker, and
-webhook worker all claim work at the database level with
-`SELECT … FOR UPDATE SKIP LOCKED` rather than relying on an in-memory
-`running` flag. The in-memory flags are advisory only. The default
-Docker Compose deployment runs a single app container against one
-Postgres, but the code doesn't depend on that.
+against the same database, but not all for the same reason. The
+in-memory `running` flags are advisory only in every case; what makes
+each worker safe is below. The default Docker Compose deployment runs a
+single app container against one Postgres, and none of this depends on
+that.
 
-The retention sweep (`src/lib/retention/worker.ts`) is the exception,
-and is safe for a different reason: it is idempotent. Two processes
-sweeping the same user at once issue the same deletes, and a delete that
-finds nothing there is treated as already done. Its per-kind markers on
-`recordings` are what make a second pass a no-op rather than a race.
+**By claiming rows.** The durable job worker
+(`src/lib/jobs/worker.ts`) and the export worker
+(`src/lib/export/worker.ts`) take work with `UPDATE … WHERE id IN
+(SELECT … FOR UPDATE SKIP LOCKED)`, so two processes ticking at the same
+instant cannot take the same row. Both then scope every subsequent write
+to a random claim token, which is what makes reclaiming a job from a
+crashed worker safe even though nothing can distinguish "crashed" from
+"slow with certainty".
+
+**By leasing.** The webhook delivery worker
+(`src/lib/webhooks/worker.ts`) flips a row to `processing` with an
+expiry stamped in `next_attempt_at`; a claim whose lease has run out is
+takeable again, which is how a delivery survives the process that was
+sending it dying mid-POST.
+
+**By idempotence.** The retention sweep
+(`src/lib/retention/worker.ts`) claims nothing. Two processes sweeping
+the same user issue the same deletes, and a delete that finds nothing is
+already done — its per-kind markers on `recordings` are what make a
+second pass a no-op rather than a race.
+
+**By tolerance.** The background sync worker
+(`src/lib/sync/worker.ts`) also claims nothing: it selects users whose
+`last_sync` is stale and syncs them, deduplicating only within its own
+process. Two app processes can therefore sync the same user at once.
+That costs duplicate Plaud API calls, not duplicate data — imports are
+deduplicated by Plaud id — and the four-minute staleness window keeps
+the overlap small. If you run several app processes and care about the
+wasted calls, that is the worker to look at first.
 
 ## Where to look next
 

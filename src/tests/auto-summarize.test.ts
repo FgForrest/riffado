@@ -68,8 +68,8 @@ vi.mock("@/lib/plaud/client-factory", () => ({
     createPlaudClient: vi.fn(),
 }));
 
-vi.mock("@/lib/summary/generate-summary", () => ({
-    generateSummaryForRecording: vi.fn(),
+vi.mock("@/lib/summary/summary-job", () => ({
+    enqueueSummaryJob: vi.fn(),
 }));
 
 vi.mock("@/lib/rate-limit", () => ({
@@ -84,7 +84,7 @@ vi.mock("@/lib/rate-limit", () => ({
 import { db } from "@/db";
 import { aiEnhancements } from "@/db/schema";
 import { consumeRateLimitBucket } from "@/lib/rate-limit";
-import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
+import { enqueueSummaryJob } from "@/lib/summary/summary-job";
 import { transcribeRecording } from "@/lib/transcription/transcribe-recording";
 import { emitEvent } from "@/lib/webhooks/emit";
 
@@ -222,7 +222,7 @@ describe("Auto-summarize integration with transcribeRecording", () => {
         });
     });
 
-    it("does NOT call generateSummaryForRecording when autoSummarize is false", async () => {
+    it("queues nothing when autoSummarize is false", async () => {
         mountSelectChain({
             autoGenerateTitle: false,
             syncTitleToPlaud: false,
@@ -234,7 +234,7 @@ describe("Auto-summarize integration with transcribeRecording", () => {
         const result = await transcribeRecording(mockUserId, mockRecordingId);
 
         expect(result.success).toBe(true);
-        expect(generateSummaryForRecording).not.toHaveBeenCalled();
+        expect(enqueueSummaryJob).not.toHaveBeenCalled();
         expect(emitEvent).toHaveBeenCalledWith(
             "transcription.completed",
             mockUserId,
@@ -246,7 +246,7 @@ describe("Auto-summarize integration with transcribeRecording", () => {
         expect(summaryEvents).toHaveLength(0);
     });
 
-    it("calls generateSummaryForRecording with no preset when autoSummarize is true and preset is null", async () => {
+    it("queues an auto summary with no preset when autoSummarize is true and preset is null", async () => {
         mountSelectChain({
             autoGenerateTitle: false,
             syncTitleToPlaud: false,
@@ -254,31 +254,32 @@ describe("Auto-summarize integration with transcribeRecording", () => {
             autoSummarizePreset: null,
         });
         mountInsertTransaction();
-        (generateSummaryForRecording as Mock).mockResolvedValue({
-            summary: "ok",
-            keyPoints: [],
-            actionItems: [],
-            provider: "openai",
-            model: "gpt-4o-mini",
+        (enqueueSummaryJob as Mock).mockResolvedValue({
+            job: { id: "job-1" },
+            created: true,
         });
 
         const result = await transcribeRecording(mockUserId, mockRecordingId);
 
         expect(result.success).toBe(true);
-        expect(generateSummaryForRecording).toHaveBeenCalledTimes(1);
-        expect(generateSummaryForRecording).toHaveBeenCalledWith(
-            mockUserId,
-            mockRecordingId,
-            { presetId: undefined, trigger: "auto" },
+        expect(enqueueSummaryJob).toHaveBeenCalledTimes(1);
+        expect(enqueueSummaryJob).toHaveBeenCalledWith({
+            userId: mockUserId,
+            recordingId: mockRecordingId,
+            presetId: undefined,
+            trigger: "auto",
+        });
+        // `summary.completed` is the job handler's to emit now. Emitting it
+        // here would mean announcing a summary that has not been written yet
+        // -- the whole point of queueing is that this function returns before
+        // the work happens.
+        const summaryEvents = (emitEvent as Mock).mock.calls.filter((c) =>
+            String(c[0]).startsWith("summary."),
         );
-        expect(emitEvent).toHaveBeenCalledWith(
-            "summary.completed",
-            mockUserId,
-            mockRecordingId,
-        );
+        expect(summaryEvents).toHaveLength(0);
     });
 
-    it("passes autoSummarizePreset to generateSummaryForRecording when set", async () => {
+    it("passes autoSummarizePreset into the queued job when set", async () => {
         mountSelectChain({
             autoGenerateTitle: false,
             syncTitleToPlaud: false,
@@ -286,25 +287,23 @@ describe("Auto-summarize integration with transcribeRecording", () => {
             autoSummarizePreset: "meeting-notes",
         });
         mountInsertTransaction();
-        (generateSummaryForRecording as Mock).mockResolvedValue({
-            summary: "ok",
-            keyPoints: [],
-            actionItems: [],
-            provider: "openai",
-            model: "gpt-4o-mini",
+        (enqueueSummaryJob as Mock).mockResolvedValue({
+            job: { id: "job-1" },
+            created: true,
         });
 
         const result = await transcribeRecording(mockUserId, mockRecordingId);
 
         expect(result.success).toBe(true);
-        expect(generateSummaryForRecording).toHaveBeenCalledWith(
-            mockUserId,
-            mockRecordingId,
-            { presetId: "meeting-notes", trigger: "auto" },
-        );
+        expect(enqueueSummaryJob).toHaveBeenCalledWith({
+            userId: mockUserId,
+            recordingId: mockRecordingId,
+            presetId: "meeting-notes",
+            trigger: "auto",
+        });
     });
 
-    it("keeps transcript success and emits summary.failed when summary throws", async () => {
+    it("keeps transcript success and emits summary.failed when queueing throws", async () => {
         mountSelectChain({
             autoGenerateTitle: false,
             syncTitleToPlaud: false,
@@ -312,7 +311,9 @@ describe("Auto-summarize integration with transcribeRecording", () => {
             autoSummarizePreset: null,
         });
         mountInsertTransaction();
-        (generateSummaryForRecording as Mock).mockRejectedValue(
+        // Only a failure to QUEUE surfaces here now -- a database that
+        // refused the insert. The summary itself has not been attempted.
+        (enqueueSummaryJob as Mock).mockRejectedValue(
             new Error("Provider down"),
         );
 
@@ -354,7 +355,7 @@ describe("Auto-summarize integration with transcribeRecording", () => {
         const result = await transcribeRecording(mockUserId, mockRecordingId);
 
         expect(result.success).toBe(true);
-        expect(generateSummaryForRecording).not.toHaveBeenCalled();
+        expect(enqueueSummaryJob).not.toHaveBeenCalled();
         expect(emitEvent).toHaveBeenCalledWith(
             "transcription.completed",
             mockUserId,

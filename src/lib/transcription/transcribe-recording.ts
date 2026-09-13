@@ -30,7 +30,7 @@ import {
 } from "@/lib/posthog-server";
 import { consumeRateLimitBucket } from "@/lib/rate-limit";
 import { createUserStorageProvider } from "@/lib/storage/factory";
-import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
+import { enqueueSummaryJob } from "@/lib/summary/summary-job";
 import { buildAudioFile } from "@/lib/transcription/audio-file";
 import { chatTranscribe } from "@/lib/transcription/chat-transcribe";
 import { maybeCompressForWhisper } from "@/lib/transcription/compress-audio";
@@ -725,20 +725,32 @@ async function transcribeRecordingInner(
                     error: `Auto-summary rate limit exceeded (${env.AUTO_SUMMARY_RATE_LIMIT_PER_HOUR}/hour). Manual summary still works.`,
                 });
             } else {
-                // Run summarization synchronously so the `summary.completed`
-                // event (and the underlying summary write) lands before
-                // downstream consumers that listen for it. A failure here
-                // must not roll back the transcript itself -- the user
-                // still wants the transcript even if the summary call dies.
+                // Queued rather than run inline. This is the unattended path
+                // -- a sync can trigger a dozen of these with nobody
+                // watching -- and inline it inherited the lifetime of
+                // whatever process happened to be transcribing: a container
+                // upgrade partway through left a recording that simply never
+                // got a summary, with nothing to say why or to try again.
+                //
+                // `summary.completed` and `summary.failed` now come from the
+                // job handler, which keeps their meaning intact: the event
+                // still fires after the summary is written and readable,
+                // just from the worker rather than from here. What changes is
+                // that this function no longer waits for it.
                 try {
-                    await generateSummaryForRecording(userId, recordingId, {
+                    await enqueueSummaryJob({
+                        userId,
+                        recordingId,
                         presetId: autoSummarizePreset ?? undefined,
                         trigger: "auto",
                     });
-                    await emitEvent("summary.completed", userId, recordingId);
                 } catch (error) {
+                    // Only a failure to QUEUE reaches here, which means the
+                    // database refused the insert -- the summary itself has
+                    // not been attempted yet. Never roll back the transcript
+                    // over it: the user wants the transcript regardless.
                     console.error(
-                        `Auto-summarize failed for recording ${recordingId}:`,
+                        `Could not queue auto-summary for recording ${recordingId}:`,
                         error,
                     );
                     await emitEvent("summary.failed", userId, recordingId, {

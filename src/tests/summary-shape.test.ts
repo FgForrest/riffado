@@ -98,7 +98,7 @@ vi.mock("@/db", () => ({
     },
 }));
 
-/** Stage the rows one summary run consumes, then return what the model said. */
+/** Stage the rows one summary run consumes, then return the parsed result. */
 async function summarize(modelContent: string) {
     selectResults.set(recordings, [
         [{ id: "rec-1", userId: "user-1", deletedAt: null }],
@@ -128,22 +128,15 @@ async function summarize(modelContent: string) {
         choices: [{ message: { content: modelContent } }],
     });
 
-    const { POST } = await import("@/app/api/recordings/[id]/summary/route");
-    const res = await POST(
-        new Request("http://localhost/api/recordings/rec-1/summary", {
-            method: "POST",
-            body: JSON.stringify({}),
-            headers: { "Content-Type": "application/json" },
-        }),
-        { params: Promise.resolve({ id: "rec-1" }) },
+    // Driven through `generateSummaryForRecording` rather than the route:
+    // the route now queues the work for a background worker, and the
+    // coercion this pins belongs to the parser, not to the endpoint.
+    const { generateSummaryForRecording } = await import(
+        "@/lib/summary/generate-summary"
     );
-
-    expect(res.status).toBe(200);
-    return (await res.json()) as {
-        summary: string;
-        keyPoints: string[];
-        actionItems: string[];
-    };
+    return generateSummaryForRecording("user-1", "rec-1", {
+        trigger: "manual",
+    });
 }
 
 describe("summary shape coercion", () => {

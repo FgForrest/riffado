@@ -1,16 +1,17 @@
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
 /**
- * Regression test for the manual POST /api/recordings/[id]/summary
- * endpoint after the refactor that extracted the heavy lifting into
- * `@/lib/summary/generate-summary`. The route is now a thin wrapper:
- *   1. require an API session
- *   2. read `preset` from the JSON body
- *   3. forward to `generateSummaryForRecording`
- *   4. echo the result as JSON
+ * The manual `POST /api/recordings/[id]/summary` contract.
  *
- * This test pins the contract so a future refactor can't silently
- * change how presets propagate or how the response is shaped.
+ * The route no longer generates anything: it queues a durable job and waits
+ * for it, so that a summary outlives the request that asked for it. Two things
+ * still have to hold across that change, and this pins both:
+ *
+ *   1. the chosen preset reaches the work -- now via the job payload rather
+ *      than a direct call, which is exactly the kind of hop where a value
+ *      quietly stops being passed;
+ *   2. a caller that did not ask for the event stream gets the same JSON
+ *      object it always did.
  */
 
 vi.mock("@/lib/posthog-server", () => ({
@@ -24,21 +25,26 @@ vi.mock("@/lib/auth-server", () => ({
     }),
 }));
 
-vi.mock("@/lib/summary/generate-summary", () => ({
-    generateSummaryForRecording: vi.fn(),
-}));
+vi.mock("@/lib/summary/summary-job", async (importOriginal) => {
+    const actual =
+        await importOriginal<typeof import("@/lib/summary/summary-job")>();
+    return { ...actual, enqueueSummaryJob: vi.fn() };
+});
 
-// `apiHandler` wraps the route in a try/catch that maps thrown
-// AppErrors to status codes. We import the real implementation so any
-// regression in error mapping also surfaces here, but we keep the
-// dependencies the wrapper pulls in (db, encryption fields, demo
-// fixtures) mocked because this test doesn't exercise the GET / DELETE
-// branches.
+vi.mock("@/lib/jobs/watch", () => ({ watchJob: vi.fn() }));
+vi.mock("@/lib/summary/read-summary", () => ({
+    readStoredSummary: vi.fn(),
+}));
+vi.mock("@/db/queries/async-jobs", () => ({ getActiveJob: vi.fn() }));
+
+// `apiHandler` wraps the route in a try/catch that maps thrown AppErrors to
+// status codes. The real implementation is used so a regression in error
+// mapping also surfaces here; the ownership lookup it guards is stubbed
+// below.
+const { selectMock } = vi.hoisted(() => ({ selectMock: vi.fn() }));
+
 vi.mock("@/db", () => ({
-    db: {
-        select: vi.fn(),
-        transaction: vi.fn(),
-    },
+    db: { select: selectMock, transaction: vi.fn() },
 }));
 
 vi.mock("@/lib/encryption/fields", () => ({
@@ -52,11 +58,46 @@ vi.mock("@/lib/demo/fixtures", () => ({
 }));
 
 import { POST } from "@/app/api/recordings/[id]/summary/route";
-import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
+import { watchJob } from "@/lib/jobs/watch";
+import { readStoredSummary } from "@/lib/summary/read-summary";
+import { enqueueSummaryJob } from "@/lib/summary/summary-job";
+
+/** The recording-ownership check the route makes before queueing anything. */
+function stubRecordingExists(exists = true) {
+    selectMock.mockReturnValue({
+        from: () => ({
+            where: () => ({
+                limit: () => Promise.resolve(exists ? [{ id: "rec-1" }] : []),
+            }),
+        }),
+    });
+}
 
 describe("POST /api/recordings/[id]/summary (manual)", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        stubRecordingExists();
+        (enqueueSummaryJob as Mock).mockResolvedValue({
+            job: { id: "job-1", status: "pending" },
+            created: true,
+        });
+        (watchJob as Mock).mockResolvedValue({
+            reason: "settled",
+            row: {
+                id: "job-1",
+                status: "completed",
+                result: { provider: "openai", model: "gpt-4o-mini" },
+            },
+        });
+        (readStoredSummary as Mock).mockResolvedValue({
+            summary: "ok",
+            keyPoints: ["a", "b"],
+            actionItems: ["x"],
+            provider: "openai",
+            model: "gpt-4o-mini",
+            multiPass: undefined,
+            createdAt: new Date(0),
+        });
     });
 
     function makeRequest(body: unknown): Request {
@@ -71,63 +112,41 @@ describe("POST /api/recordings/[id]/summary (manual)", () => {
         return { params: Promise.resolve({ id }) };
     }
 
-    it("forwards preset from body to generateSummaryForRecording", async () => {
-        (generateSummaryForRecording as Mock).mockResolvedValue({
-            summary: "ok",
-            keyPoints: ["a", "b"],
-            actionItems: ["x"],
-            provider: "openai",
-            model: "gpt-4o-mini",
-        });
-
+    it("forwards preset from body into the queued job", async () => {
         const response = await POST(
             makeRequest({ preset: "meeting-notes" }),
             makeContext(),
         );
 
         expect(response.status).toBe(200);
-        const payload = await response.json();
-        expect(payload).toEqual({
+        expect(await response.json()).toEqual({
             summary: "ok",
             keyPoints: ["a", "b"],
             actionItems: ["x"],
             provider: "openai",
             model: "gpt-4o-mini",
+            promptFallback: false,
         });
-        expect(generateSummaryForRecording).toHaveBeenCalledWith(
-            "user-1",
-            "rec-1",
-            { presetId: "meeting-notes", trigger: "manual" },
-        );
+        expect(enqueueSummaryJob).toHaveBeenCalledWith({
+            userId: "user-1",
+            recordingId: "rec-1",
+            presetId: "meeting-notes",
+            trigger: "manual",
+        });
     });
 
     it("passes presetId: undefined when body omits preset", async () => {
-        (generateSummaryForRecording as Mock).mockResolvedValue({
-            summary: "ok",
-            keyPoints: [],
-            actionItems: [],
-            provider: "openai",
-            model: "gpt-4o-mini",
-        });
-
         await POST(makeRequest({}), makeContext());
 
-        expect(generateSummaryForRecording).toHaveBeenCalledWith(
-            "user-1",
-            "rec-1",
-            { presetId: undefined, trigger: "manual" },
-        );
+        expect(enqueueSummaryJob).toHaveBeenCalledWith({
+            userId: "user-1",
+            recordingId: "rec-1",
+            presetId: undefined,
+            trigger: "manual",
+        });
     });
 
     it("tolerates a non-JSON body (parses to empty object)", async () => {
-        (generateSummaryForRecording as Mock).mockResolvedValue({
-            summary: "",
-            keyPoints: [],
-            actionItems: [],
-            provider: "openai",
-            model: "gpt-4o-mini",
-        });
-
         const garbageRequest = new Request(
             "http://localhost/api/recordings/rec-1/summary",
             {
@@ -138,11 +157,61 @@ describe("POST /api/recordings/[id]/summary (manual)", () => {
         );
 
         const response = await POST(garbageRequest, makeContext());
+
         expect(response.status).toBe(200);
-        expect(generateSummaryForRecording).toHaveBeenCalledWith(
-            "user-1",
-            "rec-1",
-            { presetId: undefined, trigger: "manual" },
-        );
+        expect(enqueueSummaryJob).toHaveBeenCalledWith({
+            userId: "user-1",
+            recordingId: "rec-1",
+            presetId: undefined,
+            trigger: "manual",
+        });
+    });
+
+    it("404s without queueing when the recording is not the caller's", async () => {
+        stubRecordingExists(false);
+
+        const response = await POST(makeRequest({}), makeContext());
+
+        expect(response.status).toBe(404);
+        // The point of checking ownership in the route: a request that cannot
+        // succeed should not leave a job behind for a worker to discover and
+        // fail a second later.
+        expect(enqueueSummaryJob).not.toHaveBeenCalled();
+    });
+
+    it("reports a failed job with the status its error code implies", async () => {
+        (watchJob as Mock).mockResolvedValue({
+            reason: "settled",
+            row: {
+                id: "job-1",
+                status: "failed",
+                errorCode: "AI_PROVIDER_NOT_CONFIGURED",
+                lastError: "No AI provider configured",
+            },
+        });
+
+        const response = await POST(makeRequest({}), makeContext());
+
+        // Not a 500: the worker's failure was the user's configuration, and
+        // flattening every job failure to a server error would hide that.
+        expect(response.status).toBe(400);
+        expect((await response.json()).error).toBe("No AI provider configured");
+    });
+
+    it("answers 202 with the job id when the job outlives the wait", async () => {
+        (watchJob as Mock).mockResolvedValue({
+            reason: "timeout",
+            row: { id: "job-1", status: "processing" },
+        });
+
+        const response = await POST(makeRequest({}), makeContext());
+
+        // Nothing failed -- the work is still running, and the caller is told
+        // where to follow it rather than being handed an error.
+        expect(response.status).toBe(202);
+        expect(await response.json()).toEqual({
+            jobId: "job-1",
+            status: "processing",
+        });
     });
 });
