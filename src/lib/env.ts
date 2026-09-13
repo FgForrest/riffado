@@ -64,6 +64,20 @@ const baseEnvSchema = z.object({
     S3_SECRET_ACCESS_KEY: z.string().optional(),
 
     /**
+     * Where full-data backup archives are written. Unset, they go to the
+     * same place as the recordings, which on a local install means the
+     * zips land in the same folder as the audio they are a copy of --
+     * doubling that folder's size and putting the backup on the same
+     * disk as the original.
+     *
+     * Set it to a path on separate storage (an external disk, a NAS
+     * mount) and archives go there instead, whatever backend the
+     * recordings use. Always a local filesystem path: a backup you
+     * cannot read without the app running is not much of a backup.
+     */
+    BACKUP_STORAGE_PATH: z.string().optional(),
+
+    /**
      * Optional Webshare API key. When set, Plaud-bound outbound requests are
      * routed through a proxy from the configured Webshare account. Unset
      * (default) keeps every call on the direct egress path.
@@ -752,6 +766,7 @@ function validateEnv(): Env {
             S3_REGION: process.env.S3_REGION,
             S3_ACCESS_KEY_ID: process.env.S3_ACCESS_KEY_ID,
             S3_SECRET_ACCESS_KEY: process.env.S3_SECRET_ACCESS_KEY,
+            BACKUP_STORAGE_PATH: process.env.BACKUP_STORAGE_PATH,
             WEBSHARE_API_KEY: process.env.WEBSHARE_API_KEY,
             PLAUD_PROXY_SCOPE: process.env.PLAUD_PROXY_SCOPE,
             PLAUD_SYNC_RATE_LIMIT_PER_MINUTE:

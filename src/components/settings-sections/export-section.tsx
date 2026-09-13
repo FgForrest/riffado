@@ -467,15 +467,13 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                     </div>
                 </div>
 
-                <div className="space-y-2 opacity-60">
-                    <div className="flex items-center gap-2">
-                        <Label htmlFor="backup-frequency">
-                            Backup frequency
-                        </Label>
-                        <span className="text-xs bg-muted px-2 py-0.5 rounded">
-                            Coming soon
-                        </span>
-                    </div>
+                <div className="space-y-2">
+                    <Label htmlFor="backup-frequency">Backup frequency</Label>
+                    <p className="text-sm text-muted-foreground">
+                        Build a full archive — audio, transcripts and summaries
+                        — on a schedule, without having to remember. Each one
+                        stays downloadable for 7 days and is then deleted.
+                    </p>
                     <Select
                         value={backupFrequency || "never"}
                         onValueChange={(value) => {
@@ -485,7 +483,7 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                                 backupFrequency: frequency,
                             });
                         }}
-                        disabled={true}
+                        disabled={isLoadingSettings || isSavingSettings}
                     >
                         <SelectTrigger id="backup-frequency" className="w-full">
                             <SelectValue>
@@ -508,7 +506,9 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                         </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                        How often to automatically create backups
+                        Archives are written wherever the instance's
+                        BACKUP_STORAGE_PATH points; without it they land beside
+                        your recordings, on the same disk.
                     </p>
                 </div>
             </div>

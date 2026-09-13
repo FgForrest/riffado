@@ -2,9 +2,11 @@ import { Readable } from "node:stream";
 import { NextResponse } from "next/server";
 import { getExportJobForUser } from "@/db/queries/export-jobs";
 import { requireApiSession } from "@/lib/auth-server";
-import { env } from "@/lib/env";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
-import { createStorageProvider } from "@/lib/storage/factory";
+import {
+    backupStorageType,
+    createBackupStorageProvider,
+} from "@/lib/storage/factory";
 
 type IdContext = { params: Promise<{ jobId: string }> };
 
@@ -43,10 +45,13 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
         throw new AppError(ErrorCode.NOT_FOUND, "Export has expired", 404);
     }
 
-    const storage = createStorageProvider();
+    const storage = createBackupStorageProvider();
     const filename = `riffado-export-${job.id}.zip`;
 
-    if (env.DEFAULT_STORAGE_TYPE === "s3") {
+    // Ask where the ARCHIVE lives, not where recordings live. With
+    // BACKUP_STORAGE_PATH set the two differ, and redirecting to a
+    // signed S3 URL for a zip sitting on local disk would 404.
+    if (backupStorageType() === "s3") {
         const url = await storage.getSignedUrl(
             job.storageKey,
             SIGNED_URL_TTL_SECONDS,

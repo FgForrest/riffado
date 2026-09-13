@@ -49,9 +49,19 @@ these headers, leave the value unset.
 | `S3_REGION`             | —           | Region (`auto` on R2).                                              |
 | `S3_ACCESS_KEY_ID`      | —           |                                                                     |
 | `S3_SECRET_ACCESS_KEY`  | —           |                                                                     |
+| `BACKUP_STORAGE_PATH`   | —           | Filesystem path for backup archives. Unset, they go beside the recordings. |
 
 See [S3-compatible storage](./storage-s3) for per-provider
 config templates.
+
+`BACKUP_STORAGE_PATH` is worth setting if you use **Settings →
+Export/Backup → Backup frequency**. Without it, every scheduled archive
+is written into the same place as the audio it contains — so the folder
+roughly doubles in size, and the backup shares a disk with the original.
+Point it at separate storage (an external disk, a NAS mount) and
+archives go there instead, whatever backend the recordings use. It is
+always a local filesystem path, including on S3-backed instances: a
+backup you cannot read without the app running is not much of a backup.
 
 ## SMTP (email notifications)
 

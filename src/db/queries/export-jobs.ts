@@ -1,6 +1,6 @@
 import { and, desc, eq, isNotNull, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { exportJobs } from "@/db/schema";
+import { exportJobs, userSettings } from "@/db/schema";
 
 export type ExportJobStatus = "pending" | "processing" | "completed" | "failed";
 
@@ -22,6 +22,57 @@ export interface ExportJobRow {
 
 /** How long a completed archive stays downloadable before cleanup deletes it. */
 export const EXPORT_ARCHIVE_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Backup cadences the scheduler understands. Anything else means "never". */
+export const BACKUP_FREQUENCIES = ["daily", "weekly", "monthly"] as const;
+
+/**
+ * Users whose `backup_frequency` says a scheduled archive is due.
+ *
+ * The whole decision lives in one statement so the scheduler cannot act
+ * on a stale read: a user is due when they have chosen a cadence, have
+ * no job already queued or building, and have not had *any* job created
+ * within that cadence's window.
+ *
+ * Note it looks at every job, not only completed ones. Counting failures
+ * as "a backup happened" is deliberate: a job that fails for a durable
+ * reason would otherwise be retried on every scheduler tick forever.
+ * The next window comes around soon enough.
+ */
+export async function listUsersDueForScheduledBackup(
+    limit: number,
+): Promise<{ userId: string; frequency: string }[]> {
+    const window = sql`(case ${userSettings.backupFrequency}
+        when 'daily' then interval '1 day'
+        when 'weekly' then interval '7 days'
+        else interval '30 days'
+    end)`;
+
+    const rows = await db
+        .select({
+            userId: userSettings.userId,
+            frequency: userSettings.backupFrequency,
+        })
+        .from(userSettings)
+        .where(
+            and(
+                sql`${userSettings.backupFrequency} in ('daily', 'weekly', 'monthly')`,
+                sql`not exists (
+                    select 1 from ${exportJobs} j
+                    where j.user_id = ${userSettings.userId}
+                      and (
+                        j.status in ('pending', 'processing')
+                        or j.created_at > now() - ${window}
+                      )
+                )`,
+            ),
+        )
+        .limit(limit);
+
+    return rows.flatMap((row) =>
+        row.frequency === null ? [] : [{ ...row, frequency: row.frequency }],
+    );
+}
 /**
  * Minimum gap between two completed exports for the same user. A full
  * archive is a real, avoidable storage cost on hosted (audio duplicated

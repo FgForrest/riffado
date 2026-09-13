@@ -36,10 +36,16 @@ function folderName(recording: { id: string; startTime: Date }): string {
 }
 
 /**
- * Streams a full-data archive for `userId` directly into `storage` at
- * `storageKey`. Audio is streamed recording-by-recording straight from
- * storage into the zip and back out to the destination -- at no point is
- * the whole archive, or more than one recording's audio, held in memory.
+ * Streams a full-data archive for `userId` into `destinationStorage` at
+ * `storageKey`. Audio is streamed recording-by-recording straight out of
+ * `sourceStorage` into the zip and back out to the destination -- at no
+ * point is the whole archive, or more than one recording's audio, held
+ * in memory.
+ *
+ * Source and destination are separate providers because they need not be
+ * the same place: `BACKUP_STORAGE_PATH` puts archives on a different
+ * disk from the recordings, which is the point of having a backup. They
+ * are the same object when it is unset.
  *
  * A recording whose audio can't be read (deleted from storage, transient
  * error) doesn't fail the whole export: it's noted in the manifest and
@@ -47,7 +53,10 @@ function folderName(recording: { id: string; startTime: Date }): string {
  */
 export async function buildAndUploadExportArchive(input: {
     userId: string;
-    storage: StorageProvider;
+    /** Where the recordings' audio is read from. */
+    sourceStorage: StorageProvider;
+    /** Where the finished archive is written. */
+    destinationStorage: StorageProvider;
     storageKey: string;
     /** Aborting destroys the in-flight zip/upload streams immediately, instead of letting them run to completion in the background after the caller has given up (e.g. on the worker's stall timeout). */
     signal?: AbortSignal;
@@ -60,7 +69,14 @@ export async function buildAndUploadExportArchive(input: {
      */
     onProgress?: () => void;
 }): Promise<ArchiveResult> {
-    const { userId, storage, storageKey, signal, onProgress } = input;
+    const {
+        userId,
+        sourceStorage,
+        destinationStorage,
+        storageKey,
+        signal,
+        onProgress,
+    } = input;
 
     if (signal?.aborted) {
         throw new Error("Export aborted before starting");
@@ -146,7 +162,7 @@ export async function buildAndUploadExportArchive(input: {
     };
     signal?.addEventListener("abort", onAbort, { once: true });
 
-    const uploadPromise = storage.uploadStream(
+    const uploadPromise = destinationStorage.uploadStream(
         storageKey,
         passthrough,
         "application/zip",
@@ -203,12 +219,12 @@ export async function buildAndUploadExportArchive(input: {
             summary: { included: false, path: null },
         };
 
-        const audioExists = await storage
+        const audioExists = await sourceStorage
             .exists(recording.storagePath)
             .catch(() => false);
         if (audioExists) {
             try {
-                const rawStream = await storage.downloadStream(
+                const rawStream = await sourceStorage.downloadStream(
                     recording.storagePath,
                 );
                 const audioPath = `${folder}/audio.${audioExtension(recording.storagePath)}`;
