@@ -15,13 +15,24 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { useSettings } from "@/hooks/use-settings";
+import { EXPORT_FORMATS, type ExportFormat } from "@/lib/export/formats";
 
-const exportFormatOptions = [
-    { label: "JSON", value: "json", description: "Structured data format" },
-    { label: "TXT", value: "txt", description: "Plain text format" },
-    { label: "SRT", value: "srt", description: "Subtitle format" },
-    { label: "VTT", value: "vtt", description: "WebVTT subtitle format" },
-];
+// Keyed by `ExportFormat`, so a format added to `EXPORT_FORMATS` without a
+// label here is a compile error rather than a blank row in the picker.
+const exportFormatLabels: Record<
+    ExportFormat,
+    { label: string; description: string }
+> = {
+    json: { label: "JSON", description: "Structured data format" },
+    txt: { label: "TXT", description: "Plain text format" },
+    srt: { label: "SRT", description: "Subtitle format" },
+    vtt: { label: "VTT", description: "WebVTT subtitle format" },
+};
+
+const exportFormatOptions = EXPORT_FORMATS.map((value) => ({
+    value,
+    ...exportFormatLabels[value],
+}));
 
 const backupFrequencyOptions = [
     { label: "Never", value: "never" },
