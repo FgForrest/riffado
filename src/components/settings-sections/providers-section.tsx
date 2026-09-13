@@ -1,7 +1,7 @@
 "use client";
 
 import { Bot, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/confirm-dialog";
 import { AddProviderDialog } from "@/components/settings/add-provider-dialog";
@@ -9,6 +9,7 @@ import { EditProviderDialog } from "@/components/settings/edit-provider-dialog";
 import { SettingsSectionHeader } from "@/components/settings/section-header";
 import { PromptManager } from "@/components/settings-sections/prompt-manager";
 import { Button } from "@/components/ui/button";
+import { isEnhancementOnlyProvider } from "@/lib/ai/provider-presets";
 
 type AISubSection = "providers" | "prompts";
 
@@ -53,6 +54,23 @@ export function ProvidersSection({
 }: ProvidersSectionProps) {
     const confirm = useConfirm();
     const [providers, setProviders] = useState<Provider[]>(initialProviders);
+    /**
+     * `initialProviders` can arrive *after* mount. The dashboard fetches
+     * the list when the settings dialog opens (`workstation.tsx`), but
+     * `<Dialog open>` mounts this section in that same render, so the seed
+     * is `[]` for the first moment and `useState` ignores every later prop
+     * value. That left the list permanently empty on a fresh page load --
+     * until an add or delete replaced the state from a response, which is
+     * why re-adding appeared to "find" the missing providers.
+     *
+     * So adopt the prop until this component starts managing the list
+     * itself; from then on local state wins, which is the invariant the
+     * note above is protecting.
+     */
+    const selfManaged = useRef(false);
+    useEffect(() => {
+        if (!selfManaged.current) setProviders(initialProviders);
+    }, [initialProviders]);
     const [isAddProviderOpen, setIsAddProviderOpen] = useState(false);
     const [isEditProviderOpen, setIsEditProviderOpen] = useState(false);
     const [editingProvider, setEditingProvider] = useState<Provider | null>(
@@ -66,6 +84,7 @@ export function ProvidersSection({
             const response = await fetch("/api/settings/ai/providers");
             if (!response.ok) throw new Error("Failed to fetch");
             const data = (await response.json()) as { providers: Provider[] };
+            selfManaged.current = true;
             setProviders(data.providers);
         } catch {
             toast.error("Failed to refresh providers");
@@ -345,15 +364,20 @@ function ProvidersList({
                             )}
                         </div>
                         <div className="flex items-center gap-2 ml-4">
-                            {!provider.isDefaultTranscription && (
-                                <Button
-                                    onClick={() => onSetDefault(provider.id)}
-                                    variant="outline"
-                                    size="sm"
-                                >
-                                    Use for transcription
-                                </Button>
-                            )}
+                            {!provider.isDefaultTranscription &&
+                                !isEnhancementOnlyProvider(
+                                    provider.provider,
+                                ) && (
+                                    <Button
+                                        onClick={() =>
+                                            onSetDefault(provider.id)
+                                        }
+                                        variant="outline"
+                                        size="sm"
+                                    >
+                                        Use for transcription
+                                    </Button>
+                                )}
                             <Button
                                 onClick={() => onEdit(provider)}
                                 variant="outline"
