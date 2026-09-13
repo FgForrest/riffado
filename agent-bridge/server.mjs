@@ -37,6 +37,7 @@ import {
     buildArgs,
     buildPrompt,
     chatCompletion,
+    diagnosticTail,
     parseClaudeEnvelope,
     resolveBackend,
     sanitizeForLog,
@@ -160,10 +161,11 @@ function execCli(bin, args, stdinText) {
             clearTimeout(timer);
             if (timedOut) return;
             if (code !== 0) {
-                // stderr from these CLIs is diagnostics, not a prompt
-                // echo -- the prompt went in on stdin. Last few lines
-                // only, so a verbose stack doesn't land in the response.
-                const tail = stderr.trim().split("\n").slice(-5).join("; ");
+                // Codex DOES echo the prompt to stderr -- the original
+                // assumption here was wrong, and shipped a 502 body
+                // carrying transcript text. diagnosticTail drops any
+                // line that came from the prompt.
+                const tail = diagnosticTail(stderr, stdinText);
                 reject(
                     new BridgeError(
                         502,

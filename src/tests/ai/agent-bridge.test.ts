@@ -6,6 +6,7 @@ import {
     buildPrompt,
     chatCompletion,
     contentToText,
+    diagnosticTail,
     extractJson,
     parseClaudeEnvelope,
     resolveBackend,
@@ -205,6 +206,27 @@ describe("agent-bridge", () => {
             expect(args.at(-1)).toBe("-");
         });
 
+        it("omits --model for a bare backend id", () => {
+            // Vendor slugs are gated by plan: `gpt-5-codex` is refused on
+            // a ChatGPT subscription ("not supported when using Codex
+            // with a ChatGPT account"). A bare id lets the CLI resolve
+            // whatever the account actually grants.
+            expect(buildArgs("claude", "claude")).not.toContain("--model");
+            const codex = buildArgs("codex", "codex", [], "/tmp/out.txt");
+            expect(codex).not.toContain("--model");
+            expect(codex.at(-1)).toBe("-");
+        });
+
+        it("still passes an explicit model through", () => {
+            expect(buildArgs("claude", "claude-sonnet-5")).toContain("--model");
+            expect(buildArgs("claude", "claude-sonnet-5")).toContain(
+                "claude-sonnet-5",
+            );
+            expect(buildArgs("codex", "gpt-5", [], "/tmp/o")).toContain(
+                "gpt-5",
+            );
+        });
+
         it("appends extra args ahead of the stdin marker", () => {
             const args = buildArgs(
                 "codex",
@@ -273,6 +295,41 @@ describe("agent-bridge", () => {
             expect(() =>
                 parseClaudeEnvelope(JSON.stringify({ result: "   " })),
             ).toThrow(/empty result/);
+        });
+    });
+
+    describe("diagnosticTail", () => {
+        it("drops stderr lines echoed from the prompt", () => {
+            // Codex prints the prompt to stderr before failing. Without
+            // this filter the 502 body carried transcript text into
+            // Riffado's logs -- seen on the first real deployment, where
+            // the error led with the last line of the summary prompt.
+            const prompt =
+                "You summarize transcripts.\n\nTranscript: We agreed to ship on Friday.";
+            const stderr = [
+                "Transcript: We agreed to ship on Friday.",
+                "warning: Model metadata not found",
+                'ERROR: {"status":400,"message":"model not supported"}',
+            ].join("\n");
+
+            const tail = diagnosticTail(stderr, prompt);
+            expect(tail).not.toContain("ship on Friday");
+            expect(tail).toContain("model not supported");
+            expect(tail).toContain("warning: Model metadata not found");
+        });
+
+        it("keeps everything when there is no prompt to match against", () => {
+            expect(diagnosticTail("boom", "")).toBe("boom");
+        });
+
+        it("caps lines and characters so a stack trace cannot flood the reply", () => {
+            const many = Array.from({ length: 40 }, (_, i) => `line${i}`).join(
+                "\n",
+            );
+            expect(diagnosticTail(many, "")).toBe(
+                "line35; line36; line37; line38; line39",
+            );
+            expect(diagnosticTail("x".repeat(2000), "")).toHaveLength(600);
         });
     });
 

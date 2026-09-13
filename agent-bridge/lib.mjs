@@ -175,18 +175,20 @@ export function extractJson(text) {
  * out of `ps` output.
  */
 export function buildArgs(backend, model, extraArgs = [], codexOutPath = "") {
+    // A bare backend id -- "claude", "codex" -- means "whatever this
+    // account would pick", and omits --model entirely. That is not a
+    // nicety: vendor slugs are gated by plan, and `gpt-5-codex` is
+    // refused outright on a ChatGPT subscription ("not supported when
+    // using Codex with a ChatGPT account"), which is how this surfaced on
+    // the first real deployment. Omitting the flag lets the CLI resolve
+    // whatever the plan actually grants.
+    const modelArgs = model === backend ? [] : ["--model", model];
+
     if (backend === "claude") {
         // `--print`, never `--bare`: --bare disables OAuth and demands
         // ANTHROPIC_API_KEY, which is the one thing this bridge exists to
         // avoid.
-        return [
-            "--print",
-            "--output-format",
-            "json",
-            "--model",
-            model,
-            ...extraArgs,
-        ];
+        return ["--print", "--output-format", "json", ...modelArgs, ...extraArgs];
     }
     if (backend === "codex") {
         // `--output-last-message` writes just the final assistant message
@@ -200,13 +202,35 @@ export function buildArgs(backend, model, extraArgs = [], codexOutPath = "") {
             "read-only",
             "--output-last-message",
             codexOutPath,
-            "--model",
-            model,
+            ...modelArgs,
             ...extraArgs,
             "-",
         ];
     }
     throw new BridgeError(400, `unknown backend "${backend}"`);
+}
+
+/**
+ * Build the operator-facing tail of a failed CLI's stderr.
+ *
+ * Codex echoes the prompt to stderr before failing, so a naive tail puts
+ * the user's transcript into the HTTP error body and from there into
+ * Riffado's logs. Observed on the first real deployment: a 502 for an
+ * unsupported model led with the last line of the summary prompt.
+ *
+ * Any line appearing verbatim in the prompt is dropped. Diagnostics the
+ * CLI generates itself -- warnings, API errors -- are not substrings of
+ * the prompt, so they survive, which is what makes the error useful.
+ */
+export function diagnosticTail(stderr, prompt = "", maxLines = 5, maxChars = 600) {
+    return String(stderr)
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .filter((line) => !prompt.includes(line))
+        .slice(-maxLines)
+        .join("; ")
+        .slice(0, maxChars);
 }
 
 /** Shape a successful reply as an OpenAI chat completion. */
