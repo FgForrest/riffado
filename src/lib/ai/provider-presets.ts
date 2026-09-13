@@ -10,6 +10,8 @@ export interface ProviderPreset {
     knownTranscriptionModels?: readonly string[];
     /** Friendlier dropdown labels for ids in `knownTranscriptionModels`. */
     modelLabels?: Readonly<Record<string, string>>;
+    /** Provider has no chat/completions surface, so it cannot summarize. */
+    transcriptionOnly?: boolean;
 }
 
 export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
@@ -76,6 +78,7 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
         placeholder: "AIza...",
         defaultModel: "gemini-2.0-flash",
         transcriptionStyle: "gemini",
+        transcriptionOnly: true,
         knownTranscriptionModels: [
             "gemini-2.0-flash",
             "gemini-2.5-flash",
@@ -90,6 +93,7 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
         placeholder: "sk_...",
         defaultModel: "scribe_v2",
         transcriptionStyle: "elevenlabs",
+        transcriptionOnly: true,
         knownTranscriptionModels: [
             "scribe_v2",
             "scribe_v2+diarize",
@@ -143,4 +147,13 @@ export function getTranscriptionStyle(
  */
 export function getDefaultTranscriptionModel(providerName: string): string {
     return findPreset(providerName)?.defaultModel ?? "";
+}
+
+/**
+ * True for providers that transcribe but cannot summarize, because they
+ * expose no `chat/completions` surface. Unknown providers are assumed
+ * capable: a self-hoster's custom endpoint usually is.
+ */
+export function isTranscriptionOnlyProvider(providerName: string): boolean {
+    return findPreset(providerName)?.transcriptionOnly === true;
 }

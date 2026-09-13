@@ -361,6 +361,7 @@ Riffado doesn't have a per-provider abstraction — it uses the OpenAI SDK with 
 
 1. If the provider is OpenAI-compatible (OpenAI, Groq, Together, OpenRouter, LM Studio, Ollama, Azure, …): no code change. Users add it via the settings UI — `baseURL` + API key + model names. Document it in `README.md` under the AI Provider Setup section.
 2. If the provider's transcription API is not OpenAI-compatible (Google Gemini, ElevenLabs Scribe, …): add a `transcriptionStyle` value in `src/lib/ai/provider-presets.ts`, write the adapter as `src/lib/transcription/<provider>-transcribe.ts` exporting a single `<provider>Transcribe()` function, and branch on the **style** in `transcribeRecording`. Never branch on provider name in feature code. Alternatively front the provider behind an OpenAI-compatible proxy and use option 1.
+3. A provider with no `chat/completions` surface sets `transcriptionOnly: true` on its preset. That keeps it out of the enhancement default in the settings dialogs, the provider routes, and `pickEnhancementCredential()`.
 
 Adding a new **AI feature** (summary style, title strategy, etc.) is different — that's new code under `src/lib/ai/` following the `generate-title.ts` / prompt-presets pattern.
 

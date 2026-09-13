@@ -99,6 +99,9 @@ export function EditProviderDialog({
         if (preset) {
             setBaseUrl(preset.baseUrl);
             setDefaultModel(preset.defaultModel);
+            if (preset.transcriptionOnly) {
+                setIsDefaultEnhancement(false);
+            }
         }
     };
 
@@ -127,7 +130,9 @@ export function EditProviderDialog({
                 baseUrl: baseUrl || null,
                 defaultModel: defaultModel || null,
                 isDefaultTranscription,
-                isDefaultEnhancement,
+                isDefaultEnhancement: transcriptionOnly
+                    ? false
+                    : isDefaultEnhancement,
             };
 
             if (apiKey.trim()) {
@@ -170,6 +175,7 @@ export function EditProviderDialog({
     };
 
     const selectedPreset = findPreset(providerName);
+    const transcriptionOnly = selectedPreset?.transcriptionOnly === true;
 
     if (!open || !provider) return null;
 
@@ -300,17 +306,31 @@ export function EditProviderDialog({
                             />
                             <span>Use for transcription</span>
                         </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
+                        <label
+                            className={
+                                transcriptionOnly
+                                    ? "flex items-center gap-2 opacity-60"
+                                    : "flex items-center gap-2 cursor-pointer"
+                            }
+                        >
                             <input
                                 type="checkbox"
-                                checked={isDefaultEnhancement}
+                                checked={
+                                    isDefaultEnhancement && !transcriptionOnly
+                                }
                                 onChange={(e) =>
                                     setIsDefaultEnhancement(e.target.checked)
                                 }
-                                disabled={isLoading}
+                                disabled={isLoading || transcriptionOnly}
                             />
                             <span>Use for AI enhancements</span>
                         </label>
+                        {transcriptionOnly && (
+                            <p className="text-xs text-muted-foreground">
+                                {providerName} transcribes only. Summaries need
+                                an OpenAI-compatible provider.
+                            </p>
+                        )}
                     </Panel>
 
                     <div className="flex gap-2">

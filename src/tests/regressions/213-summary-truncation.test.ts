@@ -78,6 +78,7 @@ const selectResults = new Map<unknown, unknown[][]>();
 
 function selectChain() {
     let table: unknown;
+    const next = () => selectResults.get(table)?.shift() ?? [];
     const c = {
         from: (t: unknown) => {
             table = t;
@@ -86,7 +87,13 @@ function selectChain() {
         where: () => c,
         for: () => c,
         orderBy: () => c,
-        limit: () => Promise.resolve(selectResults.get(table)?.shift() ?? []),
+        limit: () => Promise.resolve(next()),
+        // Drizzle builders are thenable, so a query without `.limit()`
+        // resolves by being awaited. The queue must stay lazy here: the
+        // table is only known once `.from()` has run.
+        // biome-ignore lint/suspicious/noThenProperty: mocks a thenable query builder
+        then: (resolve: (value: unknown[]) => unknown) =>
+            Promise.resolve(next()).then(resolve),
     };
     return c;
 }
@@ -132,9 +139,8 @@ describe("POST /api/recordings/[id]/summary — no transcript truncation (#213)"
         selectResults.set(userSettings, [
             [{ summaryPrompt: null, aiOutputLanguage: null }],
         ]);
-        // apiCredentials is selected twice: default-enhancement then
-        // default-transcription. The enhancement row wins, so the second
-        // (transcription) query result is unused.
+        // apiCredentials is selected once: every provider the user has,
+        // filtered down to the one that runs enhancements.
         selectResults.set(apiCredentials, [
             [
                 {
@@ -146,7 +152,6 @@ describe("POST /api/recordings/[id]/summary — no transcript truncation (#213)"
                     userId: "user-1",
                 },
             ],
-            [],
         ]);
         // No existing enhancement row -> insert path.
         selectResults.set(aiEnhancements, [[]]);

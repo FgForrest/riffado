@@ -8,6 +8,7 @@ import {
     userSettings,
 } from "@/db/schema";
 import { buildChatCompletionParams } from "@/lib/ai/chat-completion-params";
+import { pickEnhancementCredential } from "@/lib/ai/enhancement-provider";
 import {
     getAiOutputLanguageDirective,
     getDefaultSummaryPromptConfig,
@@ -163,30 +164,20 @@ export async function generateSummaryForRecording(
     }
 
     // Credentials: prefer the user's enhancement-default provider, fall
-    // back to any configured provider.
-    const [enhancementCredentials] = await db
+    // back to any configured provider that can actually summarize.
+    const configuredCredentials = await db
         .select()
         .from(apiCredentials)
-        .where(
-            and(
-                eq(apiCredentials.userId, userId),
-                eq(apiCredentials.isDefaultEnhancement, true),
-            ),
-        )
-        .limit(1);
+        .where(eq(apiCredentials.userId, userId));
 
-    const [fallbackCredentials] = await db
-        .select()
-        .from(apiCredentials)
-        .where(eq(apiCredentials.userId, userId))
-        .limit(1);
-
-    const credentials = enhancementCredentials || fallbackCredentials;
+    const credentials = pickEnhancementCredential(configuredCredentials);
 
     if (!credentials) {
         throw new AppError(
             ErrorCode.AI_PROVIDER_NOT_CONFIGURED,
-            "No AI provider configured",
+            configuredCredentials.length > 0
+                ? "Your AI providers are transcription only. Add an OpenAI-compatible provider to generate summaries."
+                : "No AI provider configured",
             400,
         );
     }

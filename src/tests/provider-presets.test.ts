@@ -4,6 +4,7 @@ import {
     getDefaultTranscriptionModel,
     getVisiblePresets,
     isLocalPreset,
+    isTranscriptionOnlyProvider,
     LOCAL_PRESET_NAMES,
     PROVIDER_PRESETS,
 } from "@/lib/ai/provider-presets";
@@ -97,6 +98,20 @@ describe("provider-presets", () => {
             expect(preset?.modelLabels?.["scribe_v2+diarize"]).toBe(
                 "scribe_v2 (speaker labels)",
             );
+        });
+    });
+
+    describe("isTranscriptionOnlyProvider", () => {
+        it("flags the providers with no chat/completions surface", () => {
+            expect(isTranscriptionOnlyProvider("ElevenLabs")).toBe(true);
+            expect(isTranscriptionOnlyProvider("Google Gemini")).toBe(true);
+        });
+
+        it("leaves OpenAI-compatible and unknown providers usable", () => {
+            expect(isTranscriptionOnlyProvider("OpenAI")).toBe(false);
+            expect(isTranscriptionOnlyProvider("OpenRouter")).toBe(false);
+            expect(isTranscriptionOnlyProvider("Custom")).toBe(false);
+            expect(isTranscriptionOnlyProvider("Nope")).toBe(false);
         });
     });
 

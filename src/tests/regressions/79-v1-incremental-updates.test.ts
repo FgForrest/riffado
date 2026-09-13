@@ -133,9 +133,12 @@ function selectRows(rows: unknown[], captureWhere?: (expr: unknown) => void) {
         from: vi.fn().mockReturnValue({
             where: vi.fn((expr: unknown) => {
                 captureWhere?.(expr);
-                return {
+                // Awaitable as well as `.limit()`-able: Drizzle query
+                // builders are thenable, and not every caller narrows
+                // with `.limit()`.
+                return Object.assign(Promise.resolve(rows), {
                     limit: vi.fn().mockResolvedValue(rows),
-                };
+                });
             }),
         }),
     };
@@ -278,7 +281,6 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
                 ),
             )
             .mockReturnValueOnce(selectRows([]))
-            .mockReturnValueOnce(selectRows([]))
             .mockReturnValueOnce(
                 selectRows([
                     {
@@ -287,6 +289,7 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
                         apiKey: "encrypted-key",
                         baseUrl: null,
                         defaultModel: "gpt-4o-mini",
+                        isDefaultEnhancement: true,
                     },
                 ]),
             );
@@ -347,7 +350,6 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
                 ]),
             )
             .mockReturnValueOnce(selectRows([]))
-            .mockReturnValueOnce(selectRows([]))
             .mockReturnValueOnce(
                 selectRows([
                     {
@@ -356,6 +358,7 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
                         apiKey: "encrypted-key",
                         baseUrl: null,
                         defaultModel: "gpt-4o-mini",
+                        isDefaultEnhancement: true,
                     },
                 ]),
             );
