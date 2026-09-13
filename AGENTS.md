@@ -360,7 +360,7 @@ Don't branch on storage type anywhere outside `factory.ts`.
 Riffado doesn't have a per-provider abstraction — it uses the OpenAI SDK with a custom `baseURL`. "Adding a provider" is usually configuration, not code:
 
 1. If the provider is OpenAI-compatible (OpenAI, Groq, Together, OpenRouter, LM Studio, Ollama, Azure, …): no code change. Users add it via the settings UI — `baseURL` + API key + model names. Document it in `README.md` under the AI Provider Setup section.
-2. If the provider has non-standard auth (e.g., AWS Bedrock with SigV4): write an adapter that fronts the provider behind an OpenAI-compatible surface. Do not branch on provider name in feature code. Keep the abstraction clean.
+2. If the provider's transcription API is not OpenAI-compatible (Google Gemini, ElevenLabs Scribe, …): add a `transcriptionStyle` value in `src/lib/ai/provider-presets.ts`, write the adapter as `src/lib/transcription/<provider>-transcribe.ts` exporting a single `<provider>Transcribe()` function, and branch on the **style** in `transcribeRecording`. Never branch on provider name in feature code. Alternatively front the provider behind an OpenAI-compatible proxy and use option 1.
 
 Adding a new **AI feature** (summary style, title strategy, etc.) is different — that's new code under `src/lib/ai/` following the `generate-title.ts` / prompt-presets pattern.
 

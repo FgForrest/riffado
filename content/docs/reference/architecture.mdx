@@ -74,7 +74,7 @@ OpenAI SDK is configured with a per-user `baseURL` and the same SDK
 calls work against OpenAI, Groq, OpenRouter, Ollama, LM Studio, and
 anything else that speaks the OpenAI wire protocol.
 
-Two transcription "styles" coexist:
+Four transcription "styles" coexist:
 
 - **Whisper-style** — `POST /v1/audio/transcriptions` with multipart
   audio. The classic OpenAI surface.
@@ -82,13 +82,17 @@ Two transcription "styles" coexist:
   content part. Used by providers that expose audio-input LLMs
   instead of a dedicated transcription endpoint (today: OpenRouter
   routing Gemini, GPT-audio, Voxtral).
+- **Gemini-style** — `generateContent` with inline audio data, through
+  the Google SDK (`src/lib/transcription/gemini-transcribe.ts`).
+- **Scribe-style** — `POST /v1/speech-to-text`, multipart upload
+  authenticated with `xi-api-key`
+  (`src/lib/transcription/elevenlabs-transcribe.ts`).
 
 A `transcriptionStyle` field on each provider preset
 (`src/lib/ai/provider-presets.ts`) tells the worker which surface to
-hit. Adding a new provider with non-standard auth (e.g. AWS Bedrock
-SigV4) means writing an adapter that fronts the provider behind an
-OpenAI-compatible surface, **not** branching on provider name in
-feature code.
+hit. A provider that isn't OpenAI-compatible gets its own adapter module
+under `src/lib/transcription/` and a new style value. The worker
+branches on the style, **never** on the provider name.
 
 ## Transcription
 

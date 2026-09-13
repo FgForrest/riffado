@@ -8,6 +8,9 @@ that exposes an OpenAI-compatible API works: OpenAI itself, Groq,
 OpenRouter, Together, Azure OpenAI, LM Studio, Ollama, and anything else
 that speaks the same wire format.
 
+Two transcription backends are wired in natively because their APIs are
+not OpenAI-compatible: Google Gemini and ElevenLabs Scribe.
+
 You can configure multiple providers and pick which one runs
 transcription and which runs summarization on a per-recording basis.
 
@@ -24,6 +27,11 @@ which API surface the transcription worker should use:
   part) — for providers that expose audio-input LLMs instead of a
   dedicated transcription endpoint. Used by OpenRouter routing
   Gemini / GPT-audio / Voxtral.
+- **Gemini-style** (`generateContent` with inline audio data) — the
+  Google Gemini native API. Used by the Google Gemini preset.
+- **Scribe-style** (`/v1/speech-to-text`, multipart upload authenticated
+  with `xi-api-key`) — the ElevenLabs native API. Used by the ElevenLabs
+  preset.
 
 Pick a preset, paste your API key, choose a default model, save. Repeat
 for additional providers.
@@ -36,6 +44,8 @@ for additional providers.
 | Groq        | `https://api.groq.com/openai/v1`             | Free Whisper API, very fast                                      |
 | OpenRouter  | `https://openrouter.ai/api/v1`               | Chat-style transcription; many summarization models in one key   |
 | Together AI | `https://api.together.xyz/v1`                | Cost-effective, broad model selection                            |
+| Google Gemini | *(blank, native Google API)*                | Gemini-style transcription; transcription only                   |
+| ElevenLabs  | *(blank, defaults to api.elevenlabs.io)*     | Scribe-style transcription, optional speaker labels; transcription only |
 | Azure       | `https://<resource>.openai.azure.com/...`    | Enterprise compliance, deployment-scoped URLs                    |
 | LM Studio   | `http://localhost:1234/v1`                   | Local, 100% offline                                              |
 | Ollama      | `http://localhost:11434/v1`                  | Local, easy model management                                     |
@@ -61,6 +71,28 @@ Summarization is more forgiving — any chat model that follows the
 OpenAI `chat/completions` shape works. Pick something fast and cheap
 (e.g. `gpt-4o-mini`, `llama-3.1-70b-versatile`) unless you have a
 specific reason to use a larger model.
+
+### ElevenLabs Scribe
+
+The preset offers `scribe_v2` (the default), `scribe_v2_medical`, and
+the legacy `scribe_v1`. Diarization is a request flag rather than a
+separate model, so the dropdown exposes it as **scribe_v2 (speaker
+labels)**, stored as `scribe_v2+diarize`. With it selected, transcripts
+come back as `speaker_0: …` lines, the same shape Riffado stores for
+OpenAI's diarizing model.
+
+Leave **Base URL** blank to use `api.elevenlabs.io`. To keep audio in a
+specific region, set a residency host instead, for example
+`https://api.eu.residency.elevenlabs.io`. The trailing `/v1` is
+optional.
+
+Audio is uploaded exactly as stored. The mono Opus re-encode that keeps
+oversized recordings under OpenAI's 25 MiB request limit is skipped for
+Scribe, which accepts multi-gigabyte uploads, so long meetings reach the
+model at full quality.
+
+ElevenLabs is transcription only. It has no `chat/completions` endpoint,
+so keep a separate provider as your summarization default.
 
 ## What gets sent to the provider
 
