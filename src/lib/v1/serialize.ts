@@ -52,6 +52,13 @@ export type V1Recording = {
     } | null;
     has_transcription: boolean;
     has_summary: boolean;
+    /**
+     * True when the user's retention policy has deleted this recording's
+     * audio. The row and its metadata survive, but `links.audio` will
+     * answer 410 Gone. Without this a client cannot tell a deliberate
+     * deletion from a broken instance until it tries the download.
+     */
+    audio_reaped: boolean;
     links: {
         self: string;
         transcript: string;
@@ -170,6 +177,7 @@ export function serializeRecording(
             : null,
         has_transcription: flags.hasTranscription,
         has_summary: flags.hasSummary,
+        audio_reaped: recording.audioReapedAt !== null,
         links: {
             self,
             transcript: `${self}/transcript`,

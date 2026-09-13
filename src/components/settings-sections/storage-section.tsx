@@ -61,10 +61,9 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
     const [deleteSummary, setDeleteSummary] = useState(false);
     // How many recordings the current selection would reap right now.
     // `null` = not asked yet or nothing selected.
-    const [reapPreview, setReapPreview] = useState<{
-        count: number;
-        capped: boolean;
-    } | null>(null);
+    const [reapPreview, setReapPreview] = useState<{ count: number } | null>(
+        null,
+    );
     const [usage, setUsage] = useState<StorageUsage | null>(null);
     // Distinct from `usage === null` so we can tell "haven't loaded
     // yet" apart from "loaded and the API returned no shape we can
@@ -194,23 +193,29 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
             summary: String(deleteSummary),
         });
 
-        fetch(`/api/settings/retention/preview?${params}`, {
-            signal: controller.signal,
-        })
-            .then((res) => (res.ok ? res.json() : null))
-            .then((data) => {
-                if (typeof data?.count !== "number") return;
-                setReapPreview({
-                    count: data.count,
-                    capped: data.capped === true,
-                });
+        // Debounced on the same 500ms as the save below. The days field
+        // updates state on every keystroke, so typing "365" would
+        // otherwise issue three counts against the recordings table for
+        // two intermediate values nobody asked about.
+        const timer = setTimeout(() => {
+            fetch(`/api/settings/retention/preview?${params}`, {
+                signal: controller.signal,
             })
-            .catch(() => {
-                // A missing hint is not worth a toast; the setting still
-                // saves and the sweep still reports what it did.
-            });
+                .then((res) => (res.ok ? res.json() : null))
+                .then((data) => {
+                    if (typeof data?.count !== "number") return;
+                    setReapPreview({ count: data.count });
+                })
+                .catch(() => {
+                    // A missing hint is not worth a toast; the setting
+                    // still saves and the sweep still reports what it did.
+                });
+        }, 500);
 
-        return () => controller.abort();
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
     }, [
         autoDeleteRecordings,
         retentionDays,
@@ -533,7 +538,7 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                                     ? "Pick at least one kind and a retention period — nothing is deleted until you do."
                                     : reapPreview.count === 0
                                       ? "No recordings are old enough yet, so this deletes nothing today."
-                                      : `Applies to ${reapPreview.capped ? "over 1000" : reapPreview.count} recording${reapPreview.count === 1 && !reapPreview.capped ? "" : "s"} right now. The first sweep runs within the hour and cannot be undone.`}
+                                      : `Applies to ${reapPreview.count} recording${reapPreview.count === 1 ? "" : "s"} right now. The first sweep runs within the hour and cannot be undone.`}
                             </p>
                             <p className="text-xs text-muted-foreground">
                                 Markdown files written alongside your audio by

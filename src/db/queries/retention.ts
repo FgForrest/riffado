@@ -76,23 +76,23 @@ export async function listArmedRetentionPolicies(
 }
 
 /**
- * Recordings older than `cutoff` that still hold at least one of the kinds
- * this policy removes.
+ * The predicate matching recordings older than `cutoff` that still hold
+ * at least one of the kinds this policy removes. Shared by the sweep and
+ * the Settings preview so the number the user is shown is produced by
+ * the same condition that decides what actually gets deleted.
  *
  * Each kind contributes its own "still there" test, and a recording only
  * qualifies if at least one of them passes -- so a sweep that has already
- * reaped everything it is allowed to reap returns nothing and the worker
+ * reaped everything it is allowed to reap matches nothing and the worker
  * goes quiet, instead of rediscovering the same rows every tick.
  *
  * Transcript and summary additionally require the row to actually exist.
  * Stamping a marker on a recording that never had a transcript would be a
  * lie, and worse, it would permanently suppress auto-transcribe for it.
+ *
+ * Returns null when the policy selects nothing.
  */
-export async function listReapCandidates(
-    policy: RetentionPolicy,
-    cutoff: Date,
-    limit: number,
-): Promise<ReapCandidate[]> {
+function reapCandidateWhere(policy: RetentionPolicy, cutoff: Date) {
     const stillHasSomething = [];
 
     if (policy.audio) {
@@ -135,7 +135,26 @@ export async function listReapCandidates(
         );
     }
 
-    if (stillHasSomething.length === 0) return [];
+    // Nothing selected: no predicate can be true, and callers treat null
+    // as "this policy matches nothing" rather than building a query that
+    // would scan the table to return no rows.
+    if (stillHasSomething.length === 0) return null;
+
+    return and(
+        eq(recordings.userId, policy.userId),
+        isNull(recordings.deletedAt),
+        lt(recordings.startTime, cutoff),
+        or(...stillHasSomething),
+    );
+}
+
+export async function listReapCandidates(
+    policy: RetentionPolicy,
+    cutoff: Date,
+    limit: number,
+): Promise<ReapCandidate[]> {
+    const where = reapCandidateWhere(policy, cutoff);
+    if (where === null) return [];
 
     return db
         .select({
@@ -146,14 +165,7 @@ export async function listReapCandidates(
             summaryReapedAt: recordings.summaryReapedAt,
         })
         .from(recordings)
-        .where(
-            and(
-                eq(recordings.userId, policy.userId),
-                isNull(recordings.deletedAt),
-                lt(recordings.startTime, cutoff),
-                or(...stillHasSomething),
-            ),
-        )
+        .where(where)
         .orderBy(recordings.startTime)
         .limit(limit);
 }
@@ -245,11 +257,22 @@ export async function clearReapedMarkers(
  * now. Shown in Settings before the first sweep runs, so enabling
  * retention is a decision made with the number in front of you rather
  * than a discovery made afterwards.
+ *
+ * Counts in the database rather than fetching rows and measuring the
+ * array: this is a hint next to a text input, so it must stay cheap
+ * however large the library is.
  */
 export async function countReapCandidates(
     policy: RetentionPolicy,
     cutoff: Date,
 ): Promise<number> {
-    const candidates = await listReapCandidates(policy, cutoff, 1000);
-    return candidates.length;
+    const where = reapCandidateWhere(policy, cutoff);
+    if (where === null) return 0;
+
+    const [row] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(recordings)
+        .where(where);
+
+    return row?.count ?? 0;
 }

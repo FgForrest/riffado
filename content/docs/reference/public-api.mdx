@@ -128,6 +128,7 @@ Response:
       "device": { "serial_number": "...", "name": "Plaud Note", "model": "..." },
       "has_transcription": true,
       "has_summary": false,
+      "audio_reaped": false,
       "links": {
         "self": "/api/v1/recordings/...",
         "transcript": "/api/v1/recordings/.../transcript",
@@ -139,6 +140,10 @@ Response:
   "has_more": true
 }
 ```
+
+`audio_reaped` is `true` when the owner's retention policy has deleted
+the audio. The recording and its metadata remain; `links.audio` answers
+`410 Gone`. Check this flag rather than treating a 410 as an error.
 
 Pagination is **cursor-based, descending by `updated_at`**. When
 `has_more` is `true`, pass `next_cursor` back in the next request.

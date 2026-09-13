@@ -39,7 +39,7 @@ export const GET = apiHandler(async (request: Request) => {
     };
 
     if (!policy.audio && !policy.transcript && !policy.summary) {
-        return NextResponse.json({ count: 0, capped: false });
+        return NextResponse.json({ count: 0 });
     }
 
     const count = await countReapCandidates(
@@ -47,8 +47,5 @@ export const GET = apiHandler(async (request: Request) => {
         retentionCutoff(policy.retentionDays),
     );
 
-    // `countReapCandidates` stops at 1000 so a huge library can't turn a
-    // settings-panel hint into an expensive scan. Say so rather than
-    // reporting a flat 1000 as if it were the true figure.
-    return NextResponse.json({ count, capped: count >= 1000 });
+    return NextResponse.json({ count });
 });

@@ -61,6 +61,12 @@ export function RecordingPlayer({
         initialAutoPlayNext,
     });
 
+    // With the audio gone there is nothing to decode and nothing to
+    // scrub. The header keys every waveform affordance off this value,
+    // so collapsing it here is what removes the "Generate waveform"
+    // button that would otherwise sit there fetching a 410.
+    const effectiveScrubber = recording.audioReaped ? "slider" : scrubberStyle;
+
     usePlaybackKeyboard({
         onToggle: togglePlayPause,
         onSeekRelative: seekRelative,
@@ -85,7 +91,7 @@ export function RecordingPlayer({
         // waveform UI -- there's no point spending CPU on peaks the
         // player will never display -- or when retention has removed the
         // audio, where the decode could only ever fetch a 410.
-        autoStart: scrubberStyle === "waveform" && !recording.audioReaped,
+        autoStart: effectiveScrubber === "waveform",
     });
 
     return (
@@ -93,7 +99,7 @@ export function RecordingPlayer({
             <RecordingPlayerHeader
                 recording={recording}
                 duration={duration}
-                scrubberStyle={scrubberStyle}
+                scrubberStyle={effectiveScrubber}
                 waveformStatus={waveformStatus}
                 onDecodeWaveform={triggerWaveformDecode}
                 onRenamed={onRenamed}
