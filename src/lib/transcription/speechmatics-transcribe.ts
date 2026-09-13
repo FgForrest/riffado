@@ -432,7 +432,9 @@ function renderDiarized(
     }
 
     return {
-        text: rendered.map((turn) => `${turn.speaker}: ${turn.text}`).join("\n"),
+        text: rendered
+            .map((turn) => `${turn.speaker}: ${turn.text}`)
+            .join("\n"),
         turns: rendered.map(({ speaker, text, startMs, endMs }) => ({
             speaker,
             text,

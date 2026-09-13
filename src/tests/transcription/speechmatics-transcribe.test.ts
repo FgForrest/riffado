@@ -6,7 +6,6 @@ vi.mock("@/lib/env", () => ({
     },
 }));
 
-import { renderTurnsAsText } from "@/lib/transcription/turns";
 import {
     buildSpeechmaticsConfig,
     parseSpeechmaticsModel,
@@ -14,6 +13,7 @@ import {
     SpeechmaticsTranscribeError,
     speechmaticsTranscribe,
 } from "@/lib/transcription/speechmatics-transcribe";
+import { renderTurnsAsText } from "@/lib/transcription/turns";
 
 function audioFile(): File {
     return new File([new Uint8Array([1, 2, 3])], "meeting.mp3", {

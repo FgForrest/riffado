@@ -1,5 +1,5 @@
-import { renderTurnsAsText } from "@/lib/transcription/turns";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { renderTurnsAsText } from "@/lib/transcription/turns";
 
 vi.mock("@/lib/env", () => ({
     env: {
@@ -240,10 +240,34 @@ describe("elevenLabsTranscribe turns", () => {
             text: "ignored",
             language_code: "cs",
             words: [
-                { text: "Ahoj", type: "word", speaker_id: "speaker_0", start: 0, end: 0.4 },
-                { text: " ", type: "spacing", speaker_id: "speaker_0", start: 0.4, end: 0.5 },
-                { text: "Jan", type: "word", speaker_id: "speaker_0", start: 0.5, end: 0.9 },
-                { text: "Zdravim", type: "word", speaker_id: "speaker_1", start: 1.5, end: 2.25 },
+                {
+                    text: "Ahoj",
+                    type: "word",
+                    speaker_id: "speaker_0",
+                    start: 0,
+                    end: 0.4,
+                },
+                {
+                    text: " ",
+                    type: "spacing",
+                    speaker_id: "speaker_0",
+                    start: 0.4,
+                    end: 0.5,
+                },
+                {
+                    text: "Jan",
+                    type: "word",
+                    speaker_id: "speaker_0",
+                    start: 0.5,
+                    end: 0.9,
+                },
+                {
+                    text: "Zdravim",
+                    type: "word",
+                    speaker_id: "speaker_1",
+                    start: 1.5,
+                    end: 2.25,
+                },
             ],
         });
 
@@ -255,7 +279,12 @@ describe("elevenLabsTranscribe turns", () => {
 
         expect(result.turns).toEqual([
             { speaker: "speaker_0", startMs: 0, endMs: 900, text: "Ahoj Jan" },
-            { speaker: "speaker_1", startMs: 1500, endMs: 2250, text: "Zdravim" },
+            {
+                speaker: "speaker_1",
+                startMs: 1500,
+                endMs: 2250,
+                text: "Zdravim",
+            },
         ]);
         expect(renderTurnsAsText(result.turns ?? [])).toBe(result.text);
     });

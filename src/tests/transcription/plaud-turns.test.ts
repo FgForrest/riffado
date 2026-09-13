@@ -12,7 +12,12 @@ describe("segmentsToTurns", () => {
         // A 10-minute recording whose last segment ends at 4 can only be seconds.
         expect(segmentsToTurns(segments, 600_000)).toEqual([
             { speaker: "Speaker 1", startMs: 0, endMs: 2000, text: "Ahoj" },
-            { speaker: "Speaker 2", startMs: 2000, endMs: 4000, text: "Zdravim" },
+            {
+                speaker: "Speaker 2",
+                startMs: 2000,
+                endMs: 4000,
+                text: "Zdravim",
+            },
         ]);
     });
 
@@ -20,14 +25,29 @@ describe("segmentsToTurns", () => {
         expect(
             segmentsToTurns(
                 [
-                    { start_time: 0, end_time: 2000, speaker: 1, content: "Ahoj" },
-                    { start_time: 2000, end_time: 4000, speaker: 2, content: "Zdravim" },
+                    {
+                        start_time: 0,
+                        end_time: 2000,
+                        speaker: 1,
+                        content: "Ahoj",
+                    },
+                    {
+                        start_time: 2000,
+                        end_time: 4000,
+                        speaker: 2,
+                        content: "Zdravim",
+                    },
                 ],
                 5_000,
             ),
         ).toEqual([
             { speaker: "Speaker 1", startMs: 0, endMs: 2000, text: "Ahoj" },
-            { speaker: "Speaker 2", startMs: 2000, endMs: 4000, text: "Zdravim" },
+            {
+                speaker: "Speaker 2",
+                startMs: 2000,
+                endMs: 4000,
+                text: "Zdravim",
+            },
         ]);
     });
 
@@ -38,19 +58,22 @@ describe("segmentsToTurns", () => {
 
     it("uses the same labels parseTranscript writes into the flat text", () => {
         const turns = segmentsToTurns(segments, 600_000) ?? [];
-        expect(renderTurnsAsText(turns)).toBe(
-            parseTranscript(segments).text,
-        );
+        expect(renderTurnsAsText(turns)).toBe(parseTranscript(segments).text);
     });
 
     it("keeps unlabelled segments unprefixed", () => {
         const turns =
-            segmentsToTurns([{ start_time: 0, end_time: 1, content: "Ahoj" }], 60_000) ?? [];
+            segmentsToTurns(
+                [{ start_time: 0, end_time: 1, content: "Ahoj" }],
+                60_000,
+            ) ?? [];
         expect(turns[0].speaker).toBe("");
         expect(renderTurnsAsText(turns)).toBe("Ahoj");
     });
 
     it("returns null when nothing has content", () => {
-        expect(segmentsToTurns([{ start_time: 0, content: "  " }], 1000)).toBeNull();
+        expect(
+            segmentsToTurns([{ start_time: 0, content: "  " }], 1000),
+        ).toBeNull();
     });
 });

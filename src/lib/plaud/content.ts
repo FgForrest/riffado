@@ -148,8 +148,7 @@ export function segmentsToTurns(
     durationMs?: number,
 ): TranscriptTurn[] | null {
     const maxTime = segments.reduce(
-        (latest, seg) =>
-            Math.max(latest, seg.end_time ?? seg.start_time ?? 0),
+        (latest, seg) => Math.max(latest, seg.end_time ?? seg.start_time ?? 0),
         0,
     );
     const inSeconds =
