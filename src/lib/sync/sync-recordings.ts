@@ -394,6 +394,12 @@ async function processRecording(
             zonemins: plaudRecording.zonemins,
             scene: plaudRecording.scene,
             isTrash: plaudRecording.is_trash,
+            // The blob was just (re-)uploaded, so any retention marker on
+            // this recording is stale. Reached only when Plaud reports a
+            // new version -- the skip above returns early otherwise, which
+            // is what stops sync from quietly re-downloading everything a
+            // retention sweep has reaped.
+            audioReapedAt: null,
         };
 
         if (existingRecording) {

@@ -14,6 +14,10 @@ type ExportWorkerModule = {
     startExportWorker: () => void;
 };
 
+type RetentionWorkerModule = {
+    startRetentionWorker: () => void;
+};
+
 type EnvModule = {
     env: {
         IS_HOSTED: boolean;
@@ -74,6 +78,13 @@ export async function register() {
     const { startExportWorker } =
         require("./lib/export/worker") as ExportWorkerModule;
     startExportWorker();
+
+    // Deletes data, so it is armed by nothing but an explicit choice:
+    // it sweeps only for users who switched auto-delete on, set a period,
+    // AND ticked at least one kind of data to remove.
+    const { startRetentionWorker } =
+        require("./lib/retention/worker") as RetentionWorkerModule;
+    startRetentionWorker();
 
     // Catch anything that escapes a background worker's own try/catch (or
     // any other unexpected process-level throw) instead of only ever

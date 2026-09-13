@@ -302,6 +302,22 @@ export const recordings = pgTable(
         // from storage at delete time; this row is retained only as a marker
         // keyed by plaudFileId. See issue #56.
         deletedAt: timestamp("deleted_at"),
+        // Retention markers. Set by the retention sweep
+        // (src/lib/retention/worker.ts) when it removes one kind of data
+        // from a recording that has aged past the user's retention period.
+        // The recording row itself always survives -- only the payload of
+        // the selected kinds goes -- so the library keeps its metadata and
+        // the UI can say *why* something is missing instead of erroring.
+        //
+        // These are load-bearing, not cosmetic: without them a reaped
+        // transcript looks identical to one that was never made, and the
+        // next sync would auto-transcribe it straight back (see
+        // `listUntranscribedRecordingIds`). Cleared whenever the data
+        // legitimately comes back -- a Plaud version bump re-downloads the
+        // audio, a manual re-run rewrites the transcript or summary.
+        audioReapedAt: timestamp("audio_reaped_at"),
+        transcriptReapedAt: timestamp("transcript_reaped_at"),
+        summaryReapedAt: timestamp("summary_reaped_at"),
         createdAt: timestamp("created_at").notNull().defaultNow(),
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
@@ -509,6 +525,27 @@ export const userSettings = pgTable("user_settings", {
         .notNull()
         .default(false),
     retentionDays: integer("retention_days"), // nullable, range: 1-365
+    // Which kinds of data the retention sweep removes once a recording is
+    // older than `retentionDays`. Independent on purpose: keeping only the
+    // summary and dropping the audio and transcript is a legitimate policy,
+    // as is keeping the text and reclaiming the (much larger) audio.
+    //
+    // All three default to false, audio included. `auto_delete_recordings`
+    // existed for a long time with nothing acting on it, so an instance may
+    // well have it switched on from a user who saw no effect and moved on.
+    // Defaulting audio to true would turn that dormant toggle into real
+    // deletion on the first boot after upgrading. Instead the sweep no-ops
+    // until a kind is explicitly selected, and the UI pre-ticks audio when
+    // the toggle is first enabled so arming it is a deliberate act.
+    retentionDeleteAudio: boolean("retention_delete_audio")
+        .notNull()
+        .default(false),
+    retentionDeleteTranscript: boolean("retention_delete_transcript")
+        .notNull()
+        .default(false),
+    retentionDeleteSummary: boolean("retention_delete_summary")
+        .notNull()
+        .default(false),
     // Notification settings
     browserNotifications: boolean("browser_notifications")
         .notNull()

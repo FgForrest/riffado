@@ -21,6 +21,13 @@ export type Recording = Omit<RecordingQueryResult, "startTime"> & {
      * when never decoded; an empty array would be invalid (treat as null).
      */
     waveformPeaks?: number[] | null;
+    /**
+     * True when the retention sweep has deleted this recording's audio.
+     * The row survives a sweep, so the UI has to distinguish "no audio
+     * because it was deliberately removed" from "audio that should be
+     * there" -- otherwise the player renders and then fails on play.
+     */
+    audioReaped?: boolean;
 };
 
 // Helper to serialize a recording query result. Optional fields let
@@ -31,6 +38,7 @@ export function serializeRecording(
         hasTranscript?: boolean;
         hasSummary?: boolean;
         waveformPeaks?: number[] | null;
+        audioReaped?: boolean;
     },
 ): Recording {
     return {
@@ -38,6 +46,7 @@ export function serializeRecording(
         startTime: recording.startTime.toISOString(),
         hasTranscript: flags?.hasTranscript ?? false,
         hasSummary: flags?.hasSummary ?? false,
+        audioReaped: flags?.audioReaped ?? false,
         // Empty arrays would be invalid per the field contract ("null
         // when never decoded"); collapse them to null at the
         // serialization boundary so consumers never have to special-case

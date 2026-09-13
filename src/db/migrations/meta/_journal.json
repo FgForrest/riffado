@@ -274,6 +274,13 @@
       "when": 1789295656977,
       "tag": "0038_sudden_lyja",
       "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1789301762066,
+      "tag": "0039_stiff_wrecking_crew",
+      "breakpoints": true
     }
   ]
 }

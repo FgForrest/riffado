@@ -142,7 +142,18 @@ export async function upsertTranscription(
 
             await tx
                 .update(recordings)
-                .set({ updatedAt: new Date() })
+                .set({
+                    updatedAt: new Date(),
+                    // There is a transcript again, so a retention marker
+                    // left over from an earlier sweep no longer describes
+                    // reality. Clearing it here -- the one place every
+                    // transcript write passes through, server, browser and
+                    // Plaud import alike -- stops the marker telling the UI
+                    // the transcript is gone, and stops auto-transcribe's
+                    // "already reaped, leave it alone" skip from applying
+                    // to a recording that now has one.
+                    transcriptReapedAt: null,
+                })
                 .where(
                     and(
                         eq(recordings.id, recordingId),
@@ -244,7 +255,13 @@ export async function upsertEnhancement(
 
             await tx
                 .update(recordings)
-                .set({ updatedAt: new Date() })
+                .set({
+                    updatedAt: new Date(),
+                    // Mirrors the transcript case above: a summary exists
+                    // again, so the retention marker that said otherwise
+                    // has to go.
+                    summaryReapedAt: null,
+                })
                 .where(
                     and(
                         eq(recordings.id, recordingId),

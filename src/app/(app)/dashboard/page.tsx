@@ -34,6 +34,10 @@ export default async function DashboardPage() {
                 filesize: recordings.filesize,
                 deviceSn: recordings.deviceSn,
                 waveformPeaks: recordings.waveformPeaks,
+                // So the player can say "audio was removed by your
+                // retention policy" instead of rendering a dead <audio>
+                // element that fails on first play.
+                audioReapedAt: recordings.audioReapedAt,
             })
             .from(recordings)
             .where(
@@ -84,18 +88,20 @@ export default async function DashboardPage() {
     // Content fields are encrypted at rest; decrypt server-side (this is
     // an RSC — client never sees a key) before serializing for the
     // workstation. Legacy plaintext rows pass through verbatim.
-    const recordingsData = userRecordings.map(({ waveformPeaks, ...r }) =>
-        serializeRecording(
-            { ...r, filename: decryptText(r.filename) },
-            {
-                hasTranscript: transcriptIds.has(r.id),
-                hasSummary: summaryIds.has(r.id),
-                // jsonb comes back already-parsed; coerce to the typed shape.
-                waveformPeaks: Array.isArray(waveformPeaks)
-                    ? (waveformPeaks as number[])
-                    : null,
-            },
-        ),
+    const recordingsData = userRecordings.map(
+        ({ waveformPeaks, audioReapedAt, ...r }) =>
+            serializeRecording(
+                { ...r, filename: decryptText(r.filename) },
+                {
+                    hasTranscript: transcriptIds.has(r.id),
+                    hasSummary: summaryIds.has(r.id),
+                    audioReaped: audioReapedAt !== null,
+                    // jsonb comes back already-parsed; coerce to the typed shape.
+                    waveformPeaks: Array.isArray(waveformPeaks)
+                        ? (waveformPeaks as number[])
+                        : null,
+                },
+            ),
     );
 
     const transcriptionMap = new Map(

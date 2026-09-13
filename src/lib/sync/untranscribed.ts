@@ -58,6 +58,16 @@ export async function listUntranscribedRecordingIds(
         eq(recordings.userId, userId),
         isNull(recordings.deletedAt),
         not(transcriptExists),
+        // A transcript the retention sweep deleted looks exactly like one
+        // that was never made. Without this, every sync would hand those
+        // recordings straight back to auto-transcribe, re-creating at
+        // provider cost the very transcripts the user asked to have
+        // deleted -- and the next sweep would delete them again, forever.
+        isNull(recordings.transcriptReapedAt),
+        // Likewise, a recording whose audio has been reaped has nothing
+        // left to send to a provider. `transcribeRecording` refuses these,
+        // so queueing them would only burn sync work on certain failures.
+        isNull(recordings.audioReapedAt),
     ];
     if (excludeIds.length > 0) {
         conditions.push(notInArray(recordings.id, [...excludeIds]));

@@ -43,6 +43,9 @@ const recording = {
     isTrash: false,
     waveformPeaks: null,
     deletedAt: null,
+    audioReapedAt: null,
+    transcriptReapedAt: null,
+    summaryReapedAt: null,
     createdAt: now,
     updatedAt: now,
 };
