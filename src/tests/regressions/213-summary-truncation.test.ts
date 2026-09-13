@@ -68,6 +68,12 @@ vi.mock("@/lib/auth-server", () => ({
     requireApiSession: vi.fn(async () => ({ user: { id: "user-1" } })),
 }));
 
+// Sidecar export runs after a successful summary and reaches storage,
+// which pulls the validated env. Out of scope for this regression.
+vi.mock("@/lib/export/document-sidecars", () => ({
+    exportRecordingSidecarsIfEnabled: vi.fn(async () => undefined),
+}));
+
 // Per-table result queues keyed by the Drizzle table object the route
 // passes to `.from(...)`. Keying by table (rather than one global
 // positional array) keeps the fixture order-independent across tables:

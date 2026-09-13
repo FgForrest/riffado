@@ -18,6 +18,7 @@ import { decrypt } from "@/lib/encryption";
 import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { isHostedLockedOut } from "@/lib/entitlements";
 import { env } from "@/lib/env";
+import { exportRecordingSidecarsIfEnabled } from "@/lib/export/document-sidecars";
 import {
     isMynahConfigured,
     transcribeViaMynah,
@@ -195,6 +196,8 @@ export async function storeBrowserTranscription(
         }
         throw txError;
     }
+
+    await exportRecordingSidecarsIfEnabled(userId, recordingId, "transcript");
 
     await emitEvent("transcription.completed", userId, recordingId);
     await captureServerEvent({
@@ -568,6 +571,12 @@ async function transcribeRecordingInner(
                 errorCode: "RECORDING_DELETED",
             };
         }
+
+        await exportRecordingSidecarsIfEnabled(
+            userId,
+            recordingId,
+            "transcript",
+        );
 
         // Re-transcribe path: the previous transcript is being overwritten,
         // so any existing summary now references stale source text. Drop it

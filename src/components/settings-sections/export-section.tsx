@@ -69,6 +69,9 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
         useSettings();
     const [defaultExportFormat, setDefaultExportFormat] = useState("json");
     const [autoExport, setAutoExport] = useState(false);
+    const [autoExportTranscript, setAutoExportTranscript] = useState(false);
+    const [autoExportSummary, setAutoExportSummary] = useState(false);
+    const [isBackfilling, setIsBackfilling] = useState(false);
     const [backupFrequency, setBackupFrequency] = useState<string | null>(null);
     const [isExporting, setIsExporting] = useState(false);
     const [isStartingBackup, setIsStartingBackup] = useState(false);
@@ -82,6 +85,8 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                     const data = await response.json();
                     setDefaultExportFormat(data.defaultExportFormat ?? "json");
                     setAutoExport(data.autoExport ?? false);
+                    setAutoExportTranscript(data.autoExportTranscript ?? false);
+                    setAutoExportSummary(data.autoExportSummary ?? false);
                     setBackupFrequency(data.backupFrequency ?? null);
                 }
             } catch (error) {
@@ -153,6 +158,8 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
     const handleExportBackupSettingChange = async (updates: {
         defaultExportFormat?: string;
         autoExport?: boolean;
+        autoExportTranscript?: boolean;
+        autoExportSummary?: boolean;
         backupFrequency?: string | null;
     }) => {
         const previousValues: Record<string, unknown> = {};
@@ -163,6 +170,14 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
         if (updates.autoExport !== undefined) {
             previousValues.autoExport = autoExport;
             setAutoExport(updates.autoExport);
+        }
+        if (updates.autoExportTranscript !== undefined) {
+            previousValues.autoExportTranscript = autoExportTranscript;
+            setAutoExportTranscript(updates.autoExportTranscript);
+        }
+        if (updates.autoExportSummary !== undefined) {
+            previousValues.autoExportSummary = autoExportSummary;
+            setAutoExportSummary(updates.autoExportSummary);
         }
         if (updates.backupFrequency !== undefined) {
             previousValues.backupFrequency = backupFrequency;
@@ -188,12 +203,62 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                 const prev = previousValues.autoExport;
                 if (typeof prev === "boolean") setAutoExport(prev);
             }
+            if (updates.autoExportTranscript !== undefined) {
+                const prev = previousValues.autoExportTranscript;
+                if (typeof prev === "boolean") setAutoExportTranscript(prev);
+            }
+            if (updates.autoExportSummary !== undefined) {
+                const prev = previousValues.autoExportSummary;
+                if (typeof prev === "boolean") setAutoExportSummary(prev);
+            }
             if (updates.backupFrequency !== undefined) {
                 const prev = previousValues.backupFrequency;
                 if (typeof prev === "string" || prev === null)
                     setBackupFrequency(prev);
             }
             toast.error("Failed to save settings. Changes reverted.");
+        }
+    };
+
+    const handleDocumentBackfill = async () => {
+        setIsBackfilling(true);
+        try {
+            const response = await fetch("/api/settings/export-documents", {
+                method: "POST",
+            });
+            const data = await response.json().catch(() => null);
+            if (!response.ok) {
+                throw new Error(data?.error || "Export failed");
+            }
+
+            const parts: string[] = [];
+            if (data.transcripts > 0) {
+                parts.push(
+                    `${data.transcripts} transcript${data.transcripts === 1 ? "" : "s"}`,
+                );
+            }
+            if (data.summaries > 0) {
+                parts.push(
+                    `${data.summaries} ${data.summaries === 1 ? "summary" : "summaries"}`,
+                );
+            }
+            toast.success(
+                parts.length > 0
+                    ? `Exported ${parts.join(" and ")}.`
+                    : "Nothing to export yet.",
+            );
+
+            if (data.failed > 0) {
+                toast.error(
+                    `${data.failed} recording${data.failed === 1 ? "" : "s"} could not be exported. Check the server logs.`,
+                );
+            }
+        } catch (error) {
+            toast.error(
+                error instanceof Error ? error.message : "Export failed",
+            );
+        } finally {
+            setIsBackfilling(false);
         }
     };
 
@@ -324,6 +389,82 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                         }}
                         disabled={true}
                     />
+                </div>
+
+                <div className="space-y-4 rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                        <Label className="text-base">
+                            Documents alongside audio
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                            Write markdown files next to each recording in
+                            storage, named after the audio file (
+                            <code className="font-mono text-xs">
+                                Board meeting.transcript.md
+                            </code>
+                            ). With local storage on a mounted folder, they
+                            appear straight on disk.
+                        </p>
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                        <Label
+                            htmlFor="auto-export-transcript"
+                            className="text-sm font-normal"
+                        >
+                            Export transcripts
+                        </Label>
+                        <Switch
+                            id="auto-export-transcript"
+                            checked={autoExportTranscript}
+                            onCheckedChange={(checked) =>
+                                handleExportBackupSettingChange({
+                                    autoExportTranscript: checked,
+                                })
+                            }
+                            disabled={isLoadingSettings || isSavingSettings}
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between">
+                        <Label
+                            htmlFor="auto-export-summary"
+                            className="text-sm font-normal"
+                        >
+                            Export summaries
+                        </Label>
+                        <Switch
+                            id="auto-export-summary"
+                            checked={autoExportSummary}
+                            onCheckedChange={(checked) =>
+                                handleExportBackupSettingChange({
+                                    autoExportSummary: checked,
+                                })
+                            }
+                            disabled={isLoadingSettings || isSavingSettings}
+                        />
+                    </div>
+
+                    <div className="flex items-center justify-between gap-4">
+                        <p className="text-xs text-muted-foreground">
+                            New transcriptions and summaries are exported
+                            automatically. Existing recordings need one
+                            backfill.
+                        </p>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDocumentBackfill}
+                            disabled={
+                                isBackfilling ||
+                                (!autoExportTranscript && !autoExportSummary)
+                            }
+                        >
+                            {isBackfilling
+                                ? "Exporting..."
+                                : "Export all existing"}
+                        </Button>
+                    </div>
                 </div>
 
                 <div className="space-y-2 opacity-60">

@@ -18,6 +18,7 @@ import {
 import { decrypt } from "@/lib/encryption";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { AppError, ErrorCode } from "@/lib/errors";
+import { exportRecordingSidecarsIfEnabled } from "@/lib/export/document-sidecars";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { upsertEnhancement } from "@/lib/transcription/persist";
 
@@ -296,6 +297,8 @@ export async function generateSummaryForRecording(
     if (!committed) {
         throw new AppError(ErrorCode.NOT_FOUND, "Recording was deleted", 410);
     }
+
+    await exportRecordingSidecarsIfEnabled(userId, recordingId, "summary");
 
     await captureServerEvent({
         distinctId: userId,

@@ -523,6 +523,12 @@ export const userSettings = pgTable("user_settings", {
         .notNull()
         .default("json"), // 'json', 'txt', 'srt', 'vtt'
     autoExport: boolean("auto_export").notNull().default(false),
+    // Write a `<recording>.transcript.md` / `<recording>.summary.md`
+    // sidecar next to the audio file in storage after each successful run.
+    autoExportTranscript: boolean("auto_export_transcript")
+        .notNull()
+        .default(false),
+    autoExportSummary: boolean("auto_export_summary").notNull().default(false),
     backupFrequency: varchar("backup_frequency", { length: 20 }), // nullable, 'daily', 'weekly', 'monthly', 'never'
     // Default providers (for quick selection)
     defaultProviders: jsonb("default_providers"), // { transcription: 'openai', enhancement: 'claude' }

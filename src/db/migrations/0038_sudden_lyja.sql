@@ -1,0 +1,2 @@
+ALTER TABLE "user_settings" ADD COLUMN "auto_export_transcript" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "user_settings" ADD COLUMN "auto_export_summary" boolean DEFAULT false NOT NULL;

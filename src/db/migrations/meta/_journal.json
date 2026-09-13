@@ -267,6 +267,13 @@
       "when": 1785230494218,
       "tag": "0037_thankful_silver_samurai",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1789295656977,
+      "tag": "0038_sudden_lyja",
+      "breakpoints": true
     }
   ]
 }
