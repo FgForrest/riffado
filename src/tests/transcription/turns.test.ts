@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-    type TranscriptTurn,
     renderTurnsAsText,
+    type TranscriptTurn,
     turnsFromLabelledSegments,
 } from "@/lib/transcription/turns";
 
@@ -61,7 +61,12 @@ describe("turnsFromLabelledSegments", () => {
         expect(
             turnsFromLabelledSegments([
                 { speaker: "S1", startMs: 0, endMs: 1000, text: "Ahoj" },
-                { speaker: "S1", startMs: 1000, endMs: 2000, text: "tady Jan." },
+                {
+                    speaker: "S1",
+                    startMs: 1000,
+                    endMs: 2000,
+                    text: "tady Jan.",
+                },
                 { speaker: "S2", startMs: 2000, endMs: 3000, text: "Zdravím." },
             ]),
         ).toEqual([
@@ -71,13 +76,13 @@ describe("turnsFromLabelledSegments", () => {
     });
 
     it("extends the turn's end time as segments are merged", () => {
-        const [turn] = turnsFromLabelledSegments([
+        const turns = turnsFromLabelledSegments([
             { speaker: "S1", startMs: 500, endMs: 1000, text: "a" },
             { speaker: "S1", startMs: 4000, endMs: 9000, text: "b" },
         ]);
 
-        expect(turn.startMs).toBe(500);
-        expect(turn.endMs).toBe(9000);
+        expect(turns?.[0].startMs).toBe(500);
+        expect(turns?.[0].endMs).toBe(9000);
     });
 
     it("treats a change of speaker as a new turn even when times are adjacent", () => {
@@ -86,7 +91,7 @@ describe("turnsFromLabelledSegments", () => {
                 { speaker: "S1", startMs: 0, endMs: 100, text: "a" },
                 { speaker: "S2", startMs: 100, endMs: 200, text: "b" },
                 { speaker: "S1", startMs: 200, endMs: 300, text: "c" },
-            ]).map((turn) => turn.speaker),
+            ])?.map((turn) => turn.speaker),
         ).toEqual(["S1", "S2", "S1"]);
     });
 

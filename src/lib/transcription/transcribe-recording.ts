@@ -44,6 +44,7 @@ import { geminiTranscribe } from "@/lib/transcription/gemini-transcribe";
 import { isRiffadoIncludedProviderId } from "@/lib/transcription/included-provider";
 import { upsertTranscription } from "@/lib/transcription/persist";
 import { speechmaticsTranscribe } from "@/lib/transcription/speechmatics-transcribe";
+import type { TranscriptTurn } from "@/lib/transcription/turns";
 import { emitEvent } from "@/lib/webhooks/emit";
 
 /**
@@ -421,6 +422,9 @@ async function transcribeRecordingInner(
         let detectedLanguage: string | null;
         let persistProvider: string;
         let persistModel: string;
+        // Only the diarizing providers set this; the rest leave it undefined
+        // and `upsertTranscription` clears any turns a previous run stored.
+        let turns: TranscriptTurn[] | undefined;
 
         if (useManaged) {
             if (!isMynahConfigured()) {
@@ -494,6 +498,7 @@ async function transcribeRecordingInner(
                 });
                 transcriptionText = result.text;
                 detectedLanguage = result.detectedLanguage;
+                turns = result.turns;
             } else if (transcriptionStyle === "speechmatics") {
                 // Batch accepts hours-long uploads, so the Whisper 25 MiB
                 // re-encode is skipped here the same way it is for Scribe.
@@ -506,6 +511,7 @@ async function transcribeRecordingInner(
                 });
                 transcriptionText = result.text;
                 detectedLanguage = result.detectedLanguage;
+                turns = result.turns;
             } else {
                 const openai = new OpenAI({
                     apiKey,
@@ -563,6 +569,7 @@ async function transcribeRecordingInner(
                     );
                     transcriptionText = parsed.text;
                     detectedLanguage = parsed.detectedLanguage;
+                    turns = parsed.turns;
                 }
             }
         } else {
@@ -592,6 +599,7 @@ async function transcribeRecordingInner(
             source: "riffado",
             provider: persistProvider,
             model: persistModel,
+            turns,
         });
 
         if (!committed) {

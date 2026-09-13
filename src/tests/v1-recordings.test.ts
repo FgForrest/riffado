@@ -71,6 +71,7 @@ const transcription = {
     provider: "openai",
     model: "whisper-1",
     source: "riffado",
+    turns: null,
     createdAt: now,
 };
 

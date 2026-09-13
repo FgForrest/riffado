@@ -22,6 +22,7 @@ import {
     isReady,
     parseSummary,
     parseTranscript,
+    segmentsToTurns,
     selectContentItems,
 } from "@/lib/plaud/content";
 import {
@@ -1016,6 +1017,11 @@ async function importPlaudContent(
                         source: "plaud",
                         provider: "plaud",
                         model: "plaud-native",
+                        turns:
+                            segmentsToTurns(
+                                parsed.segments,
+                                detail?.data?.duration,
+                            ) ?? undefined,
                     });
                     if (committed) {
                         transcriptImported.add(candidate.recordingId);
