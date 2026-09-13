@@ -142,6 +142,21 @@ export interface RunMultiPassOptions {
     onProgress?: (progress: MultiPassProgress) => void;
 }
 
+/**
+ * Why one pass did or did not contribute.
+ *
+ * Deliberately carries no model output. A pass reply is a summary of the
+ * user's recording, so the shape of an unusable one is described -- how long
+ * it was, what character it opened with -- rather than quoted. That is enough
+ * to tell a truncated JSON object (`{`, near the token ceiling) from a prose
+ * preamble or a refusal (a letter, often short), which is the distinction
+ * worth having.
+ */
+export type PassOutcome =
+    | { status: "usable" }
+    | { status: "unparseable"; replyChars: number; startsWith: string }
+    | { status: "rejected"; error: string };
+
 export interface MultiPassResult {
     payload: SummaryPayload;
     roundsRequested: number;
@@ -150,6 +165,47 @@ export interface MultiPassResult {
     merged: boolean;
     /** Short human string for logs and analytics. */
     detail: string;
+    /**
+     * One entry per requested pass, for diagnosing a degraded run.
+     *
+     * Never stored: `async_jobs` is unencrypted, and while these entries hold
+     * no content they are only useful while someone is reading a log.
+     */
+    passOutcomes: PassOutcome[];
+}
+
+/** Longest rejection text kept. Provider errors can echo the request. */
+const MAX_REJECTION_CHARS = 200;
+
+function describeRejection(reason: unknown): string {
+    const text =
+        reason instanceof Error
+            ? `${reason.name}: ${reason.message}`
+            : String(reason);
+    return text.slice(0, MAX_REJECTION_CHARS);
+}
+
+function describeUnparseable(reply: string): PassOutcome {
+    const trimmed = reply.trimStart();
+    return {
+        status: "unparseable",
+        replyChars: reply.length,
+        startsWith: trimmed.slice(0, 1) || "(empty)",
+    };
+}
+
+/** One-line rendering of the outcomes, for a log line. */
+export function formatPassOutcomes(outcomes: PassOutcome[]): string {
+    return outcomes
+        .map((outcome, index) => {
+            const n = index + 1;
+            if (outcome.status === "usable") return `#${n} usable`;
+            if (outcome.status === "rejected") {
+                return `#${n} rejected (${outcome.error})`;
+            }
+            return `#${n} unparseable (${outcome.replyChars} chars, starts "${outcome.startsWith}")`;
+        })
+        .join("; ");
 }
 
 /**
@@ -247,8 +303,29 @@ export async function runMultiPassSummary(
             : new Error("Every summary pass failed");
     }
 
-    const parsed = fulfilled.map((r) => parseSummaryPayload(r.value));
+    // Index-aligned with `settled` so each reply is parsed once and a rejected
+    // pass still occupies its slot, instead of going missing from the list.
+    const parsedByIndex = settled.map((outcome) =>
+        outcome.status === "fulfilled"
+            ? parseSummaryPayload(outcome.value)
+            : null,
+    );
+    const parsed = parsedByIndex.filter(
+        (payload): payload is SummaryPayload => payload !== null,
+    );
     const usable = parsed.filter((p) => p.structured);
+
+    const passOutcomes: PassOutcome[] = settled.map((outcome, index) => {
+        if (outcome.status === "rejected") {
+            return {
+                status: "rejected",
+                error: describeRejection(outcome.reason),
+            };
+        }
+        return parsedByIndex[index]?.structured
+            ? { status: "usable" }
+            : describeUnparseable(outcome.value);
+    });
 
     if (usable.length === 0) {
         return {
@@ -257,6 +334,7 @@ export async function runMultiPassSummary(
             passesUsed: 0,
             merged: false,
             detail: `${fulfilled.length}/${rounds} passes, none parseable, no merge`,
+            passOutcomes,
         };
     }
 
@@ -267,6 +345,7 @@ export async function runMultiPassSummary(
             passesUsed: 1,
             merged: false,
             detail: `1/${rounds} passes usable, no merge`,
+            passOutcomes,
         };
     }
 
@@ -286,6 +365,7 @@ export async function runMultiPassSummary(
                 passesUsed: usable.length,
                 merged: false,
                 detail: `${usable.length}/${rounds} passes, merge unparseable -> richest pass`,
+                passOutcomes,
             };
         }
         return {
@@ -294,6 +374,7 @@ export async function runMultiPassSummary(
             passesUsed: usable.length,
             merged: true,
             detail: `${usable.length}/${rounds} passes + merge`,
+            passOutcomes,
         };
     } catch {
         return {
@@ -302,6 +383,7 @@ export async function runMultiPassSummary(
             passesUsed: usable.length,
             merged: false,
             detail: `${usable.length}/${rounds} passes, merge failed -> richest pass`,
+            passOutcomes,
         };
     }
 }
