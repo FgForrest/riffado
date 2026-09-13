@@ -2,7 +2,10 @@ import { and, eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { apiCredentials, userSettings } from "@/db/schema";
-import { isTranscriptionOnlyProvider } from "@/lib/ai/provider-presets";
+import {
+    isEnhancementOnlyProvider,
+    isTranscriptionOnlyProvider,
+} from "@/lib/ai/provider-presets";
 import { setDefaultTranscriptionProvider } from "@/lib/ai/set-default-transcription";
 import { validateAiBaseUrl } from "@/lib/ai/validate-base-url";
 import { requireApiSession } from "@/lib/auth-server";
@@ -50,6 +53,18 @@ export const PUT = apiHandler<IdContext>(async (request, context) => {
             `${existing.provider} transcribes but cannot run AI enhancements. Pick another provider for summaries.`,
             400,
             { field: "isDefaultEnhancement" },
+        );
+    }
+
+    if (
+        isDefaultTranscription &&
+        isEnhancementOnlyProvider(existing.provider)
+    ) {
+        throw new AppError(
+            ErrorCode.INVALID_INPUT,
+            `${existing.provider} runs AI enhancements but cannot transcribe. Pick another provider for transcription.`,
+            400,
+            { field: "isDefaultTranscription" },
         );
     }
 

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/db";
 import { apiCredentials } from "@/db/schema";
+import { isEnhancementOnlyProvider } from "@/lib/ai/provider-presets";
 import { setDefaultTranscriptionProvider } from "@/lib/ai/set-default-transcription";
 import { requireApiSession } from "@/lib/auth-server";
 import { getEntitlements } from "@/lib/entitlements";
@@ -52,7 +53,10 @@ export const PUT = apiHandler(async (request: Request) => {
         }
     } else {
         const [provider] = await db
-            .select({ id: apiCredentials.id })
+            .select({
+                id: apiCredentials.id,
+                provider: apiCredentials.provider,
+            })
             .from(apiCredentials)
             .where(
                 and(
@@ -64,6 +68,19 @@ export const PUT = apiHandler(async (request: Request) => {
 
         if (!provider) {
             throw new AppError(ErrorCode.NOT_FOUND, "Provider not found", 404);
+        }
+
+        // This route writes the authoritative pointer
+        // (`userSettings.defaultTranscriptionProviderId`) that
+        // `transcribeRecording` reads, so it is the last place an
+        // enhancement-only provider could be aimed at audio.
+        if (isEnhancementOnlyProvider(provider.provider)) {
+            throw new AppError(
+                ErrorCode.INVALID_INPUT,
+                `${provider.provider} runs AI enhancements but cannot transcribe. Pick another provider for transcription.`,
+                400,
+                { field: "providerId" },
+            );
         }
     }
 

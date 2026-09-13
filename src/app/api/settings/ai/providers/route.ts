@@ -3,7 +3,10 @@ import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { apiCredentials } from "@/db/schema";
 import { listUserProviders } from "@/lib/ai/list-providers";
-import { isTranscriptionOnlyProvider } from "@/lib/ai/provider-presets";
+import {
+    isEnhancementOnlyProvider,
+    isTranscriptionOnlyProvider,
+} from "@/lib/ai/provider-presets";
 import { setDefaultTranscriptionProvider } from "@/lib/ai/set-default-transcription";
 import { validateAiBaseUrl } from "@/lib/ai/validate-base-url";
 import { requireApiSession } from "@/lib/auth-server";
@@ -48,6 +51,15 @@ export const POST = apiHandler(async (request: Request) => {
             `${provider} transcribes but cannot run AI enhancements. Pick another provider for summaries.`,
             400,
             { field: "isDefaultEnhancement" },
+        );
+    }
+
+    if (isDefaultTranscription && isEnhancementOnlyProvider(provider)) {
+        throw new AppError(
+            ErrorCode.INVALID_INPUT,
+            `${provider} runs AI enhancements but cannot transcribe. Pick another provider for transcription.`,
+            400,
+            { field: "isDefaultTranscription" },
         );
     }
 
