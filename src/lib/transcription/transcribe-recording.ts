@@ -7,6 +7,7 @@ import {
     plaudConnections,
     recordings,
     transcriptions,
+    transcriptSpeakers,
     userSettings,
 } from "@/db/schema";
 import { generateTitleFromTranscription } from "@/lib/ai/generate-title";
@@ -622,6 +623,26 @@ async function transcribeRecordingInner(
         // auto-summarize is on, a fresh summary is generated below;
         // otherwise the recording shows no summary until the user clicks
         // "Generate summary" manually.
+        // Same reasoning for speaker attributions, and they need an explicit
+        // delete rather than a cascade: `upsertTranscription` updates the
+        // existing row in place, so the transcription id survives and the FK
+        // never fires. A fresh diarization run renumbers the labels, so an
+        // attribution kept across it names the wrong turns -- silently, since
+        // `speaker_0` still exists, it is just somebody else now.
+        if (existingTranscription?.text && opts.force) {
+            await db
+                .delete(transcriptSpeakers)
+                .where(
+                    and(
+                        eq(transcriptSpeakers.userId, userId),
+                        eq(
+                            transcriptSpeakers.transcriptionId,
+                            existingTranscription.id,
+                        ),
+                    ),
+                );
+        }
+
         if (existingTranscription?.text && opts.force) {
             await db
                 .delete(aiEnhancements)
