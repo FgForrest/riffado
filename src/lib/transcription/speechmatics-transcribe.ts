@@ -1,4 +1,5 @@
 import { env } from "@/lib/env";
+import type { TranscriptTurn } from "@/lib/transcription/turns";
 
 /**
  * Speechmatics Batch speech-to-text.
@@ -58,6 +59,8 @@ export interface SpeechmaticsTranscribeArgs {
 export interface SpeechmaticsTranscribeResult {
     text: string;
     detectedLanguage: string | null;
+    /** Present only for a diarized job that attributed at least one word. */
+    turns?: TranscriptTurn[];
 }
 
 export class SpeechmaticsTranscribeError extends Error {
@@ -85,6 +88,9 @@ interface SpeechmaticsAlternative {
 interface SpeechmaticsResultItem {
     type?: string;
     attaches_to?: string;
+    /** Seconds from the start of the audio. Mandatory in `json-v2`. */
+    start_time?: number;
+    end_time?: number;
     alternatives?: SpeechmaticsAlternative[];
 }
 
@@ -233,8 +239,8 @@ export async function speechmaticsTranscribe({
 
     const results = payload.results ?? [];
     const delimiter = payload.metadata?.language_pack_info?.word_delimiter;
-    const diarizedText = diarize ? renderDiarized(results, delimiter) : null;
-    const text = diarizedText ?? renderPlain(results, delimiter);
+    const diarized = diarize ? renderDiarized(results, delimiter) : null;
+    const text = diarized?.text ?? renderPlain(results, delimiter);
 
     if (!text) {
         throw new SpeechmaticsTranscribeError(
@@ -249,6 +255,7 @@ export async function speechmaticsTranscribe({
             dominantLanguage(results) ??
             configuredLanguage(payload) ??
             (language || null),
+        ...(diarized ? { turns: diarized.turns } : {}),
     };
 }
 
@@ -384,7 +391,7 @@ function renderPlain(
 function renderDiarized(
     results: SpeechmaticsResultItem[],
     wordDelimiter: string | undefined,
-): string | null {
+): { text: string; turns: TranscriptTurn[] } | null {
     const turns: { speaker: string; items: SpeechmaticsResultItem[] }[] = [];
     let sawSpeaker = false;
 
@@ -408,15 +415,36 @@ function renderDiarized(
         return null;
     }
 
-    const lines = turns
+    const rendered = turns
         .map((turn) => ({
             speaker: turn.speaker || "speaker",
             text: renderPlain(turn.items, wordDelimiter),
+            startMs: toMs(turn.items[0]?.start_time),
+            endMs: turn.items.reduce(
+                (latest, item) => Math.max(latest, toMs(item.end_time)),
+                0,
+            ),
         }))
-        .filter((turn) => turn.text.length > 0)
-        .map((turn) => `${turn.speaker}: ${turn.text}`);
+        .filter((turn) => turn.text.length > 0);
 
-    return lines.length > 0 ? lines.join("\n") : null;
+    if (rendered.length === 0) {
+        return null;
+    }
+
+    return {
+        text: rendered.map((turn) => `${turn.speaker}: ${turn.text}`).join("\n"),
+        turns: rendered.map(({ speaker, text, startMs, endMs }) => ({
+            speaker,
+            text,
+            startMs,
+            endMs,
+        })),
+    };
+}
+
+/** Seconds to whole milliseconds; a missing time is the start of the audio. */
+function toMs(seconds: number | undefined): number {
+    return Math.round((seconds ?? 0) * 1000);
 }
 
 /**
