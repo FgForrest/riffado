@@ -392,6 +392,119 @@ export const transcriptions = pgTable(
     }),
 );
 
+// Knowledge base: the people a user's recordings are about.
+//
+// Provenance is uniform across every row this feature writes. `source` says
+// how we came to believe something and `status` says whether a human has
+// confirmed it; together they replace a graded trust ladder, because the only
+// distinction that changes behaviour is confirmed-by-a-person versus
+// proposed-by-a-machine. Nothing proposed ever reaches a summary, an export
+// or the API.
+export const factSourceEnum = pgEnum("fact_source", [
+    "user",
+    "calendar",
+    "meet",
+    "llm",
+    "heuristic",
+]);
+
+export const factStatusEnum = pgEnum("fact_status", [
+    "confirmed",
+    "suggested",
+    "rejected",
+]);
+
+export const people = pgTable(
+    "people",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        // Encrypted: these are personal data about third parties who never
+        // had an account here, held in a database that is multi-tenant when
+        // hosted. See `src/lib/knowledge/lookup-hash.ts` for why the email
+        // is additionally hashed instead of simply left in the clear.
+        displayName: text("display_name").notNull(),
+        primaryEmail: text("primary_email"),
+        notes: text("notes"),
+        // HMAC of the normalized primary email. Encryption is not
+        // deterministic, so this is what a lookup and the uniqueness
+        // constraint below actually run against.
+        primaryEmailHash: varchar("primary_email_hash", { length: 64 }),
+        // Set when this row lost a merge. The row survives as a tombstone so
+        // that anything still pointing at the old id resolves to the winner
+        // instead of dangling.
+        mergedIntoId: text("merged_into_id"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        userIdIdx: index("people_user_id_idx").on(table.userId),
+        // Postgres treats NULLs as distinct, so any number of people per user
+        // may have no email at all -- which is the common case for someone
+        // named from a transcript rather than a calendar invite.
+        userEmailHashUnique: unique("people_user_id_email_hash_unique").on(
+            table.userId,
+            table.primaryEmailHash,
+        ),
+    }),
+);
+
+// Which person each anonymous speaker label in a transcript refers to.
+//
+// Keyed on the transcript, not the recording. `transcriptions` deliberately
+// allows a Plaud-imported transcript and the user's own provider's output to
+// coexist for one recording, and their `speaker_0`s are different people
+// produced by different diarizers -- so a recording-keyed overlay would apply
+// a name to whichever transcript happened to be read.
+export const transcriptSpeakers = pgTable(
+    "transcript_speakers",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        transcriptionId: text("transcription_id")
+            .notNull()
+            .references(() => transcriptions.id, { onDelete: "cascade" }),
+        // The raw provider label as stored in `transcriptions.turns`, e.g.
+        // `speaker_0`. Never rewritten; the name is projected over it.
+        label: varchar("label", { length: 64 }).notNull(),
+        // Null means the label is unresolved, which is a perfectly good
+        // outcome: leaving a speaker unknown is always preferable to naming
+        // the wrong person, because these names drive meeting minutes.
+        personId: text("person_id").references(() => people.id, {
+            onDelete: "cascade",
+        }),
+        source: factSourceEnum("source").notNull(),
+        status: factStatusEnum("status").notNull().default("suggested"),
+        confidence: real("confidence"),
+        // Offset into the recording of the moment that justified the guess,
+        // so the confirm UI can seek the player to the proof. The quote
+        // itself is re-derived from `transcriptions.turns` at render time
+        // rather than stored: copying transcript content into a second column
+        // would put it outside the encrypted text and outlive the retention
+        // sweep that deletes the transcript.
+        evidenceStartMs: integer("evidence_start_ms"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        transcriptLabelUnique: unique(
+            "transcript_speakers_transcription_id_label_unique",
+        ).on(table.transcriptionId, table.label),
+        personIdx: index("transcript_speakers_person_id_idx").on(
+            table.personId,
+        ),
+        userIdIdx: index("transcript_speakers_user_id_idx").on(table.userId),
+    }),
+);
+
 // AI Enhancements
 export const aiEnhancements = pgTable(
     "ai_enhancements",
