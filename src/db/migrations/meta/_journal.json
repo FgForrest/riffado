@@ -288,6 +288,13 @@
       "when": 1789321005027,
       "tag": "0040_natural_absorbing_man",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789322194417,
+      "tag": "0041_slippery_mongu",
+      "breakpoints": true
     }
   ]
 }

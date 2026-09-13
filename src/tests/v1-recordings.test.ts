@@ -84,6 +84,10 @@ const enhancement = {
     provider: "openai",
     model: "gpt-4o-mini",
     source: "riffado",
+    // Single-pass summary: multi-pass provenance is NULL.
+    multiPassRounds: null,
+    multiPassUsed: null,
+    multiPassMerged: null,
     createdAt: now,
 };
 

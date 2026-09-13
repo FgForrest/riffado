@@ -93,6 +93,16 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
         actionItems: decryptJsonField<string[]>(enhancement.actionItems),
         provider: enhancement.provider,
         model: enhancement.model,
+        // Same nested shape the POST returns, so the client has one shape to
+        // render rather than flat columns here and an object there.
+        multiPass:
+            enhancement.multiPassRounds == null
+                ? undefined
+                : {
+                      roundsRequested: enhancement.multiPassRounds,
+                      passesUsed: enhancement.multiPassUsed ?? 0,
+                      merged: enhancement.multiPassMerged ?? false,
+                  },
         createdAt: enhancement.createdAt,
     });
 });

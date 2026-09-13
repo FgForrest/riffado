@@ -39,6 +39,19 @@ export interface UpsertEnhancementArgs {
     source: EnhancementSource;
     provider: string;
     model: string;
+    /**
+     * Multi-pass provenance, or undefined for a single-pass run.
+     *
+     * Written on every upsert, including as NULL: re-generating a
+     * multi-pass summary in single-pass mode has to clear the old values,
+     * or the row keeps claiming a provenance the current summary does not
+     * have.
+     */
+    multiPass?: {
+        roundsRequested: number;
+        passesUsed: number;
+        merged: boolean;
+    };
 }
 
 /**
@@ -188,6 +201,7 @@ export async function upsertEnhancement(
         source,
         provider,
         model,
+        multiPass,
     } = args;
 
     try {
@@ -219,6 +233,13 @@ export async function upsertEnhancement(
                 )
                 .limit(1);
 
+            // Always written, NULL included -- see `multiPass` on the args.
+            const multiPassColumns = {
+                multiPassRounds: multiPass?.roundsRequested ?? null,
+                multiPassUsed: multiPass?.passesUsed ?? null,
+                multiPassMerged: multiPass?.merged ?? null,
+            };
+
             const encryptedSummary = encryptText(summary);
             const encryptedKeyPoints = encryptJsonField(keyPoints);
             const encryptedActionItems = encryptJsonField(actionItems);
@@ -233,6 +254,7 @@ export async function upsertEnhancement(
                         provider,
                         model,
                         source,
+                        ...multiPassColumns,
                     })
                     .where(
                         and(
@@ -250,6 +272,7 @@ export async function upsertEnhancement(
                     provider,
                     model,
                     source,
+                    ...multiPassColumns,
                 });
             }
 

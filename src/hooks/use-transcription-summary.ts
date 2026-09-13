@@ -30,6 +30,15 @@ export interface SummaryData {
     actionItems: string[] | null;
     provider?: string;
     model?: string;
+    /**
+     * Multi-pass provenance, absent for a single-pass summary. Returned by
+     * both POST and GET, so the badge survives a reload.
+     */
+    multiPass?: {
+        roundsRequested: number;
+        passesUsed: number;
+        merged: boolean;
+    };
     /** Prompt id actually used server-side. Only present on POST responses. */
     promptId?: string;
     /**

@@ -360,6 +360,7 @@ export async function generateSummaryForRecording(
         source: "riffado",
         provider: credentials.provider,
         model,
+        multiPass,
     });
 
     if (!committed) {
