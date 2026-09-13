@@ -18,6 +18,8 @@ const {
         reclaimStaleProcessingExportJobs: vi.fn(),
         selectStaleStorageKeys: vi.fn(),
         clearStaleStorageKey: vi.fn(),
+        listUsersDueForScheduledBackup: vi.fn(),
+        createExportJob: vi.fn(),
         EXPORT_MAX_ATTEMPTS: 3,
     },
     buildArchiveMock: { buildAndUploadExportArchive: vi.fn() },
@@ -36,6 +38,7 @@ vi.mock("@/lib/notifications/email", () => emailMock);
 vi.mock("@/lib/env", () => ({ env: envMock }));
 vi.mock("@/lib/storage/factory", () => ({
     createStorageProvider: () => storageMock,
+    createBackupStorageProvider: () => storageMock,
 }));
 
 function stubEmailLookup(email: string | null) {
@@ -57,6 +60,8 @@ describe("export worker tick", () => {
         queriesMock.claimPendingExportJobs.mockResolvedValue([]);
         queriesMock.selectExpiredExportJobs.mockResolvedValue([]);
         queriesMock.deleteExportJobRow.mockResolvedValue(undefined);
+        queriesMock.listUsersDueForScheduledBackup.mockResolvedValue([]);
+        queriesMock.createExportJob.mockResolvedValue({ id: "queued" });
         queriesMock.selectStaleStorageKeys.mockResolvedValue([]);
         queriesMock.clearStaleStorageKey.mockResolvedValue(undefined);
         queriesMock.completeExportJob.mockResolvedValue(true);

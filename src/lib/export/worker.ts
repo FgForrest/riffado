@@ -4,8 +4,10 @@ import {
     claimPendingExportJobs,
     clearStaleStorageKey,
     completeExportJob,
+    createExportJob,
     deleteExportJobRow,
     EXPORT_MAX_ATTEMPTS,
+    listUsersDueForScheduledBackup,
     reclaimStaleProcessingExportJobs,
     recordExportJobFailure,
     selectExpiredExportJobs,
@@ -15,7 +17,10 @@ import { users } from "@/db/schema";
 import { env } from "@/lib/env";
 import { sendExportReadyEmail } from "@/lib/notifications/email";
 import { captureServerException } from "@/lib/posthog-server";
-import { createStorageProvider } from "@/lib/storage/factory";
+import {
+    createBackupStorageProvider,
+    createStorageProvider,
+} from "@/lib/storage/factory";
 import { buildAndUploadExportArchive } from "./build-archive";
 
 const TICK_MS = 30 * 1000;
@@ -24,6 +29,11 @@ const TICK_MS = 30 * 1000;
 // starve sync/transcription work on the same instance (hosted fairness).
 const MAX_JOBS_PER_TICK = 2;
 const MAX_CLEANUP_PER_TICK = 20;
+// How often to look for users whose scheduled backup is due, and how
+// many to enqueue at once. The cap keeps a daily cadence shared by many
+// users from queueing every one of their archives in a single tick.
+const SCHEDULE_CHECK_MS = 15 * 60 * 1000;
+const MAX_SCHEDULED_PER_TICK = 10;
 const MAX_STALE_KEY_SWEEP_PER_TICK = 20;
 // No forward progress (bytes written, or a recording finished) for this
 // long means the build is genuinely stuck (hung network read, wedged
@@ -103,7 +113,11 @@ async function processJob(job: {
     userId: string;
     claimToken: string;
 }): Promise<void> {
-    const storage = createStorageProvider();
+    // Recordings are read from the instance's normal storage; the
+    // archive is written wherever backups go. The same object unless
+    // BACKUP_STORAGE_PATH is set.
+    const sourceStorage = createStorageProvider();
+    const storage = createBackupStorageProvider();
     // Keyed per claim attempt (not just per job) -- a job that's
     // reclaimed as stale and re-claimed gets a fresh claimToken and
     // therefore a fresh key. That means a superseded claim can never
@@ -118,7 +132,8 @@ async function processJob(job: {
             (signal, onProgress) =>
                 buildAndUploadExportArchive({
                     userId: job.userId,
-                    storage,
+                    sourceStorage,
+                    destinationStorage: storage,
                     storageKey,
                     signal,
                     onProgress,
@@ -213,7 +228,7 @@ async function notifyExportReady(userId: string, jobId: string): Promise<void> {
 async function cleanupExpired(): Promise<void> {
     const expired = await selectExpiredExportJobs(MAX_CLEANUP_PER_TICK);
     if (expired.length === 0) return;
-    const storage = createStorageProvider();
+    const storage = createBackupStorageProvider();
     let cleaned = 0;
     for (const job of expired) {
         try {
@@ -239,7 +254,7 @@ async function cleanupExpired(): Promise<void> {
 async function sweepStaleStorageKeys(): Promise<void> {
     const stale = await selectStaleStorageKeys(MAX_STALE_KEY_SWEEP_PER_TICK);
     if (stale.length === 0) return;
-    const storage = createStorageProvider();
+    const storage = createBackupStorageProvider();
     let swept = 0;
     for (const entry of stale) {
         try {
@@ -264,8 +279,45 @@ async function sweepStaleStorageKeys(): Promise<void> {
     }
 }
 
+/**
+ * Enqueue archives for users whose chosen cadence says one is due.
+ *
+ * This only adds rows to the queue; the same claim/build/expire
+ * machinery above then treats a scheduled archive exactly like one a
+ * user asked for by hand, which is the whole reason scheduling is a
+ * handful of lines rather than a second pipeline.
+ *
+ * Exported for testing.
+ */
+export async function scheduleDueBackups(): Promise<number> {
+    const due = await listUsersDueForScheduledBackup(MAX_SCHEDULED_PER_TICK);
+    let queued = 0;
+
+    for (const user of due) {
+        try {
+            await createExportJob(user.userId);
+            queued += 1;
+        } catch (error) {
+            // A user who cannot be queued (a job created between the
+            // query and the insert, a transient database error) is not a
+            // reason to skip everyone behind them in the list. The next
+            // pass reconsiders them from scratch.
+            console.error(
+                `[export-worker] failed to queue ${user.frequency} backup for user ${user.userId}:`,
+                error,
+            );
+        }
+    }
+
+    if (queued > 0) {
+        console.log(`[export-worker] queued ${queued} scheduled backup(s)`);
+    }
+    return queued;
+}
+
 let started = false;
 let running = false;
+let lastScheduleCheck = 0;
 
 /** Exported for testing. */
 export async function tick(): Promise<void> {
@@ -285,6 +337,15 @@ export async function tick(): Promise<void> {
 
         await cleanupExpired();
         await sweepStaleStorageKeys();
+
+        // The build queue is drained every 30s; cadences are measured in
+        // days. Checking who is due on the same interval would be ~2800
+        // pointless queries a day to notice a change that could not have
+        // happened, so this runs on its own, much slower clock.
+        if (Date.now() - lastScheduleCheck >= SCHEDULE_CHECK_MS) {
+            lastScheduleCheck = Date.now();
+            await scheduleDueBackups();
+        }
     } catch (error) {
         console.error("[export-worker] tick failed:", error);
         captureServerException(error, { source: "worker:export" });

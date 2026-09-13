@@ -17,42 +17,56 @@ The audio files themselves live in your configured storage backend
 (local volume or S3 bucket) and are backed up the same way you'd back
 up any other binary blob.
 
-## Backup the database state
+## Backup: the full archive
 
 **Settings → Export/Backup → Create Backup** (or `POST /api/backup`)
-produces a single JSON file:
+queues a job that builds a **zip containing everything**: the audio for
+every recording, its transcripts and summary, and a `manifest.json`
+describing what went in. It is built in the background — the request
+returns immediately rather than blocking while audio streams out of
+storage — and the panel reports progress.
 
-```json
-{
-  "version": "1.0",
-  "createdAt": "2026-05-13T12:00:00.000Z",
-  "userId": "...",
-  "recordings": [
-    {
-      "id": "...",
-      "filename": "Team standup",
-      "duration": 1820,
-      "startTime": "...",
-      "endTime": "...",
-      "filesize": 1234567,
-      "deviceSn": "...",
-      "transcription": {
-        "text": "Plaintext transcript text...",
-        "provider": "...",
-        "model": "..."
-      }
-    }
-  ]
-}
-```
+A recording whose audio cannot be read does not fail the archive; it is
+noted in the manifest and skipped, so you still get everything else.
 
-The archive is **plaintext**. Riffado's at-rest encryption decrypts
-all fields before serialization because the backup is *your* export of
-your own data — you own it from this point. Treat the file the same
-way you'd treat an unencrypted database dump: store it encrypted,
-restrict access, don't email it.
+Finished archives stay downloadable for **7 days**, then a cleanup pass
+deletes them.
 
-The backup does **not** include audio files. Back those up separately.
+The contents are **plaintext**. Riffado's at-rest encryption decrypts
+every field before writing it into the archive, because the backup is
+*your* export of your own data — you own it from this point. Treat the
+file the way you would an unencrypted database dump: store it
+encrypted, restrict access, don't email it.
+
+### Where archives are written
+
+By default an archive is written to the same storage as the recordings,
+which on a local install means the zip lands in the same folder as the
+audio it contains. Set
+[`BACKUP_STORAGE_PATH`](../self-hosting/environment-variables) to a path
+on separate storage and archives go there instead — worth doing before
+turning on a schedule, since otherwise each archive roughly doubles that
+folder and shares a disk with the original.
+
+### On a schedule
+
+**Backup frequency** (daily, weekly or monthly) builds one
+automatically. The scheduler queues a job when a user has chosen a
+cadence, has nothing already queued or building, and has had no job at
+all created within that window — so a cadence produces at most one
+archive per window, and a job that fails for a durable reason is not
+retried on every pass.
+
+Combined with the 7-day retention above, a *monthly* cadence means the
+archive is gone for three weeks of every month. If a backup should
+always be available, use daily or weekly, or copy each archive somewhere
+else when it lands.
+
+> **Backup is not export.** Two different things with confusingly
+> similar names. A *backup* is this asynchronous zip, audio included.
+> An *export* (below) is a synchronous text download of transcripts and
+> summaries, with no audio. Export is for the words; backup is for
+> everything.
 
 ## Backup the audio files
 

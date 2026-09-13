@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { queriesMock, envMock, storageMock } = vi.hoisted(() => ({
     queriesMock: { getExportJobForUser: vi.fn() },
+    // `DEFAULT_STORAGE_TYPE` no longer decides how the archive is served
+    // -- `backupStorageType()` does, because BACKUP_STORAGE_PATH can put
+    // backups somewhere other than the recordings.
     envMock: { DEFAULT_STORAGE_TYPE: "local" as "local" | "s3" },
     storageMock: {
         getSignedUrl: vi.fn(),
@@ -15,7 +18,8 @@ vi.mock("@/lib/auth-server", () => ({
 }));
 vi.mock("@/lib/env", () => ({ env: envMock }));
 vi.mock("@/lib/storage/factory", () => ({
-    createStorageProvider: () => storageMock,
+    createBackupStorageProvider: () => storageMock,
+    backupStorageType: () => envMock.DEFAULT_STORAGE_TYPE,
 }));
 
 import { GET as downloadGET } from "@/app/api/backup/[jobId]/download/route";

@@ -163,7 +163,8 @@ describe("buildAndUploadExportArchive", () => {
 
         const result = await buildAndUploadExportArchive({
             userId: "user-1",
-            storage,
+            sourceStorage: storage,
+            destinationStorage: storage,
             storageKey: "exports/user-1/job-1.zip",
         });
 
@@ -240,7 +241,8 @@ describe("buildAndUploadExportArchive", () => {
 
         const result = await buildAndUploadExportArchive({
             userId: "user-1",
-            storage,
+            sourceStorage: storage,
+            destinationStorage: storage,
             storageKey: "exports/user-1/job-2.zip",
         });
 
@@ -265,7 +267,8 @@ describe("buildAndUploadExportArchive", () => {
         await expect(
             buildAndUploadExportArchive({
                 userId: "user-1",
-                storage,
+                sourceStorage: storage,
+                destinationStorage: storage,
                 storageKey: "exports/user-1/job-3.zip",
                 signal: controller.signal,
             }),
@@ -277,7 +280,8 @@ describe("buildAndUploadExportArchive", () => {
 
         const result = await buildAndUploadExportArchive({
             userId: "user-1",
-            storage,
+            sourceStorage: storage,
+            destinationStorage: storage,
             storageKey: "exports/user-1/job-4.zip",
         });
 
@@ -315,7 +319,8 @@ describe("buildAndUploadExportArchive", () => {
         const controller = new AbortController();
         const promise = buildAndUploadExportArchive({
             userId: "user-1",
-            storage,
+            sourceStorage: storage,
+            destinationStorage: storage,
             storageKey: "exports/user-1/job-5.zip",
             signal: controller.signal,
         });
