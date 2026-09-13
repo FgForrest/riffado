@@ -107,7 +107,7 @@ services:
     environment:
       BRIDGE_TOKEN: ${BRIDGE_TOKEN}
       # From `claude setup-token`. Leave unset if you instead ran
-      # `docker compose run -it --rm agent-bridge claude` to log in, which
+      # `docker compose run --rm agent-bridge claude auth login`, which
       # writes a credential into the agent_creds volume below.
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       BRIDGE_MAX_CONCURRENCY: ${BRIDGE_MAX_CONCURRENCY:-1}
