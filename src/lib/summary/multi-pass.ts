@@ -51,13 +51,13 @@ export const DEFAULT_MERGE_PROMPT = `You are given several independent JSON extr
 - Collapse entries expressing the same idea into one, keeping the clearest and most complete phrasing. Merge only true duplicates: if two entries differ in substance, keep both. When in doubt, keep both -- a redundant entry costs the reader a moment, a dropped one costs them the information.
 - Never invent a point, detail, owner, or action that is not present in at least one input.
 - When versions CONFLICT on a detail (a number, a date, a name, an owner), prefer the reading that is more specific and that appears in more than one version. If they cannot be reconciled, keep both readings in one entry rather than silently choosing.
-- For "summary", write one coherent paragraph covering what the versions agree on. Introduce no claim absent from the inputs.
+- For "summary", write one coherent Markdown summary covering what the versions agree on. Introduce no claim absent from the inputs. Preserve the structure the inputs used: if the versions organised the summary under headings or bullets, the merged summary keeps that organisation rather than flattening it into a paragraph.
 - Keep each entry in the language it was written in.
 - Entries sharing a topic or owner in [brackets] must be listed together ([A], [A], [B] -- not [A], [B], [A]). Entries with no bracket go last.
 - Where topics nest, use a second bracket level: [Feedback] [John], [Feedback] [Peter] -- not [Feedback - John], [Feedback - Peter].
 - If no version had entries for a list, return that list empty. Never fill it with placeholders such as "None".
 
-Return only the merged JSON object, with no markdown and no code fences.`;
+Return only the merged JSON object, with no code fences around it. Markdown inside the JSON string values is expected.`;
 
 /** Multi-pass provenance as it is stored and returned to the client. */
 export interface MultiPassProvenance {

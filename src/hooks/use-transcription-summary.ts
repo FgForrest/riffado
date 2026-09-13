@@ -100,11 +100,9 @@ interface UseTranscriptionSummaryOptions {
 }
 
 /**
- * Shared summary state for the transcription views. Both the dashboard
- * (`TranscriptionPanel`) and the recording detail page
- * (`recordings/TranscriptionSection`) use the same endpoints with the
- * same expand/preset/optimistic-delete UX -- only the visual chrome
- * differs.
+ * Shared summary state for the transcription views. The dashboard and the
+ * recording detail page both render `TranscriptionPanel`, which is the only
+ * consumer.
  *
  * Returns flat state + handlers; callers compose their own JSX so the
  * dashboard's shadcn `Card`/`Button` look and the recording page's

@@ -13,6 +13,7 @@ import {
     getAiOutputLanguageDirective,
     getDefaultSummaryPromptConfig,
     getSummaryPromptById,
+    SUMMARY_MARKDOWN_DIRECTIVE,
     type SummaryPromptConfiguration,
 } from "@/lib/ai/summary-presets";
 import { decrypt } from "@/lib/encryption";
@@ -273,10 +274,14 @@ export async function generateSummaryForRecording(
     );
 
     const baseSystem =
-        "You are a helpful assistant that summarizes audio transcriptions. Always respond with valid JSON only, no markdown formatting or code fences.";
-    const systemContent = languageDirective
-        ? `${baseSystem} ${languageDirective}`
-        : baseSystem;
+        "You are a helpful assistant that summarizes audio transcriptions. Always respond with one raw JSON object and nothing else: no code fences, and no text before or after it. Markdown inside the JSON string values is expected.";
+    const systemContent = [
+        baseSystem,
+        SUMMARY_MARKDOWN_DIRECTIVE,
+        languageDirective,
+    ]
+        .filter(Boolean)
+        .join(" ");
 
     /**
      * Retry one provider call, not the whole job.
@@ -341,13 +346,19 @@ export async function generateSummaryForRecording(
                     messages: [
                         {
                             role: "system",
-                            // The language directive rides along because the
-                            // merge rewrites the summary paragraph; without it
-                            // the merged prose can come back in a different
-                            // language from the passes it was built from.
-                            content: languageDirective
-                                ? `${mergePrompt}\n\n${languageDirective}`
-                                : mergePrompt,
+                            // Both directives ride along because the merge
+                            // rewrites the summary prose: without the language
+                            // one it can come back in a different language
+                            // from the passes, and without the formatting one
+                            // it flattens their Markdown back into a
+                            // paragraph.
+                            content: [
+                                mergePrompt,
+                                SUMMARY_MARKDOWN_DIRECTIVE,
+                                languageDirective,
+                            ]
+                                .filter(Boolean)
+                                .join("\n\n"),
                         },
                         { role: "user", content: mergeInput },
                     ],
