@@ -13,6 +13,7 @@ import {
     buildMergeInput,
     clampRounds,
     DEFAULT_MERGE_PROMPT,
+    describeMultiPass,
     MULTI_PASS_ROUNDS_MAX,
     MULTI_PASS_ROUNDS_MIN,
     type MultiPassProgress,
@@ -38,6 +39,70 @@ describe("clampRounds", () => {
         expect(clampRounds(undefined)).toBe(3);
         expect(clampRounds("4")).toBe(4);
         expect(clampRounds(3.7)).toBe(3);
+    });
+});
+
+describe("describeMultiPass", () => {
+    it("renders nothing for a single-pass or legacy summary", () => {
+        expect(describeMultiPass(null)).toBeNull();
+        expect(describeMultiPass(undefined)).toBeNull();
+        // A row from before the columns existed, read back as zeroes.
+        expect(
+            describeMultiPass({
+                roundsRequested: 0,
+                passesUsed: 0,
+                merged: false,
+            }),
+        ).toBeNull();
+    });
+
+    it("marks a clean run without flagging it", () => {
+        const badge = describeMultiPass({
+            roundsRequested: 3,
+            passesUsed: 3,
+            merged: true,
+        });
+        expect(badge?.degraded).toBe(false);
+        expect(badge?.label).toBe("multi-pass · 3");
+        expect(badge?.title).toBe("3 of 3 passes merged");
+    });
+
+    it("flags a run that lost passes, and says how many", () => {
+        // The case the badge exists for: this summary reads exactly like a
+        // clean one, so nothing else in the UI would reveal it.
+        const badge = describeMultiPass({
+            roundsRequested: 3,
+            passesUsed: 2,
+            merged: true,
+        });
+        expect(badge?.degraded).toBe(true);
+        expect(badge?.label).toBe("multi-pass · 2/3");
+        expect(badge?.title).toContain(
+            "2 of 3 passes succeeded and were merged",
+        );
+    });
+
+    it("distinguishes a failed merge from a lost pass", () => {
+        const unmerged = describeMultiPass({
+            roundsRequested: 3,
+            passesUsed: 2,
+            merged: false,
+        });
+        expect(unmerged?.title).toContain("merge failed");
+
+        const lone = describeMultiPass({
+            roundsRequested: 3,
+            passesUsed: 1,
+            merged: false,
+        });
+        expect(lone?.title).toContain("unmerged");
+
+        const none = describeMultiPass({
+            roundsRequested: 3,
+            passesUsed: 0,
+            merged: false,
+        });
+        expect(none?.title).toContain("No pass returned usable output");
     });
 });
 

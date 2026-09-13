@@ -5,8 +5,17 @@ import { aiEnhancements, recordings } from "@/db/schema";
 import { requireApiSession } from "@/lib/auth-server";
 import { DEMO_SUMMARIES, isDemoRecordingId } from "@/lib/demo/fixtures";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
-import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import {
+    AppError,
+    apiHandler,
+    ErrorCode,
+    mapErrorToAppError,
+} from "@/lib/errors";
 import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
+import {
+    encodeStreamEvent,
+    type SummaryStreamEvent,
+} from "@/lib/summary/progress-stream";
 
 type IdContext = { params: Promise<{ id: string }> };
 
@@ -17,12 +26,78 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
     const body = await request.json().catch(() => ({}));
     const presetId = (body.preset as string) || undefined;
 
-    const result = await generateSummaryForRecording(session.user.id, id, {
-        presetId,
-        trigger: "manual",
+    // The JSON path stays the default. Only a caller that asks for the event
+    // stream gets one, so the auto-summarize path, the API tests and any
+    // client that predates streaming keep the response they expect.
+    const accept = request.headers.get("accept") ?? "";
+    if (!accept.includes("text/event-stream")) {
+        const result = await generateSummaryForRecording(session.user.id, id, {
+            presetId,
+            trigger: "manual",
+        });
+        return NextResponse.json(result);
+    }
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream({
+        async start(controller) {
+            const send = (event: SummaryStreamEvent) => {
+                try {
+                    controller.enqueue(
+                        encoder.encode(encodeStreamEvent(event)),
+                    );
+                } catch {
+                    // The client hung up. Generation deliberately continues:
+                    // the summary is persisted server-side either way, so
+                    // abandoning it here would waste the passes already paid
+                    // for and leave the recording without a summary.
+                }
+            };
+
+            try {
+                const result = await generateSummaryForRecording(
+                    session.user.id,
+                    id,
+                    {
+                        presetId,
+                        trigger: "manual",
+                        onProgress: (progress) =>
+                            send({ type: "progress", ...progress }),
+                    },
+                );
+                send({ type: "result", result });
+            } catch (error) {
+                // Status is already 200 by the time anything can fail here, so
+                // the failure has to travel as an event. `mapErrorToAppError`
+                // keeps the message identical to the JSON path's.
+                const mapped = mapErrorToAppError(error);
+                send({
+                    type: "error",
+                    error: mapped.message,
+                    code: mapped.code,
+                });
+            } finally {
+                try {
+                    controller.close();
+                } catch {
+                    // Already closed by a client disconnect.
+                }
+            }
+        },
     });
 
-    return NextResponse.json(result);
+    return new Response(stream, {
+        headers: {
+            "Content-Type": "text/event-stream; charset=utf-8",
+            // `no-transform` and `X-Accel-Buffering` stop an intermediate
+            // proxy from buffering the stream into one chunk at the end,
+            // which would deliver every progress event at once, after the
+            // work they describe had already finished.
+            "Cache-Control": "no-cache, no-transform",
+            Connection: "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    });
 });
 
 // GET - Fetch existing summary
@@ -93,6 +168,16 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
         actionItems: decryptJsonField<string[]>(enhancement.actionItems),
         provider: enhancement.provider,
         model: enhancement.model,
+        // Same nested shape the POST returns, so the client has one shape to
+        // render rather than flat columns here and an object there.
+        multiPass:
+            enhancement.multiPassRounds == null
+                ? undefined
+                : {
+                      roundsRequested: enhancement.multiPassRounds,
+                      passesUsed: enhancement.multiPassUsed ?? 0,
+                      merged: enhancement.multiPassMerged ?? false,
+                  },
         createdAt: enhancement.createdAt,
     });
 });

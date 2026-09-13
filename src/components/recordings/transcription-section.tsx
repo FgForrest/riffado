@@ -22,6 +22,8 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useTranscriptionSummary } from "@/hooks/use-transcription-summary";
+import { describeMultiPass } from "@/lib/summary/multi-pass";
+import { formatSummaryStatus } from "@/lib/summary/progress-stream";
 
 interface TranscriptionSectionProps {
     recordingId: string;
@@ -44,6 +46,8 @@ export function TranscriptionSection({
     const {
         summaryData,
         isSummarizing,
+        summaryProgress,
+        summaryElapsedMs,
         summaryExpanded,
         setSummaryExpanded,
         summaryPreset,
@@ -56,6 +60,11 @@ export function TranscriptionSection({
         recordingId,
         transcriptionText: transcription,
     });
+
+    // Null for a single-pass summary, so the badge simply does not
+    // render. Derived rather than stored on the client: the shape comes
+    // from POST and GET alike, so a reload shows the same badge.
+    const multiPassBadge = describeMultiPass(summaryData?.multiPass);
 
     const handleTranscribe = async () => {
         setIsProcessing(true);
@@ -234,7 +243,10 @@ export function TranscriptionSection({
                             <Panel variant="inset" className="text-center py-8">
                                 <Loader2 className="size-8 animate-spin text-accent-cyan mx-auto mb-4" />
                                 <p className="text-muted-foreground">
-                                    Generating summary…
+                                    {formatSummaryStatus(
+                                        summaryProgress,
+                                        summaryElapsedMs,
+                                    )}
                                 </p>
                             </Panel>
                         ) : summaryData?.summary ? (
@@ -330,6 +342,20 @@ export function TranscriptionSection({
                                                 {summaryData.model && (
                                                     <span className="px-2 py-0.5 rounded bg-panel-inset font-mono">
                                                         {summaryData.model}
+                                                    </span>
+                                                )}
+                                                {multiPassBadge && (
+                                                    <span
+                                                        className={
+                                                            multiPassBadge.degraded
+                                                                ? "px-2 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                                                                : "px-2 py-0.5 rounded bg-panel-inset"
+                                                        }
+                                                        title={
+                                                            multiPassBadge.title
+                                                        }
+                                                    >
+                                                        {multiPassBadge.label}
                                                     </span>
                                                 )}
                                             </div>

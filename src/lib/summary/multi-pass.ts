@@ -59,6 +59,67 @@ export const DEFAULT_MERGE_PROMPT = `You are given several independent JSON extr
 
 Return only the merged JSON object, with no markdown and no code fences.`;
 
+/** Multi-pass provenance as it is stored and returned to the client. */
+export interface MultiPassProvenance {
+    roundsRequested: number;
+    passesUsed: number;
+    merged: boolean;
+}
+
+export interface MultiPassBadge {
+    /** Compact footer label. */
+    label: string;
+    /** Full explanation, shown on hover. */
+    title: string;
+    /** True when fewer passes were usable than requested, or the merge failed. */
+    degraded: boolean;
+}
+
+/**
+ * Describe a stored run for the summary footer.
+ *
+ * Returns null for a single-pass summary (and for rows predating the
+ * feature), so the badge simply does not render.
+ *
+ * A degraded run is the reason this exists. Dropping a failed pass and
+ * merging the rest is the correct behaviour, but it produces a summary that
+ * looks exactly like a clean one -- so without saying so, "3 passes" and
+ * "the one pass that survived" are indistinguishable to the reader.
+ */
+export function describeMultiPass(
+    provenance: MultiPassProvenance | null | undefined,
+): MultiPassBadge | null {
+    if (!provenance) return null;
+    const { roundsRequested, passesUsed, merged } = provenance;
+    if (!roundsRequested) return null;
+
+    const clean = merged && passesUsed === roundsRequested;
+    if (clean) {
+        return {
+            label: `multi-pass · ${roundsRequested}`,
+            title: `${roundsRequested} of ${roundsRequested} passes merged`,
+            degraded: false,
+        };
+    }
+
+    let title: string;
+    if (passesUsed === 0) {
+        title = `No pass returned usable output; showing the raw reply of ${roundsRequested}.`;
+    } else if (!merged && passesUsed === 1) {
+        title = `Only 1 of ${roundsRequested} passes succeeded, so it is shown unmerged.`;
+    } else if (!merged) {
+        title = `${passesUsed} of ${roundsRequested} passes succeeded, but the merge failed; showing the most complete single pass.`;
+    } else {
+        title = `${passesUsed} of ${roundsRequested} passes succeeded and were merged.`;
+    }
+
+    return {
+        label: `multi-pass · ${passesUsed}/${roundsRequested}`,
+        title,
+        degraded: true,
+    };
+}
+
 export type MultiPassPhase = "passes" | "merging";
 
 export interface MultiPassProgress {

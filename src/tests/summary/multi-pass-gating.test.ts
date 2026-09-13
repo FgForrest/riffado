@@ -70,9 +70,17 @@ function selectChain() {
     return c;
 }
 
+/** Rows handed to `upsertEnhancement`, so provenance writes can be asserted. */
+const written: Record<string, unknown>[] = [];
+
 const tx = {
     select: () => selectChain(),
-    insert: () => ({ values: () => Promise.resolve() }),
+    insert: () => ({
+        values: (row: Record<string, unknown>) => {
+            written.push(row);
+            return Promise.resolve();
+        },
+    }),
     update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
 };
 
@@ -148,6 +156,7 @@ describe("multi-pass gating", () => {
     beforeEach(() => {
         createMock.mockReset();
         selectResults.clear();
+        written.length = 0;
     });
 
     it("makes exactly one call when multi-pass is off", async () => {
@@ -208,6 +217,28 @@ describe("multi-pass gating", () => {
         // by hand, must not be able to fire 99 provider calls.
         expect(createMock).toHaveBeenCalledTimes(6);
         expect(result.multiPass?.roundsRequested).toBe(5);
+    });
+
+    it("persists provenance so the badge survives a reload", async () => {
+        stage({ summaryMultiPass: true, summaryMultiPassRounds: 3 });
+        await generate("manual");
+
+        const row = written.at(-1) as Record<string, unknown>;
+        expect(row.multiPassRounds).toBe(3);
+        expect(row.multiPassUsed).toBe(3);
+        expect(row.multiPassMerged).toBe(true);
+    });
+
+    it("clears provenance when a multi-pass summary is regenerated single-pass", async () => {
+        stage({ summaryMultiPass: false });
+        await generate("manual");
+
+        // Written as NULL, not omitted: leaving the old values in place would
+        // have the row claim a provenance this summary does not have.
+        const row = written.at(-1) as Record<string, unknown>;
+        expect(row.multiPassRounds).toBeNull();
+        expect(row.multiPassUsed).toBeNull();
+        expect(row.multiPassMerged).toBeNull();
     });
 
     it("prefers the user's merge prompt over the built-in one", async () => {

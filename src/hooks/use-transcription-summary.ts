@@ -24,12 +24,26 @@ export interface SummaryPromptOption {
     isPreset: boolean;
 }
 
+import {
+    createStreamEventParser,
+    type SummaryStatusProgress,
+} from "@/lib/summary/progress-stream";
+
 export interface SummaryData {
     summary: string | null;
     keyPoints: string[] | null;
     actionItems: string[] | null;
     provider?: string;
     model?: string;
+    /**
+     * Multi-pass provenance, absent for a single-pass summary. Returned by
+     * both POST and GET, so the badge survives a reload.
+     */
+    multiPass?: {
+        roundsRequested: number;
+        passesUsed: number;
+        merged: boolean;
+    };
     /** Prompt id actually used server-side. Only present on POST responses. */
     promptId?: string;
     /**
@@ -72,6 +86,15 @@ export function useTranscriptionSummary({
     );
     const summarizingIdsRef = useRef(summarizingIds);
     const isSummarizing = isSummarizingForView(recordingId, summarizingIds);
+    // Multi-pass progress for the recording currently generating, and the
+    // clock beside it. Both are cleared when generation ends.
+    //
+    // The clock exists for the single-pass path too, which reports no
+    // progress at all: a spinner that never changes is indistinguishable
+    // from a hung request, which is how a slow run was first reported.
+    const [summaryProgress, setSummaryProgress] =
+        useState<SummaryStatusProgress | null>(null);
+    const [summaryElapsedMs, setSummaryElapsedMs] = useState(0);
     const [summaryExpanded, setSummaryExpanded] = useState(true);
     const [summaryPreset, setSummaryPresetState] = useState("general");
     // Set the moment the caller (the per-recording dropdown) makes an
@@ -134,6 +157,7 @@ export function useTranscriptionSummary({
         new Map<string, string | null | undefined>(),
     );
     const getAbortRef = useRef<AbortController | null>(null);
+    const summaryStartedAtRef = useRef<number | null>(null);
     if (recordingId !== recordingIdRef.current) {
         recordingIdRef.current = recordingId;
         setSummaryData(null);
@@ -227,28 +251,86 @@ export function useTranscriptionSummary({
             targetId,
         );
         setSummarizingIds(summarizingIdsRef.current);
+        setSummaryProgress(null);
+        setSummaryElapsedMs(0);
+        summaryStartedAtRef.current = Date.now();
+
+        const applyResult = (data: SummaryData) => {
+            if (!postIsCurrent()) return;
+            fetchGenerationRef.current += 1;
+            setSummaryData(data);
+            if (data.promptFallback) {
+                toast.warning(
+                    "Selected summary prompt is no longer available -- used your default prompt instead.",
+                );
+            } else {
+                toast.success("Summary generated");
+            }
+        };
+
         try {
             const response = await fetch(
                 `/api/recordings/${targetId}/summary`,
                 {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: {
+                        "Content-Type": "application/json",
+                        // Opt in to progress. A server that predates streaming
+                        // ignores this and answers with JSON, which the branch
+                        // below still handles.
+                        Accept: "text/event-stream, application/json",
+                    },
                     body: JSON.stringify({ preset: summaryPreset }),
                 },
             );
-            if (response.ok) {
-                const data = (await response.json()) as SummaryData;
-                if (postIsCurrent()) {
-                    fetchGenerationRef.current += 1;
-                    setSummaryData(data);
-                    if (data.promptFallback) {
-                        toast.warning(
-                            "Selected summary prompt is no longer available -- used your default prompt instead.",
-                        );
-                    } else {
-                        toast.success("Summary generated");
+
+            const isStream = (
+                response.headers.get("content-type") ?? ""
+            ).includes("text/event-stream");
+
+            if (isStream && response.body) {
+                // A streamed response is 200 before the work starts, so a
+                // failure arrives as an event rather than a status code.
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                const parse = createStreamEventParser();
+                let settled = false;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    for (const event of parse(
+                        decoder.decode(value, { stream: true }),
+                    )) {
+                        if (event.type === "progress") {
+                            if (!postIsCurrent()) continue;
+                            setSummaryProgress({
+                                phase: event.phase,
+                                completed: event.completed,
+                                total: event.total,
+                            });
+                        } else if (event.type === "result") {
+                            settled = true;
+                            applyResult(event.result as SummaryData);
+                        } else if (event.type === "error") {
+                            settled = true;
+                            if (postIsCurrent()) {
+                                toast.error(
+                                    event.error || "Summary generation failed",
+                                );
+                            }
+                        }
                     }
                 }
+
+                // The stream ended without saying how it went -- a dropped
+                // connection or a killed process. Silence would leave the
+                // spinner's disappearance as the only signal.
+                if (!settled && postIsCurrent()) {
+                    toast.error("Summary generation was interrupted");
+                }
+            } else if (response.ok) {
+                applyResult((await response.json()) as SummaryData);
             } else {
                 const error = await response.json().catch(() => ({}));
                 if (postIsCurrent()) {
@@ -265,6 +347,9 @@ export function useTranscriptionSummary({
                 targetId,
             );
             setSummarizingIds(summarizingIdsRef.current);
+            summaryStartedAtRef.current = null;
+            setSummaryProgress(null);
+            setSummaryElapsedMs(0);
         }
     }, [recordingId, summaryPreset]);
 
@@ -306,6 +391,19 @@ export function useTranscriptionSummary({
      * where the server may already have re-summarized -- bumping the
      * key forces a GET without changing recordingId.
      */
+    // One interval for the whole hook rather than one per component that
+    // renders the clock, and only while something is actually generating.
+    useEffect(() => {
+        if (!isSummarizing) return;
+        const tick = () => {
+            const startedAt = summaryStartedAtRef.current;
+            if (startedAt != null) setSummaryElapsedMs(Date.now() - startedAt);
+        };
+        tick();
+        const timer = setInterval(tick, 1000);
+        return () => clearInterval(timer);
+    }, [isSummarizing]);
+
     const refetchSummary = useCallback(() => {
         const id = recordingIdRef.current;
         if (id) {
@@ -318,6 +416,8 @@ export function useTranscriptionSummary({
     return {
         summaryData,
         isSummarizing,
+        summaryProgress,
+        summaryElapsedMs,
         summaryExpanded,
         setSummaryExpanded,
         summaryPreset,
