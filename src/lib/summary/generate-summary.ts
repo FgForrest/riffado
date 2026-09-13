@@ -58,6 +58,39 @@ function bucketLength(chars: number): string {
 }
 
 /**
+ * Coerce a parsed `keyPoints` / `actionItems` value into the `string[]` that
+ * the column type, the API response and the render path all assume.
+ *
+ * `Array.isArray` on its own was not enough. Models -- especially smaller ones
+ * and OpenAI-compatible shims -- answer with `[{ owner, task }]` instead of
+ * `["[owner] task"]`, and the old check waved any array through. The objects
+ * were encrypted, stored, and later reached `point.slice(0, 32)` in the key
+ * points list, so a single malformed response made that recording throw
+ * `point.slice is not a function` on every open, permanently, with nothing in
+ * the UI to explain it or undo it.
+ *
+ * Non-strings are stringified rather than dropped: a visibly wrong entry can be
+ * regenerated, whereas silently discarding it looks exactly like the model
+ * finding nothing to report.
+ */
+function toStringList(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    const out: string[] = [];
+    for (const entry of value) {
+        if (typeof entry === "string") {
+            if (entry.trim()) out.push(entry);
+        } else if (entry !== null && entry !== undefined) {
+            out.push(
+                typeof entry === "object"
+                    ? JSON.stringify(entry)
+                    : String(entry),
+            );
+        }
+    }
+    return out;
+}
+
+/**
  * Generate (or regenerate) a summary for a recording and persist it via
  * the shared `upsertEnhancement` tombstone-aware upsert. Shared by the
  * manual `/api/recordings/[id]/summary` POST handler and the auto-summarize
@@ -273,10 +306,8 @@ export async function generateSummaryForRecording(
             typeof parsed.summary === "string" && parsed.summary
                 ? parsed.summary
                 : rawContent;
-        keyPoints = Array.isArray(parsed.keyPoints) ? parsed.keyPoints : [];
-        actionItems = Array.isArray(parsed.actionItems)
-            ? parsed.actionItems
-            : [];
+        keyPoints = toStringList(parsed.keyPoints);
+        actionItems = toStringList(parsed.actionItems);
     } catch {
         summary = rawContent;
     }
