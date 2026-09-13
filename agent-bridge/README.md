@@ -252,6 +252,8 @@ Anything other than a bare id passes through to the CLI unchanged, so the usable
 
 That is a real trade, not a free win -- N concurrent agent sessions draw on the same rolling window as your own terminal, which is exactly why the default is `1`. Turning multi-pass on for auto-summary as well (off by default) multiplies this by every recording a sync brings in.
 
+**One summary at a time, whatever the queue length.** Summaries run on Riffado's durable job worker, and the summary handler declares a concurrency of `1` (`src/lib/summary/summary-job-handler.ts`). So a sync that queues a dozen auto-summaries still sends the bridge one job's worth of passes at a time: set `BRIDGE_MAX_CONCURRENCY` to the pass count, not to the pass count times the backlog. Raising the handler's concurrency would not make the backlog finish sooner either -- two jobs sharing the same bridge limit just queue inside it, while looking from the outside like two jobs that have stalled.
+
 **Multi-pass merges are capped by the agent, not by Riffado.** Riffado asks for a higher `max_tokens` on the merge than on a pass, because the merged output is the union of every pass and so is longer than any one of them. The bridge drops `max_tokens` (see above), so on this provider the merge is bounded by the agent's own default instead. If merged summaries come back visibly cut off, that is the reason -- not the merge prompt.
 
 **Usage numbers are zeros.** The CLIs bill against a subscription and don't report usable per-request counts. The `usage` block keeps the response shape valid; it is not a measurement.

@@ -1092,6 +1092,131 @@ export const stripeWebhookEvents = pgTable(
     }),
 );
 
+export const asyncJobStatusEnum = pgEnum("async_job_status", [
+    "pending",
+    "processing",
+    "completed",
+    "failed",
+]);
+
+/**
+ * A unit of work that must survive the process that asked for it.
+ *
+ * Riffado already had five background workers, but each owned a bespoke
+ * table for one job shape. This one is generic on purpose: `kind` selects a
+ * handler from the registry in `src/lib/jobs/registry.ts`, so a new kind of
+ * durable work (summaries today, knowledge-base construction next) is a
+ * handler plus a registration, not another table, another worker and another
+ * set of claim/retry/reclaim semantics to get subtly wrong.
+ *
+ * The reason it exists at all is unattended work. A summary generated
+ * automatically after a sync has nobody watching it; a container upgrade
+ * midway through it used to mean the work was simply lost, with the user
+ * finding out only by noticing a recording that never got a summary. A
+ * claimed row whose worker stops heartbeating is reclaimed and retried
+ * instead.
+ *
+ * ## What must never go in here
+ *
+ * `payload`, `progress` and `result` are plain jsonb -- NOT encrypted, unlike
+ * `transcriptions.text` or `ai_enhancements.summary`. So they hold
+ * identifiers, counts and provenance, never user content. A handler that
+ * produces content writes it to its own (encrypted) home and returns only a
+ * description of what it did. `lastError` follows the same rule: it stores
+ * the mapped, user-safe `AppError` message, never a raw provider error,
+ * which can carry request details or key fragments.
+ */
+export const asyncJobs = pgTable(
+    "async_jobs",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        // varchar, not a pgEnum: this is the extension point. Adding a kind
+        // should be a handler registration, and making it an enum would make
+        // it a migration as well -- with a window where a newly deployed
+        // instance enqueues a kind the not-yet-migrated database rejects.
+        kind: varchar("kind", { length: 64 }).notNull(),
+        // The domain object this job acts on -- a recording id for a summary.
+        // Nullable for kinds with no natural subject (a nightly sweep).
+        // Doubles as the dedupe key via `async_jobs_active_unique` below.
+        subjectId: text("subject_id"),
+        // Higher runs first. Exists so one interactive request does not wait
+        // behind a sync's worth of automatic work: a sync can enqueue a dozen
+        // auto-summaries, and without this the user who then clicks "Generate
+        // summary" is last in line behind all of them.
+        priority: integer("priority").notNull().default(0),
+        payload: jsonb("payload")
+            .$type<Record<string, unknown>>()
+            .notNull()
+            .default({}),
+        status: asyncJobStatusEnum("status").notNull().default("pending"),
+        attempts: integer("attempts").notNull().default(0),
+        // Per row rather than per kind, so the value a job was enqueued under
+        // stays stable even if the handler's default is later changed.
+        maxAttempts: integer("max_attempts").notNull().default(3),
+        // When this job next becomes claimable. Set forward on a failed
+        // attempt to implement backoff (same mechanism as
+        // `webhook_deliveries.next_attempt_at`).
+        nextAttemptAt: timestamp("next_attempt_at").notNull().defaultNow(),
+        // Stamped fresh on every claim. Every write the claiming worker makes
+        // is scoped to it, so a job reclaimed as stale cannot be corrupted by
+        // a late write from the worker that lost it. Same mechanism, and the
+        // same reasoning, as `export_jobs.claim_token`.
+        claimToken: text("claim_token"),
+        // Last progress snapshot the handler reported. Counts and phase
+        // names only -- it is what lets a client that reconnects (or a page
+        // reloaded after a restart) show where the job actually is rather
+        // than starting its spinner from zero.
+        progress: jsonb("progress").$type<Record<string, unknown>>(),
+        // Provenance of a completed job, never its output. See the class
+        // comment above.
+        result: jsonb("result").$type<Record<string, unknown>>(),
+        lastError: text("last_error"),
+        errorCode: varchar("error_code", { length: 64 }),
+        // Touched by the running handler. This, not `started_at`, is what
+        // distinguishes "the worker died" from "the job is slow": a process
+        // killed by a container upgrade stops heartbeating immediately, so
+        // the job is reclaimable within a couple of minutes instead of after
+        // whatever worst-case duration ceiling the kind allows.
+        heartbeatAt: timestamp("heartbeat_at"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        startedAt: timestamp("started_at"),
+        completedAt: timestamp("completed_at"),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        // The claim scan: due rows, best priority first, oldest first within
+        // a priority.
+        dueScanIdx: index("async_jobs_due_idx").on(
+            table.status,
+            table.priority,
+            table.nextAttemptAt,
+        ),
+        userIdIdx: index("async_jobs_user_id_idx").on(table.userId),
+        // "Is there a job running for this recording?" -- the reattach query.
+        subjectIdx: index("async_jobs_kind_subject_idx").on(
+            table.kind,
+            table.subjectId,
+        ),
+        // Prune scan over finished rows.
+        completedAtIdx: index("async_jobs_completed_at_idx").on(
+            table.completedAt,
+        ),
+        // One live job per (kind, subject). Double-clicking "Generate
+        // summary" must not buy two summaries, and an application-level
+        // check-then-insert cannot be atomic against a concurrent request
+        // racing the same check. Postgres treats NULLs as distinct, so kinds
+        // with no subject are deliberately unconstrained by this.
+        activeUnique: uniqueIndex("async_jobs_active_unique")
+            .on(table.kind, table.subjectId)
+            .where(sql`${table.status} in ('pending', 'processing')`),
+    }),
+);
+
 export const emailLog = pgTable(
     "email_log",
     {

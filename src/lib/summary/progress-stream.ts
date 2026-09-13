@@ -22,6 +22,17 @@ export interface SummaryStreamResult {
 }
 
 export type SummaryStreamEvent =
+    /**
+     * Sent first, before any work is reported.
+     *
+     * Generation runs on a worker, so the summary outlives the request that
+     * asked for it. Handing the client the job id up front is what lets a
+     * stream broken by a closed laptop, a proxy timeout or a container
+     * upgrade be resumed by polling instead of reported as a failure -- the
+     * work is still happening, and before this the client had no way to say
+     * so.
+     */
+    | { type: "queued"; jobId: string }
     | {
           type: "progress";
           phase: MultiPassPhase;

@@ -18,6 +18,14 @@ type RetentionWorkerModule = {
     startRetentionWorker: () => void;
 };
 
+type JobWorkerModule = {
+    startJobWorker: () => void;
+};
+
+type JobHandlersModule = {
+    registerJobHandlers: () => void;
+};
+
 type EnvModule = {
     env: {
         IS_HOSTED: boolean;
@@ -85,6 +93,18 @@ export async function register() {
     const { startRetentionWorker } =
         require("./lib/retention/worker") as RetentionWorkerModule;
     startRetentionWorker();
+
+    // The generic durable-job worker. Handlers are registered BEFORE the
+    // worker starts: its first sweep runs immediately, and a kind that is not
+    // registered yet is a kind whose queued rows are silently skipped --
+    // which, for work left behind by the restart that just happened, is
+    // exactly the case this worker exists to handle.
+    const { registerJobHandlers } =
+        require("./lib/jobs/handlers") as JobHandlersModule;
+    registerJobHandlers();
+
+    const { startJobWorker } = require("./lib/jobs/worker") as JobWorkerModule;
+    startJobWorker();
 
     // Catch anything that escapes a background worker's own try/catch (or
     // any other unexpected process-level throw) instead of only ever

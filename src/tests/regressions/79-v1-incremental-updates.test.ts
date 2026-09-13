@@ -75,7 +75,6 @@ vi.mock("@/lib/webhooks/emit", () => ({
 
 import {
     DELETE as deleteSummary,
-    POST as generateSummary,
     GET as getSummary,
 } from "@/app/api/recordings/[id]/summary/route";
 import { POST as transcribeRecordingRoute } from "@/app/api/recordings/[id]/transcribe/route";
@@ -83,6 +82,10 @@ import { db } from "@/db";
 import { aiEnhancements, recordings, transcriptions } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { ErrorCode } from "@/lib/errors";
+// Generation is driven directly rather than through POST: the route now
+// queues the work for a background worker, while the scoping and
+// `updatedAt` bookkeeping pinned below belong to the write path itself.
+import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
 
 const userId = "user-79";
 const recordingId = "rec-79";
@@ -317,16 +320,10 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
             ) => callback(tx),
         );
 
-        const response = await generateSummary(
-            routeRequest(`/api/recordings/${recordingId}/summary`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({}),
-            }),
-            routeParams(),
-        );
+        await generateSummaryForRecording(userId, recordingId, {
+            trigger: "manual",
+        });
 
-        expect(response.status).toBe(200);
         expect(
             exprReferencesColumn(transcriptionWhere, transcriptions.userId),
         ).toBe(true);
@@ -397,16 +394,10 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
             ) => callback(tx),
         );
 
-        const response = await generateSummary(
-            routeRequest(`/api/recordings/${recordingId}/summary`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({}),
-            }),
-            routeParams(),
-        );
+        await generateSummaryForRecording(userId, recordingId, {
+            trigger: "manual",
+        });
 
-        expect(response.status).toBe(200);
         expect(tx.update).toHaveBeenCalledWith(aiEnhancements);
         expect(
             exprReferencesColumn(enhancementUpdateWhere, aiEnhancements.userId),
