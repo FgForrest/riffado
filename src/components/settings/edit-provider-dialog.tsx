@@ -247,10 +247,14 @@ export function EditProviderDialog({
                         <Input
                             id="apiKey"
                             type="password"
-                            placeholder={
-                                selectedPreset?.placeholder ||
-                                "Enter a new key to replace the current one"
-                            }
+                            // Never the preset's placeholder here. In the
+                            // add dialog "bridge token" tells you what to
+                            // type; in this one the field is already set
+                            // server-side, so an example value reads as
+                            // the stored key and an empty box looks like
+                            // data loss. It is not: a blank field leaves
+                            // the saved key untouched (PATCH route).
+                            placeholder="Leave blank to keep the current key"
                             value={apiKey}
                             onChange={(e) => setApiKey(e.target.value)}
                             disabled={isLoading}
