@@ -102,10 +102,30 @@ describe("provider-presets", () => {
         });
     });
 
+    describe("Speechmatics", () => {
+        it("uses the native batch style and no base URL", () => {
+            const preset = findPreset("Speechmatics");
+            expect(preset?.transcriptionStyle).toBe("speechmatics");
+            expect(preset?.baseUrl).toBe("");
+            expect(preset?.defaultModel).toBe("enhanced");
+        });
+
+        it("offers diarization as a model variant on every model", () => {
+            const preset = findPreset("Speechmatics");
+            for (const model of ["enhanced", "standard", "melia-1"]) {
+                expect(preset?.knownTranscriptionModels).toContain(model);
+                expect(preset?.knownTranscriptionModels).toContain(
+                    `${model}+diarize`,
+                );
+            }
+        });
+    });
+
     describe("isTranscriptionOnlyProvider", () => {
         it("flags the providers with no chat/completions surface", () => {
             expect(isTranscriptionOnlyProvider("ElevenLabs")).toBe(true);
             expect(isTranscriptionOnlyProvider("Google Gemini")).toBe(true);
+            expect(isTranscriptionOnlyProvider("Speechmatics")).toBe(true);
         });
 
         it("leaves OpenAI-compatible and unknown providers usable", () => {

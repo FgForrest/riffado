@@ -43,6 +43,7 @@ import {
 import { geminiTranscribe } from "@/lib/transcription/gemini-transcribe";
 import { isRiffadoIncludedProviderId } from "@/lib/transcription/included-provider";
 import { upsertTranscription } from "@/lib/transcription/persist";
+import { speechmaticsTranscribe } from "@/lib/transcription/speechmatics-transcribe";
 import { emitEvent } from "@/lib/webhooks/emit";
 
 /**
@@ -462,6 +463,8 @@ async function transcribeRecordingInner(
             // Route based on the provider's transcription style:
             // - "gemini": Google Gemini native generateContent API (inlineData)
             // - "elevenlabs": ElevenLabs Scribe /v1/speech-to-text multipart
+            // - "speechmatics": Speechmatics Batch jobs API (submit, poll,
+            //   download), hidden behind one awaited adapter call
             // - "chat": OpenAI-compatible chat completions with input_audio
             //   (OpenRouter today; #122 -- /v1/audio/transcriptions 404s there)
             // - "whisper": OpenAI-compatible /v1/audio/transcriptions
@@ -483,6 +486,18 @@ async function transcribeRecordingInner(
                 // Scribe accepts multi-gigabyte uploads, so the Whisper
                 // 25 MiB re-encode is deliberately skipped here.
                 const result = await elevenLabsTranscribe({
+                    apiKey,
+                    model,
+                    file: audioFile,
+                    language: defaultLanguage,
+                    baseUrl: credentials.baseUrl,
+                });
+                transcriptionText = result.text;
+                detectedLanguage = result.detectedLanguage;
+            } else if (transcriptionStyle === "speechmatics") {
+                // Batch accepts hours-long uploads, so the Whisper 25 MiB
+                // re-encode is skipped here the same way it is for Scribe.
+                const result = await speechmaticsTranscribe({
                     apiKey,
                     model,
                     file: audioFile,
