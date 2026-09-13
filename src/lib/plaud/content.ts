@@ -1,3 +1,7 @@
+import {
+    type TranscriptTurn,
+    turnsFromLabelledSegments,
+} from "@/lib/transcription/turns";
 import type {
     PlaudContentItem,
     PlaudFileDetailResponse,
@@ -129,24 +133,62 @@ export interface ParsedTranscript {
  * plus the structured segments. Accepts either a bare segment array or an
  * object that wraps one.
  */
+/**
+ * Convert Plaud segments into transcript turns.
+ *
+ * Plaud does not document whether segment times are seconds or milliseconds
+ * and both appear in the wild, so the unit is inferred from the recording's
+ * own duration rather than assumed: the two candidates differ by a factor of
+ * a thousand, so a threshold of a hundred separates them with room to spare.
+ * Without a duration to compare against, values are taken as milliseconds,
+ * which is the unit `PlaudFile.duration` uses.
+ */
+export function segmentsToTurns(
+    segments: readonly PlaudTranscriptSegment[],
+    durationMs?: number,
+): TranscriptTurn[] | null {
+    const maxTime = segments.reduce(
+        (latest, seg) =>
+            Math.max(latest, seg.end_time ?? seg.start_time ?? 0),
+        0,
+    );
+    const inSeconds =
+        typeof durationMs === "number" &&
+        durationMs > 0 &&
+        maxTime > 0 &&
+        maxTime < durationMs / 100;
+    const scale = inSeconds ? 1000 : 1;
+
+    return turnsFromLabelledSegments(
+        segments.map((seg) => {
+            const start = Math.round((seg.start_time ?? 0) * scale);
+            return {
+                speaker: speakerLabel(seg.speaker),
+                startMs: start,
+                endMs:
+                    seg.end_time === undefined
+                        ? start
+                        : Math.round(seg.end_time * scale),
+                text: (seg.content ?? "").trim(),
+            };
+        }),
+    );
+}
+
+/** The label `parseTranscript` writes into the flat text, or "" for none. */
+function speakerLabel(speaker: string | number | undefined | null): string {
+    if (speaker === undefined || speaker === null || speaker === "") return "";
+    return typeof speaker === "number" ? `Speaker ${speaker}` : speaker;
+}
+
 export function parseTranscript(raw: unknown): ParsedTranscript {
     const segments = extractSegments(raw);
     const text = segments
         .map((seg) => {
             const content = (seg.content ?? "").trim();
             if (!content) return "";
-            if (
-                seg.speaker === undefined ||
-                seg.speaker === null ||
-                seg.speaker === ""
-            ) {
-                return content;
-            }
-            const label =
-                typeof seg.speaker === "number"
-                    ? `Speaker ${seg.speaker}`
-                    : seg.speaker;
-            return `${label}: ${content}`;
+            const label = speakerLabel(seg.speaker);
+            return label ? `${label}: ${content}` : content;
         })
         .filter(Boolean)
         .join("\n");
