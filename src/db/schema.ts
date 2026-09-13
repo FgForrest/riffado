@@ -458,6 +458,35 @@ export const userSettings = pgTable("user_settings", {
     // Preset id override for the auto-summary path. Null inherits
     // summaryPrompt.selectedPrompt (the manual default).
     autoSummarizePreset: text("auto_summarize_preset"),
+    // Multi-pass summarization: run the summary prompt several times in
+    // parallel and merge the results. This raises key-point RECALL --
+    // independent passes omit different things, so their union omits
+    // less. It does not make any individual claim more accurate, and the
+    // merge step can introduce drift of its own, which is why the setting
+    // is called "multi-pass" rather than "more accurate".
+    summaryMultiPass: boolean("summary_multi_pass").notNull().default(false),
+    // Parallel passes per summary. Every pass re-sends the FULL
+    // transcript, so N rounds costs roughly N times a single summary; the
+    // merge adds only a few percent on top, because its input is the N
+    // summaries rather than the transcript. Clamped on write (see
+    // MULTI_PASS_ROUNDS_MIN/MAX) -- an unbounded N on a long transcript is
+    // both a bill and a self-inflicted rate limit.
+    summaryMultiPassRounds: integer("summary_multi_pass_rounds")
+        .notNull()
+        .default(3),
+    // Whether the auto-summarize path gets multi-pass too. Off by default
+    // even when the feature is on: a manual summary is one recording the
+    // user chose and is waiting on, while auto can be a dozen from a
+    // single sync -- and against a subscription-backed provider the cost
+    // is not money but the rolling quota shared with the user's own
+    // sessions.
+    summaryMultiPassAuto: boolean("summary_multi_pass_auto")
+        .notNull()
+        .default(false),
+    // Overrides the built-in merge prompt; null uses DEFAULT_MERGE_PROMPT.
+    // Encrypted at rest like `summaryPrompt`, because it is user-authored
+    // text that can name people, clients and projects.
+    summaryMergePrompt: text("summary_merge_prompt"),
     // Sync settings
     autoSyncEnabled: boolean("auto_sync_enabled").notNull().default(true),
     syncOnMount: boolean("sync_on_mount").notNull().default(true),
