@@ -10,6 +10,13 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege. Without this the token inherits the repository default,
+# which is write on repos created before Feb 2023. These jobs run
+# third-party install scripts (`postinstall`, pnpm `allowBuilds`), so the
+# token they expose is the token a compromised dependency gets.
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint & Format
@@ -18,6 +25,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Keep the token out of .git/config: these jobs run third-party
+          # install scripts and nothing here pushes.
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -43,6 +54,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Keep the token out of .git/config: these jobs run third-party
+          # install scripts and nothing here pushes.
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -83,6 +98,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Keep the token out of .git/config: these jobs run third-party
+          # install scripts and nothing here pushes.
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -110,6 +129,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          # Keep the token out of .git/config: these jobs run third-party
+          # install scripts and nothing here pushes.
+          persist-credentials: false
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
