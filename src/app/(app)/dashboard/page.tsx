@@ -13,6 +13,7 @@ import { decryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
 import { isAdminEmail } from "@/lib/hosted/admin/guard";
 import { initialSettingsFromRow } from "@/lib/settings/initial-settings";
+import { readTranscriptTurns } from "@/lib/transcription/read-turns";
 import { serializeRecording } from "@/types/recording";
 
 export default async function DashboardPage() {
@@ -57,6 +58,9 @@ export default async function DashboardPage() {
                 // as a dialog.
                 source: transcriptions.source,
                 model: transcriptions.model,
+                // Provider-reported turns, preferred over re-deriving them
+                // from the text because only these carry timings.
+                turns: transcriptions.turns,
             })
             .from(transcriptions)
             .where(eq(transcriptions.userId, session.user.id)),
@@ -117,6 +121,7 @@ export default async function DashboardPage() {
                 language: t.language || undefined,
                 source: t.source,
                 model: t.model,
+                turns: readTranscriptTurns(t),
             },
         ]),
     );

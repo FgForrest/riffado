@@ -2,10 +2,12 @@
 
 import { useMemo } from "react";
 import {
+    formatSpeakerLabel,
     mayBeDiarized,
     parseSpeakerTurns,
     speakerOrder,
 } from "@/lib/transcription/diarization";
+import type { TranscriptTurn } from "@/lib/transcription/turns";
 
 /**
  * Per-speaker accents. Cycles when a recording has more speakers than
@@ -25,6 +27,13 @@ export interface TranscriptViewProps {
     /** Transcript provenance, used to decide whether to look for speakers. */
     source?: string | null;
     model?: string | null;
+    /**
+     * Turns as the provider reported them. Preferred over re-deriving them
+     * from the text: the provider's own grouping is authoritative, and only
+     * these carry timings. Absent for transcripts written before turns were
+     * stored, which fall back to the regex.
+     */
+    storedTurns?: TranscriptTurn[] | null;
 }
 
 /**
@@ -37,11 +46,23 @@ export interface TranscriptViewProps {
  * `parseSpeakerTurns` then asks whether labels actually arrived, because a
  * diarizing model can still answer with one unlabelled block.
  */
-export function TranscriptView({ text, source, model }: TranscriptViewProps) {
+export function TranscriptView({
+    text,
+    source,
+    model,
+    storedTurns,
+}: TranscriptViewProps) {
     const turns = useMemo(() => {
+        if (storedTurns?.length) {
+            return storedTurns.map((turn) => ({
+                speaker: turn.speaker,
+                label: formatSpeakerLabel(turn.speaker),
+                text: turn.text,
+            }));
+        }
         if (!mayBeDiarized({ source, model })) return null;
         return parseSpeakerTurns(text);
-    }, [text, source, model]);
+    }, [text, source, model, storedTurns]);
 
     if (!turns) {
         return (
