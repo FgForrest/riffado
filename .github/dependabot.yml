@@ -9,6 +9,25 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    # Let a release age before we take it. A compromised publish is
+    # usually caught and yanked within days, and nothing in CI is urgent
+    # enough to want the newest tag the hour it ships -- so the window
+    # costs us nothing and removes the "first adopter" position.
+    #
+    # This is the same idea pnpm applies to the npm tree at install time
+    # (`minimumReleaseAge`, 1440 minutes by default since pnpm 11 -- see
+    # the `minimumReleaseAgeExclude` list in `pnpm-workspace.yaml`), but
+    # it acts earlier: the PR is never opened, rather than opened and
+    # failing to install. Actions have no equivalent install-time guard,
+    # which is why they need this one.
+    #
+    # Days are scaled to blast radius, not to novelty: a major bump can
+    # rewrite what a step does, a patch usually cannot.
+    cooldown:
+      default-days: 5
+      semver-major-days: 30
+      semver-minor-days: 7
+      semver-patch-days: 3
     commit-message:
       prefix: chore(ci)
     labels:
