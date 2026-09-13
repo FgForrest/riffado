@@ -84,6 +84,38 @@ The default format is whatever you set as **Settings → Export/Backup
 → Default export format**, falling back to `json`. The **Export All**
 button in that same panel calls this endpoint.
 
+## Markdown documents alongside the audio
+
+Transcripts and summaries live in Postgres, encrypted at rest, so a file
+manager sees only audio. **Settings → Export/Backup → Documents
+alongside audio** changes that: with **Export transcripts** or **Export
+summaries** on, every completed run also writes a markdown file into
+storage, named after the recording's audio file.
+
+```
+{userId}/Board meeting.mp3
+{userId}/Board meeting.transcript.md
+{userId}/Board meeting.summary.md
+```
+
+Each file carries YAML front matter (title, recorded timestamp,
+duration, language, provider, model) followed by the text. Summaries
+render the summary, key points and action items as sections, skipping
+whichever the provider left empty.
+
+The toggles apply to transcriptions and summaries produced from that
+point on. **Export all existing** in the same panel runs the backfill
+over recordings you already have; it writes inline, so a large library
+keeps the request open for a while.
+
+This works on any storage backend. With the local backend it means the
+markdown lands in the same directory as the audio, which is directly
+useful when that directory is a bind mount on the host. On S3 the files
+become objects next to the audio keys.
+
+Export failures never cost you data: a storage error is logged and the
+transcript or summary is still saved.
+
 ## Restore
 
 There is no `POST /api/backup/restore` endpoint today. The backup file
