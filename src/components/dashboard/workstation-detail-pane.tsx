@@ -11,6 +11,8 @@ import type { Recording } from "@/types/recording";
 interface TranscriptionData {
     text?: string;
     language?: string;
+    source?: string;
+    model?: string;
 }
 
 interface Props {

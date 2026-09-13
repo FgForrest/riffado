@@ -52,6 +52,11 @@ export default async function DashboardPage() {
                 recordingId: transcriptions.recordingId,
                 text: transcriptions.text,
                 language: transcriptions.detectedLanguage,
+                // Provenance, not decoration: the transcript view needs it to
+                // decide whether this text was diarized and can be rendered
+                // as a dialog.
+                source: transcriptions.source,
+                model: transcriptions.model,
             })
             .from(transcriptions)
             .where(eq(transcriptions.userId, session.user.id)),
@@ -107,7 +112,12 @@ export default async function DashboardPage() {
     const transcriptionMap = new Map(
         userTranscriptions.map((t) => [
             t.recordingId,
-            { text: decryptText(t.text), language: t.language || undefined },
+            {
+                text: decryptText(t.text),
+                language: t.language || undefined,
+                source: t.source,
+                model: t.model,
+            },
         ]),
     );
 

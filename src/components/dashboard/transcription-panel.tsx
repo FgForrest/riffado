@@ -29,9 +29,11 @@ import { describeMultiPass } from "@/lib/summary/multi-pass";
 import { formatSummaryStatus } from "@/lib/summary/progress-stream";
 import type { Recording } from "@/types/recording";
 
-interface Transcription {
+export interface Transcription {
     text?: string;
     language?: string;
+    source?: string;
+    model?: string;
 }
 
 /** A transcript variant for a single source (Plaud, the user's own, etc.). */
@@ -62,6 +64,30 @@ function transcriptSourceLabel(source: string): string {
     return "Your provider";
 }
 
+/**
+ * Normalise the two transcript-shaped props into one list.
+ *
+ * `source` and `model` must survive the single-transcript path: they are what
+ * `TranscriptView` reads to decide whether the text was diarized, so
+ * defaulting them here instead of carrying them through silently downgrades a
+ * dialog to plain text.
+ */
+export function toTranscriptList(
+    transcripts: TranscriptOption[] | undefined,
+    transcription: Transcription | undefined,
+): TranscriptOption[] {
+    if (transcripts && transcripts.length > 0) return transcripts;
+    if (!transcription?.text) return [];
+    return [
+        {
+            source: transcription.source ?? "riffado",
+            text: transcription.text,
+            language: transcription.language,
+            model: transcription.model,
+        },
+    ];
+}
+
 export function TranscriptionPanel({
     recording,
     transcription,
@@ -70,18 +96,7 @@ export function TranscriptionPanel({
     onTranscribe,
     onTranscribeComplete,
 }: TranscriptionPanelProps) {
-    const transcriptList: TranscriptOption[] =
-        transcripts && transcripts.length > 0
-            ? transcripts
-            : transcription?.text
-              ? [
-                    {
-                        source: "riffado",
-                        text: transcription.text,
-                        language: transcription.language,
-                    },
-                ]
-              : [];
+    const transcriptList = toTranscriptList(transcripts, transcription);
 
     const [activeSource, setActiveSource] = useState<string | undefined>(
         undefined,
