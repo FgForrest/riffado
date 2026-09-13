@@ -1,4 +1,9 @@
-export type TranscriptionStyle = "whisper" | "chat" | "gemini" | "elevenlabs";
+export type TranscriptionStyle =
+    | "whisper"
+    | "chat"
+    | "gemini"
+    | "elevenlabs"
+    | "speechmatics";
 
 export interface ProviderPreset {
     name: string;
@@ -108,6 +113,34 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
         ],
         modelLabels: {
             "scribe_v2+diarize": "scribe_v2 (speaker labels)",
+        },
+    },
+    // Speechmatics is a job API, not a request/response one: the adapter
+    // in `speechmatics-transcribe.ts` submits, polls and downloads behind
+    // a single call. As with ElevenLabs, diarization is a config field
+    // rather than a model, so it rides along as a `+diarize` suffix --
+    // which is also the substring `mayBeDiarized` looks for when deciding
+    // whether to render a transcript as a dialog.
+    {
+        name: "Speechmatics",
+        baseUrl: "",
+        placeholder: "Your Speechmatics API key",
+        defaultModel: "enhanced",
+        transcriptionStyle: "speechmatics",
+        transcriptionOnly: true,
+        knownTranscriptionModels: [
+            "enhanced",
+            "enhanced+diarize",
+            "standard",
+            "standard+diarize",
+            "melia-1",
+            "melia-1+diarize",
+        ],
+        modelLabels: {
+            "enhanced+diarize": "enhanced (speaker labels)",
+            "standard+diarize": "standard (speaker labels)",
+            "melia-1": "melia-1 (multilingual)",
+            "melia-1+diarize": "melia-1 (multilingual, speaker labels)",
         },
     },
     // Both agent CLIs are reached through the bridge sidecar in

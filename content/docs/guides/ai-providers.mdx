@@ -8,8 +8,9 @@ that exposes an OpenAI-compatible API works: OpenAI itself, Groq,
 OpenRouter, Together, Azure OpenAI, LM Studio, Ollama, and anything else
 that speaks the same wire format.
 
-Two transcription backends are wired in natively because their APIs are
-not OpenAI-compatible: Google Gemini and ElevenLabs Scribe.
+Three transcription backends are wired in natively because their APIs
+are not OpenAI-compatible: Google Gemini, ElevenLabs Scribe and
+Speechmatics.
 
 You can configure multiple providers and pick which one runs
 transcription and which runs summarization on a per-recording basis.
@@ -32,6 +33,8 @@ which API surface the transcription worker should use:
 - **Scribe-style** (`/v1/speech-to-text`, multipart upload authenticated
   with `xi-api-key`) — the ElevenLabs native API. Used by the ElevenLabs
   preset.
+- **Speechmatics-style** (`POST /v2/jobs`, then poll, then download) —
+  the Speechmatics Batch job API. Used by the Speechmatics preset.
 
 Pick a preset, paste your API key, choose a default model, save. Repeat
 for additional providers.
@@ -46,6 +49,7 @@ for additional providers.
 | Together AI | `https://api.together.xyz/v1`                | Cost-effective, broad model selection                            |
 | Google Gemini | *(blank, native Google API)*                | Gemini-style transcription; transcription only                   |
 | ElevenLabs  | *(blank, defaults to api.elevenlabs.io)*     | Scribe-style transcription, optional speaker labels; transcription only |
+| Speechmatics | *(blank, auto-routing asr.api.speechmatics.com)* | Batch job transcription, optional speaker labels; transcription only |
 | Azure       | `https://<resource>.openai.azure.com/...`    | Enterprise compliance, deployment-scoped URLs                    |
 | LM Studio   | `http://localhost:1234/v1`                   | Local, 100% offline                                              |
 | Ollama      | `http://localhost:11434/v1`                  | Local, easy model management                                     |
@@ -96,6 +100,45 @@ model at full quality.
 ElevenLabs is transcription only. It has no `chat/completions` endpoint,
 so keep a separate provider as your summarization default.
 
+### Speechmatics
+
+The preset offers `enhanced` (the default, highest accuracy), `standard`
+(faster and cheaper), and `melia-1`, the multilingual model that detects
+and switches between languages on its own. As with Scribe, diarization is
+a request setting rather than a separate model, so each one has a
+**(speaker labels)** variant in the dropdown, stored as `enhanced+diarize`
+and friends. With one of those selected, transcripts come back as
+`speaker_1: …` lines and the workstation renders them as a dialog — see
+[How transcripts and summaries are displayed](#how-transcripts-and-summaries-are-displayed).
+Speechmatics' own `S1` labels are rewritten to `speaker_1` on the way in so
+they read the same as every other provider's; a name that came from speaker
+identification is kept as-is.
+
+Your **Default transcription language** is passed through as the language
+code. If you haven't set one, Riffado asks for `auto` and lets
+Speechmatics identify the language. `melia-1` is the exception: it only
+accepts `multi`, so the language setting is ignored when you pick it.
+
+Leave **Base URL** blank to use `asr.api.speechmatics.com`, which routes to
+the nearest region. To pin data to one region, set the regional host
+instead — `https://eu2.asr.api.speechmatics.com`,
+`https://us1.asr.api.speechmatics.com`, `https://au1.asr.api.speechmatics.com`
+and so on. The trailing `/v2` is optional.
+
+Batch is an asynchronous API: Riffado uploads the audio as a job, polls it
+every 3 seconds, downloads the transcript when the job reports `done`, and
+then deletes the job so the audio and transcript don't sit on
+Speechmatics' servers waiting for their retention window to expire. The
+whole wait is bounded by `WHISPER_REQUEST_TIMEOUT_MS` (60 minutes by
+default) — raise it if you transcribe recordings long enough to need more.
+
+Audio is uploaded exactly as stored; the mono Opus re-encode that keeps
+oversized recordings under OpenAI's 25 MiB request limit is skipped here,
+as it is for Scribe.
+
+Speechmatics is transcription only — it has no `chat/completions`
+endpoint, so keep a separate provider as your summarization default.
+
 ## What gets sent to the provider
 
 Plaintext audio (for transcription) and plaintext transcript text
@@ -136,8 +179,8 @@ Raw HTML in a summary is dropped, not rendered.
 from a path that labels speakers, the workstation renders one block per
 turn with the speaker's name above it, colour-coded, with consecutive
 turns from the same speaker grouped together. That applies to
-`gpt-4o-transcribe-diarize`, `scribe_v2+diarize`, and transcripts
-imported from Plaud.
+`gpt-4o-transcribe-diarize`, `scribe_v2+diarize`, the Speechmatics
+`+diarize` models, and transcripts imported from Plaud.
 
 Every other transcript is rendered exactly as before, as plain text.
 That is deliberate rather than a limitation: Gemini and the chat-style

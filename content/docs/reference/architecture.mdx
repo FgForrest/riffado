@@ -76,7 +76,7 @@ OpenAI SDK is configured with a per-user `baseURL` and the same SDK
 calls work against OpenAI, Groq, OpenRouter, Ollama, LM Studio, and
 anything else that speaks the OpenAI wire protocol.
 
-Four transcription "styles" coexist:
+Five transcription "styles" coexist:
 
 - **Whisper-style** — `POST /v1/audio/transcriptions` with multipart
   audio. The classic OpenAI surface.
@@ -89,6 +89,12 @@ Four transcription "styles" coexist:
 - **Scribe-style** — `POST /v1/speech-to-text`, multipart upload
   authenticated with `xi-api-key`
   (`src/lib/transcription/elevenlabs-transcribe.ts`).
+- **Speechmatics-style** — the Batch *job* API: `POST /v2/jobs` uploads
+  the audio, `GET /v2/jobs/{id}` is polled until the job leaves
+  `running`, and the transcript is a third request
+  (`src/lib/transcription/speechmatics-transcribe.ts`). The adapter hides
+  all three behind one awaited call, so the worker sees the same shape it
+  sees for the synchronous providers.
 
 A `transcriptionStyle` field on each provider preset
 (`src/lib/ai/provider-presets.ts`) tells the worker which surface to
