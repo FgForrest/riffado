@@ -42,6 +42,7 @@ vi.mock("@/lib/hosted/transcription/mynah", () => ({
 }));
 
 import { PUT as updateProvider } from "@/app/api/settings/ai/providers/[id]/route";
+import { PUT as setDefaultEnhancement } from "@/app/api/settings/ai/providers/default-enhancement/route";
 import { PUT as setDefaultTranscription } from "@/app/api/settings/ai/providers/default-transcription/route";
 import { POST as addProvider } from "@/app/api/settings/ai/providers/route";
 import { db } from "@/db";
@@ -186,6 +187,75 @@ describe("enhancement-only providers cannot become the transcription default", (
                 "user-1",
                 "cred-1",
             );
+        });
+    });
+
+    describe("PUT /providers/default-enhancement", () => {
+        /**
+         * The mirror of the transcription route, added so the provider
+         * list can switch the enhancement default in one click. It must
+         * not be reachable through `PATCH /providers/[id]`: that handler
+         * writes `baseUrl || null` and `defaultModel || null`, so a body
+         * carrying only the flag would blank both fields.
+         */
+        it("refuses a transcription-only provider", async () => {
+            queueSelect([{ id: "cred-1", provider: "ElevenLabs" }]);
+
+            const response = await setDefaultEnhancement(
+                jsonRequest({ providerId: "cred-1" }, "PUT"),
+            );
+
+            expect(response.status).toBe(400);
+            expect(db.transaction as Mock).not.toHaveBeenCalled();
+        });
+
+        it("refuses the managed transcription entry", async () => {
+            // Not a credential row at all -- it holds no key that could
+            // reach a chat/completions endpoint.
+            const response = await setDefaultEnhancement(
+                jsonRequest({ providerId: "riffado-included" }, "PUT"),
+            );
+
+            expect(response.status).toBe(400);
+            expect(db.transaction as Mock).not.toHaveBeenCalled();
+        });
+
+        it("404s on a provider belonging to someone else", async () => {
+            queueSelect([]);
+
+            const response = await setDefaultEnhancement(
+                jsonRequest({ providerId: "cred-other" }, "PUT"),
+            );
+
+            expect(response.status).toBe(404);
+        });
+
+        it("clears the previous default and sets the new one in one transaction", async () => {
+            queueSelect([{ id: "cred-1", provider: "Claude Code" }]);
+
+            const updates: unknown[] = [];
+            const tx = {
+                update: vi.fn().mockReturnValue({
+                    set: vi.fn((values: unknown) => {
+                        updates.push(values);
+                        return { where: vi.fn().mockResolvedValue(undefined) };
+                    }),
+                }),
+            };
+            (db.transaction as Mock).mockImplementationOnce(
+                async (fn: (t: unknown) => Promise<unknown>) => fn(tx),
+            );
+
+            const response = await setDefaultEnhancement(
+                jsonRequest({ providerId: "cred-1" }, "PUT"),
+            );
+
+            expect(response.status).toBe(200);
+            // Clear-then-set, and both inside the same transaction: a
+            // failure between them would leave no default at all.
+            expect(updates).toHaveLength(2);
+            expect(updates[0]).toMatchObject({ isDefaultEnhancement: false });
+            expect(updates[1]).toMatchObject({ isDefaultEnhancement: true });
         });
     });
 });
