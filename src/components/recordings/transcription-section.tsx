@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/select";
 import { useTranscriptionSummary } from "@/hooks/use-transcription-summary";
 import { describeMultiPass } from "@/lib/summary/multi-pass";
+import { formatSummaryStatus } from "@/lib/summary/progress-stream";
 
 interface TranscriptionSectionProps {
     recordingId: string;
@@ -45,6 +46,8 @@ export function TranscriptionSection({
     const {
         summaryData,
         isSummarizing,
+        summaryProgress,
+        summaryElapsedMs,
         summaryExpanded,
         setSummaryExpanded,
         summaryPreset,
@@ -240,7 +243,10 @@ export function TranscriptionSection({
                             <Panel variant="inset" className="text-center py-8">
                                 <Loader2 className="size-8 animate-spin text-accent-cyan mx-auto mb-4" />
                                 <p className="text-muted-foreground">
-                                    Generating summary…
+                                    {formatSummaryStatus(
+                                        summaryProgress,
+                                        summaryElapsedMs,
+                                    )}
                                 </p>
                             </Panel>
                         ) : summaryData?.summary ? (
