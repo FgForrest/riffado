@@ -26,12 +26,18 @@ on:
       - '.env.example'
       - '.github/workflows/install-sh.yml'
 
+# Least privilege: nothing here writes to the repository.
+permissions:
+  contents: read
+
 jobs:
   shellcheck:
     name: ShellCheck
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Run shellcheck
         run: |
           sudo apt-get update -qq
@@ -52,6 +58,8 @@ jobs:
       PINNED_VERSION: v0.5.4
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - name: Render install.sh with pinned version
         run: |

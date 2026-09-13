@@ -30,12 +30,19 @@ jobs:
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
+          # Release notes are read from local tags; the release itself is
+          # created with GITHUB_TOKEN passed as an env var, so the token
+          # does not need to live in .git/config.
+          persist-credentials: false
 
       - name: Determine tag
         id: tag
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "current=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "current=$INPUT_TAG" >> "$GITHUB_OUTPUT"
           else
             echo "current=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
           fi
@@ -113,7 +120,7 @@ jobs:
         run: cp .env.example env.example
 
       - name: Create draft release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: ${{ steps.tag.outputs.current }}
           name: ${{ steps.tag.outputs.current }}

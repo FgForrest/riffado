@@ -1,0 +1,15 @@
+version: 2
+
+updates:
+  # Actions pinned to a commit SHA never float to a new release on their
+  # own, which is the point -- but it also means a security fix in an
+  # action never arrives unless something bumps the pin. Dependabot opens
+  # that PR, keeping the SHA comment (`# v4`) in step.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore(ci)
+    labels:
+      - dependencies
