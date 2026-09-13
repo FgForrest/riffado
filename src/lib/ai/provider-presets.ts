@@ -1,4 +1,4 @@
-export type TranscriptionStyle = "whisper" | "chat" | "gemini";
+export type TranscriptionStyle = "whisper" | "chat" | "gemini" | "elevenlabs";
 
 export interface ProviderPreset {
     name: string;
@@ -8,6 +8,8 @@ export interface ProviderPreset {
     transcriptionStyle: TranscriptionStyle;
     fetchAudioModels?: boolean;
     knownTranscriptionModels?: readonly string[];
+    /** Friendlier dropdown labels for ids in `knownTranscriptionModels`. */
+    modelLabels?: Readonly<Record<string, string>>;
 }
 
 export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
@@ -83,6 +85,22 @@ export const PROVIDER_PRESETS: readonly ProviderPreset[] = [
         ],
     },
     {
+        name: "ElevenLabs",
+        baseUrl: "",
+        placeholder: "sk_...",
+        defaultModel: "scribe_v2",
+        transcriptionStyle: "elevenlabs",
+        knownTranscriptionModels: [
+            "scribe_v2",
+            "scribe_v2+diarize",
+            "scribe_v2_medical",
+            "scribe_v1",
+        ],
+        modelLabels: {
+            "scribe_v2+diarize": "scribe_v2 (speaker labels)",
+        },
+    },
+    {
         name: "Custom",
         baseUrl: "",
         placeholder: "Your API key",
@@ -117,4 +135,12 @@ export function getTranscriptionStyle(
     providerName: string,
 ): TranscriptionStyle {
     return findPreset(providerName)?.transcriptionStyle ?? "whisper";
+}
+
+/**
+ * Preset default model for a provider, used when a stored credential has
+ * no model of its own. Empty for presets without a curated default.
+ */
+export function getDefaultTranscriptionModel(providerName: string): string {
+    return findPreset(providerName)?.defaultModel ?? "";
 }

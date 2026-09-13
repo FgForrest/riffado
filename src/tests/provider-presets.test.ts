@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
     findPreset,
+    getDefaultTranscriptionModel,
     getVisiblePresets,
     isLocalPreset,
     LOCAL_PRESET_NAMES,
@@ -68,6 +69,44 @@ describe("provider-presets", () => {
                 if (!p.knownTranscriptionModels) continue;
                 expect(p.knownTranscriptionModels).toContain(p.defaultModel);
             }
+        });
+
+        it("every modelLabels key is an id the preset actually offers", () => {
+            for (const p of PROVIDER_PRESETS) {
+                if (!p.modelLabels) continue;
+                for (const id of Object.keys(p.modelLabels)) {
+                    expect(p.knownTranscriptionModels).toContain(id);
+                }
+            }
+        });
+    });
+
+    describe("ElevenLabs", () => {
+        it("uses the native Scribe style and no base URL", () => {
+            const preset = findPreset("ElevenLabs");
+            expect(preset?.transcriptionStyle).toBe("elevenlabs");
+            expect(preset?.baseUrl).toBe("");
+            expect(preset?.defaultModel).toBe("scribe_v2");
+        });
+
+        it("offers diarization as a model variant", () => {
+            const preset = findPreset("ElevenLabs");
+            expect(preset?.knownTranscriptionModels).toContain(
+                "scribe_v2+diarize",
+            );
+            expect(preset?.modelLabels?.["scribe_v2+diarize"]).toBe(
+                "scribe_v2 (speaker labels)",
+            );
+        });
+    });
+
+    describe("getDefaultTranscriptionModel", () => {
+        it("returns the preset default and empty for unknown providers", () => {
+            expect(getDefaultTranscriptionModel("ElevenLabs")).toBe(
+                "scribe_v2",
+            );
+            expect(getDefaultTranscriptionModel("OpenAI")).toBe("whisper-1");
+            expect(getDefaultTranscriptionModel("Nope")).toBe("");
         });
     });
 });

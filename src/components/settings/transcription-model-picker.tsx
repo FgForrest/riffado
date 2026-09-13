@@ -119,7 +119,7 @@ export function TranscriptionModelPicker({
         ? audioModels
         : (preset?.knownTranscriptionModels ?? []).map((id) => ({
               id,
-              name: id,
+              name: preset?.modelLabels?.[id] ?? id,
           }));
 
     const hasOptions = options.length > 0;

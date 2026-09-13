@@ -10,7 +10,10 @@ import {
     userSettings,
 } from "@/db/schema";
 import { generateTitleFromTranscription } from "@/lib/ai/generate-title";
-import { getTranscriptionStyle } from "@/lib/ai/provider-presets";
+import {
+    getDefaultTranscriptionModel,
+    getTranscriptionStyle,
+} from "@/lib/ai/provider-presets";
 import { decrypt } from "@/lib/encryption";
 import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { isHostedLockedOut } from "@/lib/entitlements";
@@ -30,6 +33,7 @@ import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
 import { buildAudioFile } from "@/lib/transcription/audio-file";
 import { chatTranscribe } from "@/lib/transcription/chat-transcribe";
 import { maybeCompressForWhisper } from "@/lib/transcription/compress-audio";
+import { elevenLabsTranscribe } from "@/lib/transcription/elevenlabs-transcribe";
 import {
     buildTranscriptionParams,
     getResponseFormat,
@@ -429,12 +433,17 @@ async function transcribeRecordingInner(
                 decryptedFilename,
             );
 
-            const model = opts.model || credentials.defaultModel || "whisper-1";
+            const model =
+                opts.model ||
+                credentials.defaultModel ||
+                getDefaultTranscriptionModel(credentials.provider) ||
+                "whisper-1";
             persistProvider = credentials.provider;
             persistModel = model;
 
             // Route based on the provider's transcription style:
             // - "gemini": Google Gemini native generateContent API (inlineData)
+            // - "elevenlabs": ElevenLabs Scribe /v1/speech-to-text multipart
             // - "chat": OpenAI-compatible chat completions with input_audio
             //   (OpenRouter today; #122 -- /v1/audio/transcriptions 404s there)
             // - "whisper": OpenAI-compatible /v1/audio/transcriptions
@@ -449,6 +458,18 @@ async function transcribeRecordingInner(
                     audioBuffer,
                     contentType,
                     language: defaultLanguage,
+                });
+                transcriptionText = result.text;
+                detectedLanguage = result.detectedLanguage;
+            } else if (transcriptionStyle === "elevenlabs") {
+                // Scribe accepts multi-gigabyte uploads, so the Whisper
+                // 25 MiB re-encode is deliberately skipped here.
+                const result = await elevenLabsTranscribe({
+                    apiKey,
+                    model,
+                    file: audioFile,
+                    language: defaultLanguage,
+                    baseUrl: credentials.baseUrl,
                 });
                 transcriptionText = result.text;
                 detectedLanguage = result.detectedLanguage;
