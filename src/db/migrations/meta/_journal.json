@@ -281,6 +281,13 @@
       "when": 1789301762066,
       "tag": "0039_stiff_wrecking_crew",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1789321005027,
+      "tag": "0040_natural_absorbing_man",
+      "breakpoints": true
     }
   ]
 }

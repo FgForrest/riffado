@@ -30,6 +30,11 @@ import {
     SUMMARY_PRESETS,
     type SummaryPromptConfiguration,
 } from "@/lib/ai/summary-presets";
+import {
+    MULTI_PASS_ROUNDS_DEFAULT,
+    MULTI_PASS_ROUNDS_MAX,
+    MULTI_PASS_ROUNDS_MIN,
+} from "@/lib/summary/multi-pass";
 
 type EditingPrompt = {
     id?: string;
@@ -40,6 +45,11 @@ type EditingPrompt = {
 // Sentinel value used by the auto-summarize preset Select to represent
 // "use the user's default prompt". The DB stores this as NULL.
 const AUTO_PRESET_DEFAULT = "__default__";
+
+const ROUND_OPTIONS = Array.from(
+    { length: MULTI_PASS_ROUNDS_MAX - MULTI_PASS_ROUNDS_MIN + 1 },
+    (_, i) => MULTI_PASS_ROUNDS_MIN + i,
+);
 
 export function SummarySection() {
     const confirm = useConfirm();
@@ -57,6 +67,13 @@ export function SummarySection() {
     const [autoSummarizePreset, setAutoSummarizePreset] = useState<
         string | null
     >(null);
+    const [multiPass, setMultiPass] = useState(false);
+    const [multiPassRounds, setMultiPassRounds] = useState(
+        MULTI_PASS_ROUNDS_DEFAULT,
+    );
+    const [multiPassAuto, setMultiPassAuto] = useState(false);
+    const [mergePrompt, setMergePrompt] = useState("");
+    const [savedMergePrompt, setSavedMergePrompt] = useState("");
 
     // Per-control AbortController refs so a fast-double-toggle can't let
     // a slow earlier save fail *after* a newer save succeeded and clobber
@@ -67,6 +84,12 @@ export function SummarySection() {
     const languageAbortRef = useRef<AbortController | null>(null);
     const autoSummarizeAbortRef = useRef<AbortController | null>(null);
     const autoPresetAbortRef = useRef<AbortController | null>(null);
+    // Same rationale, but keyed by field: the multi-pass group has four
+    // controls, and switching the feature on then immediately changing the
+    // pass count are two independent saves that must not cancel each other.
+    const multiPassAbortRefs = useRef<Record<string, AbortController | null>>(
+        {},
+    );
 
     useEffect(() => {
         const fetchSettings = async () => {
@@ -91,6 +114,19 @@ export function SummarySection() {
                             ? data.autoSummarizePreset
                             : null,
                     );
+                    setMultiPass(data.summaryMultiPass === true);
+                    setMultiPassRounds(
+                        typeof data.summaryMultiPassRounds === "number"
+                            ? data.summaryMultiPassRounds
+                            : MULTI_PASS_ROUNDS_DEFAULT,
+                    );
+                    setMultiPassAuto(data.summaryMultiPassAuto === true);
+                    const merge =
+                        typeof data.summaryMergePrompt === "string"
+                            ? data.summaryMergePrompt
+                            : "";
+                    setMergePrompt(merge);
+                    setSavedMergePrompt(merge);
                 }
             } catch (error) {
                 console.error("Failed to fetch settings:", error);
@@ -284,6 +320,79 @@ export function SummarySection() {
         }
     };
 
+    /**
+     * One saver for the multi-pass group instead of four more copies of the
+     * optimistic-save dance above. Same contract as those: abort this
+     * control's predecessor, and only roll back when this call is still the
+     * latest for that control.
+     */
+    const saveMultiPass = async (
+        key: string,
+        patch: Record<string, unknown>,
+        rollback: () => void,
+    ) => {
+        multiPassAbortRefs.current[key]?.abort();
+        const ctrl = new AbortController();
+        multiPassAbortRefs.current[key] = ctrl;
+        try {
+            const response = await fetch("/api/settings/user", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(patch),
+                signal: ctrl.signal,
+            });
+            if (!response.ok) {
+                throw new Error("Failed to save settings");
+            }
+        } catch {
+            if (multiPassAbortRefs.current[key] !== ctrl) return;
+            rollback();
+            toast.error("Failed to save settings. Changes reverted.");
+        }
+    };
+
+    const handleMultiPassChange = (checked: boolean) => {
+        const previous = multiPass;
+        setMultiPass(checked);
+        return saveMultiPass("enabled", { summaryMultiPass: checked }, () =>
+            setMultiPass(previous),
+        );
+    };
+
+    const handleMultiPassRoundsChange = (value: string) => {
+        const previous = multiPassRounds;
+        const next = Number(value);
+        setMultiPassRounds(next);
+        return saveMultiPass("rounds", { summaryMultiPassRounds: next }, () =>
+            setMultiPassRounds(previous),
+        );
+    };
+
+    const handleMultiPassAutoChange = (checked: boolean) => {
+        const previous = multiPassAuto;
+        setMultiPassAuto(checked);
+        return saveMultiPass("auto", { summaryMultiPassAuto: checked }, () =>
+            setMultiPassAuto(previous),
+        );
+    };
+
+    // Saved on blur rather than per keystroke: this is a long prose field,
+    // and a PUT per character would be both wasteful and racy.
+    const handleMergePromptBlur = () => {
+        const next = mergePrompt.trim();
+        if (next === savedMergePrompt.trim()) return;
+        const previous = savedMergePrompt;
+        setSavedMergePrompt(next);
+        return saveMultiPass(
+            "merge-prompt",
+            { summaryMergePrompt: next || null },
+            () => {
+                setSavedMergePrompt(previous);
+                setMergePrompt(previous);
+            },
+        );
+    };
+
     if (isLoadingSettings) {
         return (
             <div className="flex items-center justify-center py-8">
@@ -470,6 +579,118 @@ export function SummarySection() {
                             manual default above.
                         </p>
                     </div>
+                )}
+            </div>
+
+            {/* Multi-pass summarization */}
+            <div className="space-y-4 pt-4 border-t">
+                <div className="flex items-center justify-between">
+                    <div className="space-y-0.5 flex-1">
+                        <Label htmlFor="multi-pass" className="text-base">
+                            Multi-pass summarization
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                            Summarizes the transcript several times in parallel
+                            and merges the results. Independent passes leave out
+                            different things, so the merged summary leaves out
+                            less. It does not make any individual fact more
+                            accurate.
+                        </p>
+                    </div>
+                    <Switch
+                        id="multi-pass"
+                        checked={multiPass}
+                        onCheckedChange={handleMultiPassChange}
+                        disabled={isSavingSettings}
+                    />
+                </div>
+                {multiPass && (
+                    <>
+                        <div className="space-y-2">
+                            <Label htmlFor="multi-pass-rounds">
+                                Passes per summary
+                            </Label>
+                            <Select
+                                value={String(multiPassRounds)}
+                                onValueChange={handleMultiPassRoundsChange}
+                                disabled={isSavingSettings}
+                            >
+                                <SelectTrigger
+                                    id="multi-pass-rounds"
+                                    className="w-full"
+                                >
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {ROUND_OPTIONS.map((count) => (
+                                        <SelectItem
+                                            key={count}
+                                            value={String(count)}
+                                        >
+                                            {count} passes
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <p className="text-xs text-muted-foreground">
+                                Every pass re-sends the whole transcript, so{" "}
+                                {multiPassRounds} passes costs roughly{" "}
+                                {multiPassRounds}× the tokens of a single
+                                summary; the merge adds only a few percent on
+                                top. On a provider backed by a subscription
+                                rather than an API key, what this spends is your
+                                rate limit rather than money. Passes run
+                                concurrently only if your provider accepts
+                                concurrent requests — otherwise they queue, and
+                                the summary takes correspondingly longer.
+                            </p>
+                        </div>
+                        <div className="flex items-center justify-between">
+                            <div className="space-y-0.5 flex-1">
+                                <Label
+                                    htmlFor="multi-pass-auto"
+                                    className="text-base"
+                                >
+                                    Also use for auto-summary
+                                </Label>
+                                <p className="text-sm text-muted-foreground">
+                                    Off by default. A manual summary is one
+                                    recording you are waiting on; a single sync
+                                    can generate a dozen, and each one
+                                    multiplies by the pass count.
+                                </p>
+                            </div>
+                            <Switch
+                                id="multi-pass-auto"
+                                checked={multiPassAuto}
+                                onCheckedChange={handleMultiPassAutoChange}
+                                disabled={isSavingSettings}
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <Label htmlFor="multi-pass-merge-prompt">
+                                Custom merge prompt (optional)
+                            </Label>
+                            <textarea
+                                id="multi-pass-merge-prompt"
+                                className="w-full min-h-[140px] px-3 py-2 text-sm border rounded-md resize-y font-mono"
+                                value={mergePrompt}
+                                onChange={(e) => setMergePrompt(e.target.value)}
+                                onBlur={handleMergePromptBlur}
+                                disabled={isSavingSettings}
+                                placeholder="Leave blank to use the built-in merge prompt"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                The built-in prompt treats the merge as a union
+                                and de-duplication of the passes rather than a
+                                fresh summary, which is what keeps a point found
+                                by only one pass from being dropped. Replace it
+                                only if you need different merge behaviour — the
+                                passes themselves are steered by your summary
+                                prompt above.
+                            </p>
+                        </div>
+                    </>
                 )}
             </div>
 

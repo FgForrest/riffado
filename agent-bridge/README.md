@@ -244,6 +244,16 @@ Anything other than a bare id passes through to the CLI unchanged, so the usable
 
 **Rate limits are shared with your interactive coding.** A sync that pulls in a dozen recordings with auto-summarize on will draw from the same window as your terminal. `BRIDGE_MAX_CONCURRENCY=1` is the default for that reason. Consider pointing title generation at a cheaper model than summaries.
 
+**Multi-pass summarization needs `BRIDGE_MAX_CONCURRENCY` raised to match.** Riffado's multi-pass setting (Settings -> Summary) runs N summary passes *in parallel* and merges them. The bridge queues at `BRIDGE_MAX_CONCURRENCY`, so leaving it at `1` turns those passes back into a serial run: the feature still works and the result is identical, but a 3-pass summary takes about four times as long as a single one instead of about the same. Set it to at least the pass count:
+
+```yaml
+      BRIDGE_MAX_CONCURRENCY: "3"
+```
+
+That is a real trade, not a free win -- N concurrent agent sessions draw on the same rolling window as your own terminal, which is exactly why the default is `1`. Turning multi-pass on for auto-summary as well (off by default) multiplies this by every recording a sync brings in.
+
+**Multi-pass merges are capped by the agent, not by Riffado.** Riffado asks for a higher `max_tokens` on the merge than on a pass, because the merged output is the union of every pass and so is longer than any one of them. The bridge drops `max_tokens` (see above), so on this provider the merge is bounded by the agent's own default instead. If merged summaries come back visibly cut off, that is the reason -- not the merge prompt.
+
 **Usage numbers are zeros.** The CLIs bill against a subscription and don't report usable per-request counts. The `usage` block keeps the response shape valid; it is not a measurement.
 
 **Terms.** Both subscriptions are licensed for the individual subscriber's use, and neither vendor documents the headless token as a backend integration path. Summarizing your own recordings on your own box is personal use, but there's no SLA on the token flow and either vendor can change it. Keeping one API-key provider configured as a fallback is cheap insurance.
