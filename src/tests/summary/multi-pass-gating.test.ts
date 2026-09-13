@@ -176,6 +176,7 @@ describe("multi-pass gating", () => {
             roundsRequested: 3,
             passesUsed: 3,
             merged: true,
+            detail: "3/3 passes + merge",
         });
         // The last call is the merge, and it carries the merge prompt rather
         // than the summary system prompt.

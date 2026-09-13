@@ -26,6 +26,7 @@ import { captureServerEvent } from "@/lib/posthog-server";
 import { upsertEnhancement } from "@/lib/transcription/persist";
 import {
     clampRounds,
+    formatPassOutcomes,
     type MultiPassProgress,
     runMultiPassSummary,
 } from "./multi-pass";
@@ -76,6 +77,11 @@ export interface GenerateSummaryResult {
         roundsRequested: number;
         passesUsed: number;
         merged: boolean;
+        /**
+         * How the run went, in one line. Counts and outcomes only -- safe for
+         * the unencrypted job row, unlike anything derived from the replies.
+         */
+        detail: string;
     };
 }
 
@@ -403,7 +409,16 @@ export async function generateSummaryForRecording(
             roundsRequested: result.roundsRequested,
             passesUsed: result.passesUsed,
             merged: result.merged,
+            detail: result.detail,
         };
+        // A degraded run is otherwise silent: dropping an unusable pass is the
+        // correct behaviour, and `onRetry` logs nothing for a pass that failed
+        // without retrying or that returned text which simply would not parse.
+        if (result.passesUsed !== result.roundsRequested || !result.merged) {
+            console.warn(
+                `[summary] multi-pass degraded: ${result.detail} | ${formatPassOutcomes(result.passOutcomes)}`,
+            );
+        }
     } else {
         payload = parseSummaryPayload(await runPass());
     }
