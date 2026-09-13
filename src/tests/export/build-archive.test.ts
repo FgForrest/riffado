@@ -10,6 +10,27 @@ vi.mock("@/db/schema", () => ({
     recordings: "recordings",
     transcriptions: "transcriptions",
     aiEnhancements: "aiEnhancements",
+    // The knowledge-base reads project individual columns, so these two
+    // need a shape rather than a placeholder string.
+    people: {
+        id: "people.id",
+        userId: "people.userId",
+        displayName: "people.displayName",
+        primaryEmail: "people.primaryEmail",
+        notes: "people.notes",
+        mergedIntoId: "people.mergedIntoId",
+        createdAt: "people.createdAt",
+    },
+    transcriptSpeakers: {
+        userId: "transcriptSpeakers.userId",
+        transcriptionId: "transcriptSpeakers.transcriptionId",
+        label: "transcriptSpeakers.label",
+        personId: "transcriptSpeakers.personId",
+        source: "transcriptSpeakers.source",
+        status: "transcriptSpeakers.status",
+        confidence: "transcriptSpeakers.confidence",
+        evidenceStartMs: "transcriptSpeakers.evidenceStartMs",
+    },
 }));
 vi.mock("@/lib/encryption/fields", () => ({
     decryptText: (v: string | null) => (v == null ? v : `decrypted:${v}`),
@@ -123,6 +144,94 @@ describe("buildAndUploadExportArchive", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         storage = new FakeStorage();
+    });
+
+    it("carries the knowledge base so a restore keeps who was speaking", async () => {
+        // With no recordings, the transcript and enhancement reads are
+        // skipped entirely, so the knowledge reads follow immediately.
+        mockSelectSequence([
+            // recordings
+            [],
+            // people
+            [
+                {
+                    id: "p-1",
+                    displayName: "enc-Jan",
+                    primaryEmail: "enc-jan@fg.cz",
+                    notes: null,
+                    mergedIntoId: null,
+                    createdAt: new Date("2026-01-01T00:00:00Z"),
+                },
+            ],
+            // transcript speakers
+            [
+                {
+                    transcriptionId: "tr-1",
+                    label: "speaker_0",
+                    personId: "p-1",
+                    source: "user",
+                    status: "confirmed",
+                    confidence: null,
+                    evidenceStartMs: 14_320,
+                },
+            ],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const knowledge = JSON.parse(
+            entries.get("knowledge/people.json")?.buffer.toString("utf-8") ??
+                "{}",
+        );
+
+        expect(knowledge.people).toHaveLength(1);
+        expect(knowledge.people[0].displayName).toBe("decrypted:enc-Jan");
+        expect(knowledge.people[0].primaryEmail).toBe(
+            "decrypted:enc-jan@fg.cz",
+        );
+        // The email hash is derived from a server secret, so it is recomputed
+        // on restore rather than pinning the archive to one instance.
+        expect(knowledge.people[0].primaryEmailHash).toBeUndefined();
+        expect(knowledge.attributions).toEqual([
+            {
+                transcriptionId: "tr-1",
+                label: "speaker_0",
+                personId: "p-1",
+                source: "user",
+                status: "confirmed",
+                confidence: null,
+                evidenceStartMs: 14_320,
+            },
+        ]);
+
+        const manifest = JSON.parse(
+            entries.get("manifest.json")?.buffer.toString("utf-8") ?? "{}",
+        );
+        expect(manifest.knowledge).toEqual({ people: 1, attributions: 1 });
+    });
+
+    it("omits the knowledge section entirely when there is none", async () => {
+        mockSelectSequence([[], [], []]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        expect([...entries.keys()]).not.toContain("knowledge/people.json");
+        const manifest = JSON.parse(
+            entries.get("manifest.json")?.buffer.toString("utf-8") ?? "{}",
+        );
+        expect(manifest.knowledge).toBeUndefined();
     });
 
     it("bundles audio, transcript, and summary per recording plus a manifest", async () => {

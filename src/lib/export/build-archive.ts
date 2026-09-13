@@ -2,7 +2,13 @@ import { PassThrough, type Readable } from "node:stream";
 import { ZipArchive } from "archiver";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { aiEnhancements, recordings, transcriptions } from "@/db/schema";
+import {
+    aiEnhancements,
+    people,
+    recordings,
+    transcriptions,
+    transcriptSpeakers,
+} from "@/db/schema";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import type { StorageProvider } from "@/lib/storage/types";
 
@@ -184,6 +190,7 @@ export async function buildAndUploadExportArchive(input: {
         createdAt: string;
         userId: string;
         recordings: ManifestRecording[];
+        knowledge?: { people: number; attributions: number };
     } = {
         version: "2.0",
         createdAt: new Date().toISOString(),
@@ -370,6 +377,21 @@ export async function buildAndUploadExportArchive(input: {
         );
     });
 
+    // The knowledge base rides along as data, decrypted like everything else
+    // in the archive. Export parity is the proof a user can leave, so a
+    // backup that restores recordings but loses who was speaking in them is
+    // not a backup of this feature at all.
+    const knowledge = await collectKnowledgeBase(userId);
+    if (knowledge.people.length > 0 || knowledge.attributions.length > 0) {
+        archive.append(Buffer.from(JSON.stringify(knowledge, null, 2)), {
+            name: "knowledge/people.json",
+        });
+        manifest.knowledge = {
+            people: knowledge.people.length,
+            attributions: knowledge.attributions.length,
+        };
+    }
+
     archive.append(Buffer.from(JSON.stringify(manifest, null, 2)), {
         name: "manifest.json",
     });
@@ -382,4 +404,75 @@ export async function buildAndUploadExportArchive(input: {
     }
 
     return { recordingCount: userRecordings.length, fileSize };
+}
+
+export interface ArchivedKnowledgeBase {
+    people: {
+        id: string;
+        displayName: string;
+        primaryEmail: string | null;
+        notes: string | null;
+        mergedIntoId: string | null;
+        createdAt: string;
+    }[];
+    attributions: {
+        transcriptionId: string;
+        label: string;
+        personId: string | null;
+        source: string;
+        status: string;
+        confidence: number | null;
+        evidenceStartMs: number | null;
+    }[];
+}
+
+/**
+ * The knowledge base for one user, decrypted for the archive.
+ *
+ * `primaryEmailHash` is deliberately not exported: it is derived from the
+ * email with a server secret and a restore can recompute it, while carrying
+ * it would pin the archive to one instance's secret.
+ */
+async function collectKnowledgeBase(
+    userId: string,
+): Promise<ArchivedKnowledgeBase> {
+    const [peopleRows, attributionRows] = await Promise.all([
+        db
+            .select({
+                id: people.id,
+                displayName: people.displayName,
+                primaryEmail: people.primaryEmail,
+                notes: people.notes,
+                mergedIntoId: people.mergedIntoId,
+                createdAt: people.createdAt,
+            })
+            .from(people)
+            .where(eq(people.userId, userId)),
+        db
+            .select({
+                transcriptionId: transcriptSpeakers.transcriptionId,
+                label: transcriptSpeakers.label,
+                personId: transcriptSpeakers.personId,
+                source: transcriptSpeakers.source,
+                status: transcriptSpeakers.status,
+                confidence: transcriptSpeakers.confidence,
+                evidenceStartMs: transcriptSpeakers.evidenceStartMs,
+            })
+            .from(transcriptSpeakers)
+            .where(eq(transcriptSpeakers.userId, userId)),
+    ]);
+
+    return {
+        people: peopleRows.map((row) => ({
+            id: row.id,
+            displayName: decryptText(row.displayName),
+            primaryEmail: row.primaryEmail
+                ? decryptText(row.primaryEmail)
+                : null,
+            notes: row.notes ? decryptText(row.notes) : null,
+            mergedIntoId: row.mergedIntoId,
+            createdAt: row.createdAt.toISOString(),
+        })),
+        attributions: attributionRows,
+    };
 }
