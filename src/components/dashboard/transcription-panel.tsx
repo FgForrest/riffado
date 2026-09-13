@@ -242,6 +242,7 @@ export function TranscriptionPanel({
                                     source={activeTranscript.source}
                                     model={activeTranscript.model}
                                     storedTurns={activeTranscript.turns}
+                                    recordingId={recording.id}
                                 />
                             </div>
                             <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t">

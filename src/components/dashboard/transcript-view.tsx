@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { SpeakerPicker } from "@/components/people/speaker-picker";
 import {
     formatSpeakerLabel,
     mayBeDiarized,
@@ -34,6 +35,11 @@ export interface TranscriptViewProps {
      * stored, which fall back to the regex.
      */
     storedTurns?: TranscriptTurn[] | null;
+    /**
+     * Enables naming. Without a recording to attribute against, labels render
+     * as plain text -- which is what the dashboard preview wants.
+     */
+    recordingId?: string;
 }
 
 /**
@@ -51,7 +57,65 @@ export function TranscriptView({
     source,
     model,
     storedTurns,
+    recordingId,
 }: TranscriptViewProps) {
+    // Confirmed names for this transcript, fetched rather than threaded
+    // through the loaders: there are two of those and an attribution changes
+    // far more often than a page load.
+    const [names, setNames] = useState<Record<string, string>>({});
+    const [openLabel, setOpenLabel] = useState<string | null>(null);
+    const attributable = Boolean(recordingId) && Boolean(source);
+
+    const loadNames = useCallback(async () => {
+        if (!recordingId || !source) return;
+        const response = await fetch(
+            `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
+        );
+        if (!response.ok) return;
+        const body = (await response.json()) as {
+            speakers?: {
+                label: string;
+                personName: string | null;
+                status: string;
+            }[];
+        };
+        setNames(
+            Object.fromEntries(
+                (body.speakers ?? [])
+                    .filter(
+                        (speaker) =>
+                            speaker.personName &&
+                            speaker.status === "confirmed",
+                    )
+                    .map((speaker) => [
+                        speaker.label,
+                        speaker.personName as string,
+                    ]),
+            ),
+        );
+    }, [recordingId, source]);
+
+    useEffect(() => {
+        if (attributable) void loadNames();
+    }, [attributable, loadNames]);
+
+    async function attribute(
+        label: string,
+        choice: { personId?: string; displayName?: string } | null,
+    ) {
+        if (!recordingId || !source) return;
+        await fetch(
+            `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
+            {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ label, ...(choice ?? {}) }),
+            },
+        );
+        setOpenLabel(null);
+        await loadNames();
+    }
+
     const turns = useMemo(() => {
         if (storedTurns?.length) {
             return storedTurns.map((turn) => ({
@@ -88,15 +152,51 @@ export function TranscriptView({
                         className="space-y-1"
                     >
                         {turn.label && (
-                            <div className="flex items-center gap-2">
+                            <div className="relative flex items-center gap-2">
                                 <span
                                     className={`size-1.5 rounded-full shrink-0 ${style.dot}`}
                                 />
-                                <span
-                                    className={`text-xs font-medium ${style.text}`}
-                                >
-                                    {turn.label}
-                                </span>
+                                {attributable ? (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setOpenLabel((open) =>
+                                                open === turn.speaker
+                                                    ? null
+                                                    : turn.speaker,
+                                            )
+                                        }
+                                        className={`rounded text-xs font-medium underline-offset-4 hover:underline ${style.text}`}
+                                        title={
+                                            names[turn.speaker]
+                                                ? "Change who this is"
+                                                : "Name this speaker"
+                                        }
+                                    >
+                                        {names[turn.speaker] ?? turn.label}
+                                    </button>
+                                ) : (
+                                    <span
+                                        className={`text-xs font-medium ${style.text}`}
+                                    >
+                                        {names[turn.speaker] ?? turn.label}
+                                    </span>
+                                )}
+                                {openLabel === turn.speaker && (
+                                    <SpeakerPicker
+                                        label={turn.label}
+                                        personId={
+                                            names[turn.speaker] ? "set" : null
+                                        }
+                                        onPick={(choice) =>
+                                            void attribute(turn.speaker, choice)
+                                        }
+                                        onClear={() =>
+                                            void attribute(turn.speaker, null)
+                                        }
+                                        onClose={() => setOpenLabel(null)}
+                                    />
+                                )}
                             </div>
                         )}
                         <p className="text-sm whitespace-pre-wrap leading-relaxed pl-3.5">
