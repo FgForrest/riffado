@@ -46,11 +46,79 @@ This checks both CLIs run, both are authenticated *against a subscription*, `/he
 
 > If your Riffado build predates those presets, add a **Custom** provider instead: Base URL `http://agent-bridge:8787/v1`, API Key `BRIDGE_TOKEN`, Default Model `claude-sonnet-5` or `gpt-5-codex`. Leave *Use for transcription* unticked — the bridge takes no audio.
 
+## Building the image
+
+**There is no prebuilt image, on purpose.** The image bundles both vendor CLIs, and they are licensed differently: `@openai/codex` is Apache-2.0, but `@anthropic-ai/claude-code` declares `SEE LICENSE IN README.md`, which points at [Anthropic's Commercial Terms](https://www.anthropic.com/legal/commercial-terms) — proprietary, granting no redistribution right. Publishing an image containing it would be republishing Anthropic's client. Building locally keeps each CLI on the machine that holds the subscription for it.
+
+Pin both versions to what you actually run:
+
+```sh
+claude --version        # e.g. 2.1.270
+codex --version         # e.g. codex-cli 0.153.3
+
+docker build -t riffado-agent-bridge:local \
+  --build-arg CLAUDE_CODE_VERSION=2.1.270 \
+  --build-arg CODEX_VERSION=0.153.3 \
+  ./agent-bridge
+```
+
+The `ARG` defaults are `latest`, which is the wrong posture for a container holding credentials for two paid subscriptions — the same "first adopter" position the Dependabot `cooldown` block and pnpm's `minimumReleaseAge` exist to avoid. Rebuild when you upgrade the CLIs, and run `smoke.sh` afterwards: a flag that moved between releases is a hard failure, not a warning.
+
+### Running alongside an existing deployment
+
+The compose service in this repo assumes you run Riffado from this checkout. If your deployment lives elsewhere — its own directory, pulling a published app image — the bridge must join **that** compose project, because the app reaches it at `http://agent-bridge:8787/v1`, a name that only resolves inside the same project's network.
+
+Add a service to the deployment's compose (or its override file) referencing the tag you just built:
+
+```yaml
+  agent-bridge:
+    image: riffado-agent-bridge:local
+    container_name: riffado-agent-bridge
+    restart: unless-stopped
+    # One named variable, never `env_file: .env` -- that would hand this
+    # container the app's ENCRYPTION_KEY, which decrypts every stored
+    # provider credential.
+    environment:
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:?set BRIDGE_TOKEN in .env}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      BRIDGE_MAX_CONCURRENCY: "1"
+    volumes:
+      - agent_creds:/home/node
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  agent_creds:
+    driver: local
+```
+
+Three things that are easy to get wrong here:
+
+- **No `ports:`**, and no `profiles:` either — a profile means a plain `docker compose up -d` silently skips the service.
+- **No `user:`**, even if your other services set one. The image runs as its own `node` user, which owns `/home/node`; forcing a different uid makes the directory the CLIs rewrite their tokens in read-only.
+- Prove the wiring before going further:
+
+  ```sh
+  docker compose exec app node -e \
+    "fetch('http://agent-bridge:8787/health').then(r=>r.json()).then(j=>console.log(j))"
+  ```
+
+Run `smoke.sh` **from the deployment directory**, not from this checkout — it shells out to `docker compose` in the current directory and reads `BRIDGE_TOKEN` from `./.env`:
+
+```sh
+cd /path/to/your/deployment
+/path/to/riffado/agent-bridge/smoke.sh
+```
+
 ## Authentication
 
 Both flows below are **headless**: you authorize on whatever machine has a browser, and the credential lands in the `agent_creds` volume, where the CLIs refresh it in place. Neither needs a browser or an open port inside the container.
 
-`docker compose run` mounts the same named volume as the long-running service, so a login done this way persists across recreates. It also implicitly enables the `agent-bridge` profile, so no `--profile` flag is needed.
+If the service is already running, use `docker compose exec agent-bridge <cmd>` — same volume, no second container, and the server keeps serving while you log in. The `docker compose run --rm` form below is for the case where it is not up; it mounts the same named volume, so either way the credential persists, and it implicitly enables the `agent-bridge` profile.
 
 ### Claude
 
@@ -203,3 +271,5 @@ Errors surface in Riffado as a failed summary. `docker compose logs -f agent-bri
 ## Not verified in this repo's CI
 
 CI has no Claude or Codex subscription, so nothing here exercises a real CLI. `src/tests/ai/agent-bridge.test.ts` covers the pure request/response logic — auth, model routing, message flattening, JSON extraction — by importing the module's helpers. The CLI invocation itself is what `smoke.sh` is for; run it after any CLI upgrade.
+
+**Nor does CI build this Dockerfile.** That gap has already cost something: the `COPY` line named only `server.mjs` while the program also needs `lib.mjs`, so the published instructions produced an image that died at startup with `ERR_MODULE_NOT_FOUND` — and every test still passed, because they import `lib.mjs` straight from the source tree. A job that builds the image and starts the server far enough to bind a port would catch that class of defect without needing a subscription.
