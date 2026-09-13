@@ -522,6 +522,11 @@ export const userSettings = pgTable("user_settings", {
     defaultExportFormat: varchar("default_export_format", { length: 10 })
         .notNull()
         .default("json"), // 'json', 'txt', 'srt', 'vtt'
+    // Unused. Backed a permanently disabled "Auto-export new recordings"
+    // switch that was never implemented -- it had no destination to export
+    // to, and the two sidecar flags below are the working version of the
+    // idea. Kept (rather than dropped) so the settings API payload is
+    // unchanged and no destructive migration is needed; nothing reads it.
     autoExport: boolean("auto_export").notNull().default(false),
     // Write a `<recording>.transcript.md` / `<recording>.summary.md`
     // sidecar next to the audio file in storage after each successful run.

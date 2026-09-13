@@ -68,7 +68,6 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
     const { isLoadingSettings, isSavingSettings, setIsLoadingSettings } =
         useSettings();
     const [defaultExportFormat, setDefaultExportFormat] = useState("json");
-    const [autoExport, setAutoExport] = useState(false);
     const [autoExportTranscript, setAutoExportTranscript] = useState(false);
     const [autoExportSummary, setAutoExportSummary] = useState(false);
     const [isBackfilling, setIsBackfilling] = useState(false);
@@ -84,7 +83,6 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                 if (response.ok) {
                     const data = await response.json();
                     setDefaultExportFormat(data.defaultExportFormat ?? "json");
-                    setAutoExport(data.autoExport ?? false);
                     setAutoExportTranscript(data.autoExportTranscript ?? false);
                     setAutoExportSummary(data.autoExportSummary ?? false);
                     setBackupFrequency(data.backupFrequency ?? null);
@@ -157,7 +155,6 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
 
     const handleExportBackupSettingChange = async (updates: {
         defaultExportFormat?: string;
-        autoExport?: boolean;
         autoExportTranscript?: boolean;
         autoExportSummary?: boolean;
         backupFrequency?: string | null;
@@ -166,10 +163,6 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
         if (updates.defaultExportFormat !== undefined) {
             previousValues.defaultExportFormat = defaultExportFormat;
             setDefaultExportFormat(updates.defaultExportFormat);
-        }
-        if (updates.autoExport !== undefined) {
-            previousValues.autoExport = autoExport;
-            setAutoExport(updates.autoExport);
         }
         if (updates.autoExportTranscript !== undefined) {
             previousValues.autoExportTranscript = autoExportTranscript;
@@ -198,10 +191,6 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
             if (updates.defaultExportFormat !== undefined) {
                 const prev = previousValues.defaultExportFormat;
                 if (typeof prev === "string") setDefaultExportFormat(prev);
-            }
-            if (updates.autoExport !== undefined) {
-                const prev = previousValues.autoExport;
-                if (typeof prev === "boolean") setAutoExport(prev);
             }
             if (updates.autoExportTranscript !== undefined) {
                 const prev = previousValues.autoExportTranscript;
@@ -364,33 +353,15 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                     </Select>
                 </div>
 
-                <div className="flex items-center justify-between opacity-60">
-                    <div className="space-y-0.5 flex-1">
-                        <div className="flex items-center gap-2">
-                            <Label htmlFor="auto-export" className="text-base">
-                                Auto-export new recordings
-                            </Label>
-                            <span className="text-xs bg-muted px-2 py-0.5 rounded">
-                                Coming soon
-                            </span>
-                        </div>
-                        <p className="text-sm text-muted-foreground">
-                            Automatically export recordings when they are synced
-                        </p>
-                    </div>
-                    <Switch
-                        id="auto-export"
-                        checked={autoExport}
-                        onCheckedChange={(checked) => {
-                            setAutoExport(checked);
-                            handleExportBackupSettingChange({
-                                autoExport: checked,
-                            });
-                        }}
-                        disabled={true}
-                    />
-                </div>
-
+                {/* "Auto-export new recordings" used to sit here as a
+                    permanently disabled "Coming soon" switch. It never had a
+                    destination -- there is no concept of an export target to
+                    write to on sync -- and the block below is the version of
+                    that idea which actually runs: transcripts and summaries
+                    are written into storage the moment they are produced.
+                    The `autoExport` column is left in place (still accepted
+                    and returned by /api/settings/user) so no migration is
+                    needed and nothing that reads it breaks. */}
                 <div className="space-y-4 rounded-lg border p-4">
                     <div className="space-y-0.5">
                         <Label className="text-base">
