@@ -302,6 +302,13 @@
       "when": 1789323981842,
       "tag": "0042_panoramic_boomerang",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1789336714948,
+      "tag": "0043_modern_ultimatum",
+      "breakpoints": true
     }
   ]
 }

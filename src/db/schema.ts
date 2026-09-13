@@ -364,6 +364,16 @@ export const transcriptions = pgTable(
         //   'plaud'   = imported from Plaud's native transcription
         //   'mixed'   = user-edited combination of the above (see #204)
         source: varchar("source", { length: 20 }).notNull().default("riffado"),
+        // Diarized turns with per-turn timings, encrypted like the text they
+        // were rendered from. Null for undiarized providers and for every
+        // transcript produced before this shipped; `parseSpeakerTurns` over
+        // the flat text stays the fallback for those.
+        //
+        // Written on every upsert, including as NULL -- re-transcribing a
+        // diarized recording with an undiarized model has to clear the old
+        // turns, or the row keeps a dialog structure its text no longer has.
+        // Same reasoning as `ai_enhancements.multi_pass_rounds`.
+        turns: jsonb("turns"),
         createdAt: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => ({
