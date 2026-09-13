@@ -39,6 +39,7 @@ import {
     chatCompletion,
     parseClaudeEnvelope,
     resolveBackend,
+    sanitizeForLog,
     splitArgs,
 } from "./lib.mjs";
 
@@ -278,11 +279,14 @@ async function handleChatCompletions(req, res) {
 
     const backend = resolveBackend(model);
     if (!backend) {
+        // Echo the rejected id back sanitized: this is the one place an
+        // unvalidated model reaches a response body.
         throw new BridgeError(
             400,
-            `unknown model "${model}". This bridge routes ids starting with ` +
-                `"claude" to the Claude Code CLI and "codex"/"gpt-5" to the ` +
-                `Codex CLI. Set a Default Model on the provider in Riffado.`,
+            `unknown model "${sanitizeForLog(model, 64)}". This bridge routes ` +
+                `ids starting with "claude" to the Claude Code CLI and ` +
+                `"codex"/"gpt-5" to the Codex CLI. Set a Default Model on ` +
+                `the provider in Riffado.`,
         );
     }
 
@@ -302,8 +306,13 @@ async function handleChatCompletions(req, res) {
     const content = await withSlot(() => RUNNERS[backend](model, prompt));
     const elapsedMs = Date.now() - startedAt;
 
+    // `model` came off the request body. `resolveBackend` already
+    // rejected anything outside MODEL_ID_PATTERN, but the sanitizer stays
+    // on the path to the log sink so the guarantee is visible here rather
+    // than three calls away -- a newline would otherwise let a caller
+    // forge log lines.
     console.log(
-        `[agent-bridge] ${backend} model=${model} ` +
+        `[agent-bridge] ${backend} model=${sanitizeForLog(model)} ` +
             `prompt_bytes=${Buffer.byteLength(prompt)} ` +
             `reply_bytes=${Buffer.byteLength(content)} ms=${elapsedMs}`,
     );

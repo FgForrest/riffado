@@ -9,6 +9,7 @@ import {
     extractJson,
     parseClaudeEnvelope,
     resolveBackend,
+    sanitizeForLog,
     splitArgs,
 } from "../../../agent-bridge/lib.mjs";
 
@@ -31,6 +32,26 @@ describe("agent-bridge", () => {
         it("routes codex and gpt-5 ids to the Codex CLI", () => {
             expect(resolveBackend("codex")).toBe("codex");
             expect(resolveBackend("gpt-5-codex")).toBe("codex");
+        });
+
+        it("refuses ids carrying whitespace or control characters", () => {
+            // These reach both the CLI's argv and the request log. A
+            // newline in a model id lets a caller forge log lines
+            // (CodeQL js/log-injection, flagged on PR #12); no real model
+            // id has ever needed one.
+            expect(resolveBackend("claude-sonnet-5\ninjected")).toBeNull();
+            expect(
+                resolveBackend("claude-sonnet-5\r\n[agent-bridge] x"),
+            ).toBeNull();
+            expect(resolveBackend("claude sonnet 5")).toBeNull();
+            expect(resolveBackend("claude;rm -rf /")).toBeNull();
+            expect(resolveBackend(`claude-${"x".repeat(200)}`)).toBeNull();
+        });
+
+        it("still accepts the punctuation real ids use", () => {
+            expect(resolveBackend("claude-haiku-4-5-20251001")).toBe("claude");
+            expect(resolveBackend("claude-sonnet-5.1")).toBe("claude");
+            expect(resolveBackend("codex/gpt-5")).toBe("codex");
         });
 
         it("refuses Riffado's gpt-4o-mini fallback rather than guessing", () => {
@@ -194,6 +215,32 @@ describe("agent-bridge", () => {
             expect(args.at(-3)).toBe("--foo");
             expect(args.at(-2)).toBe("bar");
             expect(args.at(-1)).toBe("-");
+        });
+    });
+
+    describe("sanitizeForLog", () => {
+        it("strips newlines and carriage returns so log lines cannot be forged", () => {
+            expect(sanitizeForLog("ok\nforged")).toBe("okforged");
+            expect(sanitizeForLog("ok\r\nforged")).toBe("okforged");
+            expect(sanitizeForLog("ok\tforged")).toBe("okforged");
+        });
+
+        it("strips DEL and the C1 range", () => {
+            // Built from char codes so no control byte lands in this file.
+            const DEL = String.fromCharCode(0x7f);
+            const C1 = String.fromCharCode(0x9f);
+            expect(sanitizeForLog(`a${DEL}b${C1}c`)).toBe("abc");
+        });
+
+        it("caps length so one field cannot flood the log", () => {
+            expect(sanitizeForLog("x".repeat(500))).toHaveLength(128);
+            expect(sanitizeForLog("x".repeat(500), 10)).toHaveLength(10);
+        });
+
+        it("leaves an ordinary model id untouched", () => {
+            expect(sanitizeForLog("claude-haiku-4-5-20251001")).toBe(
+                "claude-haiku-4-5-20251001",
+            );
         });
     });
 

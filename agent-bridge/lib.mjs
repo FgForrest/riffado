@@ -20,6 +20,33 @@ export function splitArgs(value) {
 }
 
 /**
+ * Model ids reach two places that care about their shape: the CLI's argv,
+ * and the request log. Anything outside this set is rejected before
+ * either -- a real model id has never needed whitespace, a control
+ * character, or a shell metacharacter, and allowing one would let a
+ * caller forge log lines (CodeQL: js/log-injection) or pad argv.
+ */
+const MODEL_ID_PATTERN = /^[A-Za-z0-9._:+/-]{1,128}$/;
+
+/**
+ * Strip anything that could break out of a single log line.
+ *
+ * Redundant with `MODEL_ID_PATTERN` for values that reached here through
+ * `resolveBackend`, and deliberately so: it is the sanitizer on the path
+ * from request body to log sink, and it keeps that guarantee local to
+ * the log statement rather than resting on a validation three calls
+ * away.
+ */
+export function sanitizeForLog(value, maxLength = 128) {
+    // C0 controls (which covers CR and LF), DEL, and the C1 range.
+    // Written as escapes rather than literals so the intent survives a
+    // copy/paste that would otherwise embed raw control bytes.
+    return String(value)
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, "")
+        .slice(0, maxLength);
+}
+
+/**
  * One sidecar serves both CLIs, so the `model` field is what picks the
  * backend. Returns "claude", "codex", or null.
  *
@@ -32,6 +59,7 @@ export function splitArgs(value) {
 export function resolveBackend(model) {
     if (typeof model !== "string") return null;
     const id = model.trim();
+    if (!MODEL_ID_PATTERN.test(id)) return null;
     if (id.startsWith("claude")) return "claude";
     if (id.startsWith("codex") || id.startsWith("gpt-5")) return "codex";
     return null;
