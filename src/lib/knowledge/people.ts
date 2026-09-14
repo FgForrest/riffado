@@ -136,6 +136,7 @@ export async function listPeople(userId: string): Promise<Person[]> {
     return rows.map(toPerson);
 }
 
+/** Look up a person by id, tombstones included -- see `Person.mergedIntoId`. */
 export async function getPerson(
     userId: string,
     personId: string,

@@ -12,7 +12,9 @@ import { initials } from "@/lib/utils";
 export interface PersonAppearance {
     recordingId: string;
     title: string;
+    /** ISO 8601 timestamp. */
     recordedAt: string;
+    /** The raw provider label being named, e.g. `speaker_0`. */
     label: string;
     status: string;
     source: string;

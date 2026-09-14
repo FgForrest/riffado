@@ -35,6 +35,7 @@ export interface Transcription {
     language?: string;
     source?: string;
     model?: string;
+    /** Provider-reported turns, when the transcript was stored with them. */
     turns?: TranscriptTurn[] | null;
 }
 

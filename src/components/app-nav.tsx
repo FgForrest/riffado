@@ -3,6 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+const SECTIONS = [
+    { href: "/dashboard", label: "Recordings" },
+    { href: "/people", label: "People" },
+] as const;
+
 /**
  * The app's top-level sections.
  *
@@ -11,11 +16,6 @@ import { usePathname } from "next/navigation";
  * than a shell rewrite: the header already carries the page identity, and a
  * sidebar for two destinations would be furniture.
  */
-const SECTIONS = [
-    { href: "/dashboard", label: "Recordings" },
-    { href: "/people", label: "People" },
-] as const;
-
 export function AppNav({ className }: { className?: string }) {
     const pathname = usePathname();
 

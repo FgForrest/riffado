@@ -7,7 +7,9 @@
  */
 export interface TranscriptTurn {
     speaker: string;
+    /** Milliseconds from the start of the recording audio, once normalized here. */
     startMs: number;
+    /** Milliseconds from the start of the recording audio, once normalized here. */
     endMs: number;
     text: string;
 }

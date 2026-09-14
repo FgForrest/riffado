@@ -14,6 +14,7 @@ export interface PersonSummary {
     displayName: string;
     primaryEmail: string | null;
     recordingCount: number;
+    /** ISO 8601 timestamp, or null if the person has no confirmed appearance yet. */
     lastSeen: string | null;
 }
 

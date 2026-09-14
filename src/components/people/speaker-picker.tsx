@@ -16,6 +16,10 @@ export interface SpeakerPickerProps {
     label: string;
     /** Currently attributed person, if any. */
     personId: string | null;
+    /**
+     * Exactly one of the two is ever set: `personId` to attribute an
+     * existing person, `displayName` to create and attribute a new one.
+     */
     onPick: (choice: { personId?: string; displayName?: string }) => void;
     onClear: () => void;
     onClose: () => void;
