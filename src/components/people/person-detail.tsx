@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/format-date";
 import { formatSpeakerLabel } from "@/lib/transcription/diarization";
+import { initials } from "@/lib/utils";
 
 export interface PersonAppearance {
     recordingId: string;
@@ -174,13 +175,4 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
             </section>
         </div>
     );
-}
-
-function initials(name: string): string {
-    return name
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part[0]?.toUpperCase() ?? "")
-        .join("");
 }

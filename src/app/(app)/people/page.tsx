@@ -4,14 +4,9 @@ import { redirect } from "next/navigation";
 import { AppNav } from "@/components/app-nav";
 import { PeopleList } from "@/components/people/people-list";
 import { db } from "@/db";
-import {
-    people,
-    recordings,
-    transcriptions,
-    transcriptSpeakers,
-} from "@/db/schema";
+import { recordings, transcriptions, transcriptSpeakers } from "@/db/schema";
 import { auth } from "@/lib/auth";
-import { decryptText } from "@/lib/encryption/fields";
+import { listPeople } from "@/lib/knowledge/people";
 
 export const dynamic = "force-dynamic";
 
@@ -24,16 +19,7 @@ export default async function PeoplePage() {
     const userId = session.user.id;
 
     const [rows, appearances] = await Promise.all([
-        db
-            .select({
-                id: people.id,
-                displayName: people.displayName,
-                primaryEmail: people.primaryEmail,
-                updatedAt: people.updatedAt,
-            })
-            .from(people)
-            .where(and(eq(people.userId, userId), isNull(people.mergedIntoId)))
-            .orderBy(sql`${people.updatedAt} desc`),
+        listPeople(userId),
         // How many recordings each person appears in, and when they were last
         // heard. Both come from the attribution overlay joined back to the
         // recording, which is the only place that link exists.
@@ -78,10 +64,8 @@ export default async function PeoplePage() {
             <PeopleList
                 people={rows.map((row) => ({
                     id: row.id,
-                    displayName: decryptText(row.displayName),
-                    primaryEmail: row.primaryEmail
-                        ? decryptText(row.primaryEmail)
-                        : null,
+                    displayName: row.displayName,
+                    primaryEmail: row.primaryEmail,
                     recordingCount: stats.get(row.id)?.recordingCount ?? 0,
                     lastSeen:
                         stats.get(row.id)?.lastSeen?.toISOString() ?? null,

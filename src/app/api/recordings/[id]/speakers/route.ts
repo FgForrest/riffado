@@ -8,12 +8,15 @@ import {
     getTranscriptSpeakers,
     setTranscriptSpeaker,
 } from "@/lib/knowledge/attribution";
-import { createPerson, getPerson } from "@/lib/knowledge/people";
+import {
+    createPerson,
+    getPerson,
+    MAX_DISPLAY_NAME_LENGTH,
+} from "@/lib/knowledge/people";
 
 type IdContext = { params: Promise<{ id: string }> };
 
 const MAX_LABEL_LENGTH = 64;
-const MAX_NAME_LENGTH = 200;
 
 export const GET = apiHandler<IdContext>(async (request, context) => {
     const session = await requireApiSession(request);
@@ -81,7 +84,7 @@ export const PUT = apiHandler<IdContext>(async (request, context) => {
         body.displayName.trim()
     ) {
         const displayName = body.displayName.trim();
-        if (displayName.length > MAX_NAME_LENGTH) {
+        if (displayName.length > MAX_DISPLAY_NAME_LENGTH) {
             throw new AppError(
                 ErrorCode.INVALID_INPUT,
                 "That name is too long",
@@ -120,13 +123,11 @@ export const PUT = apiHandler<IdContext>(async (request, context) => {
     });
 });
 
-/**
- * The transcript an attribution attaches to.
- *
- * A recording can hold more than one transcript, and their speaker labels
- * are not interchangeable, so the caller says which by source. Defaults to
- * the user's own.
- */
+// The transcript an attribution attaches to.
+//
+// A recording can hold more than one transcript, and their speaker labels
+// are not interchangeable, so the caller says which by source. Defaults to
+// the user's own.
 async function requireTranscript(
     userId: string,
     recordingId: string,

@@ -1,7 +1,7 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { people, transcriptSpeakers } from "@/db/schema";
-import { decryptText } from "@/lib/encryption/fields";
+import { namesFromRows } from "@/lib/knowledge/attribution";
 import { readTranscriptTurns } from "@/lib/transcription/read-turns";
 import {
     renderTurnsAsText,
@@ -89,19 +89,21 @@ export function resolverMapFromRows(
         displayName: string;
     }[],
 ): Map<string, SpeakerNameResolver> {
-    const byTranscript = new Map<string, Map<string, string>>();
+    const byTranscript = new Map<
+        string,
+        { label: string; displayName: string }[]
+    >();
 
     for (const row of rows) {
-        const names =
-            byTranscript.get(row.transcriptionId) ?? new Map<string, string>();
-        names.set(row.label, decryptText(row.displayName));
-        byTranscript.set(row.transcriptionId, names);
+        const group = byTranscript.get(row.transcriptionId) ?? [];
+        group.push(row);
+        byTranscript.set(row.transcriptionId, group);
     }
 
     return new Map(
-        [...byTranscript].map(([transcriptionId, names]) => [
+        [...byTranscript].map(([transcriptionId, group]) => [
             transcriptionId,
-            (speaker: string) => names.get(speaker) ?? null,
+            namesFromRows(group),
         ]),
     );
 }

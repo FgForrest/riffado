@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatDateTime } from "@/lib/format-date";
+import { initials } from "@/lib/utils";
 
 export interface PersonSummary {
     id: string;
@@ -155,14 +156,4 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
             )}
         </div>
     );
-}
-
-/** Up to two initials, which is all the avatar slot has room for. */
-function initials(name: string): string {
-    return name
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((part) => part[0]?.toUpperCase() ?? "")
-        .join("");
 }

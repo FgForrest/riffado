@@ -1,5 +1,8 @@
 import { env } from "@/lib/env";
-import type { TranscriptTurn } from "@/lib/transcription/turns";
+import {
+    renderTurnsAsText,
+    type TranscriptTurn,
+} from "@/lib/transcription/turns";
 
 const DEFAULT_API_BASE = "https://api.elevenlabs.io";
 const DIARIZE_SUFFIX = "+diarize";
@@ -199,20 +202,10 @@ function formatDiarizedText(
         return null;
     }
 
-    return {
-        text: rendered
-            .map((segment) => `${segment.speaker}: ${segment.text}`)
-            .join("\n"),
-        turns: rendered.map(({ speaker, text, startMs, endMs }) => ({
-            speaker,
-            text,
-            startMs,
-            endMs,
-        })),
-    };
+    return { text: renderTurnsAsText(rendered), turns: rendered };
 }
 
-/** Seconds to whole milliseconds; a missing time is the start of the audio. */
+// Seconds to whole milliseconds; a missing time is the start of the audio.
 function toMs(seconds: number | null | undefined): number {
     return Math.round((seconds ?? 0) * 1000);
 }

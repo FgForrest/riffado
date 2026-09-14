@@ -5,9 +5,9 @@ import {
     createPerson,
     findPersonByEmail,
     listPeople,
+    MAX_DISPLAY_NAME_LENGTH,
 } from "@/lib/knowledge/people";
 
-const MAX_NAME_LENGTH = 200;
 const MAX_EMAIL_LENGTH = 320;
 const MAX_NOTES_LENGTH = 4000;
 
@@ -26,7 +26,11 @@ export const POST = apiHandler(async (request: Request) => {
         notes?: unknown;
     } | null;
 
-    const displayName = readString(body?.displayName, MAX_NAME_LENGTH, "name");
+    const displayName = readString(
+        body?.displayName,
+        MAX_DISPLAY_NAME_LENGTH,
+        "name",
+    );
     if (!displayName) {
         throw new AppError(
             ErrorCode.MISSING_REQUIRED_FIELD,

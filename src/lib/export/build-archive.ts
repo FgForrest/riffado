@@ -406,7 +406,7 @@ export async function buildAndUploadExportArchive(input: {
     return { recordingCount: userRecordings.length, fileSize };
 }
 
-export interface ArchivedKnowledgeBase {
+interface ArchivedKnowledgeBase {
     people: {
         id: string;
         displayName: string;
@@ -426,13 +426,11 @@ export interface ArchivedKnowledgeBase {
     }[];
 }
 
-/**
- * The knowledge base for one user, decrypted for the archive.
- *
- * `primaryEmailHash` is deliberately not exported: it is derived from the
- * email with a server secret and a restore can recompute it, while carrying
- * it would pin the archive to one instance's secret.
- */
+// The knowledge base for one user, decrypted for the archive.
+//
+// `primaryEmailHash` is deliberately not exported: it is derived from the
+// email with a server secret and a restore can recompute it, while carrying
+// it would pin the archive to one instance's secret.
 async function collectKnowledgeBase(
     userId: string,
 ): Promise<ArchivedKnowledgeBase> {

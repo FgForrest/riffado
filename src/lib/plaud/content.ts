@@ -177,7 +177,7 @@ export function segmentsToTurns(
     );
 }
 
-/** The label `parseTranscript` writes into the flat text, or "" for none. */
+// The label `parseTranscript` writes into the flat text, or "" for none.
 function speakerLabel(speaker: string | number | undefined | null): string {
     if (speaker === undefined || speaker === null || speaker === "") return "";
     return typeof speaker === "number" ? `Speaker ${speaker}` : speaker;

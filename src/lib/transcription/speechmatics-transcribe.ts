@@ -1,5 +1,8 @@
 import { env } from "@/lib/env";
-import type { TranscriptTurn } from "@/lib/transcription/turns";
+import {
+    renderTurnsAsText,
+    type TranscriptTurn,
+} from "@/lib/transcription/turns";
 
 /**
  * Speechmatics Batch speech-to-text.
@@ -431,20 +434,10 @@ function renderDiarized(
         return null;
     }
 
-    return {
-        text: rendered
-            .map((turn) => `${turn.speaker}: ${turn.text}`)
-            .join("\n"),
-        turns: rendered.map(({ speaker, text, startMs, endMs }) => ({
-            speaker,
-            text,
-            startMs,
-            endMs,
-        })),
-    };
+    return { text: renderTurnsAsText(rendered), turns: rendered };
 }
 
-/** Seconds to whole milliseconds; a missing time is the start of the audio. */
+// Seconds to whole milliseconds; a missing time is the start of the audio.
 function toMs(seconds: number | undefined): number {
     return Math.round((seconds ?? 0) * 1000);
 }

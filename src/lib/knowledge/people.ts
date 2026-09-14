@@ -5,6 +5,9 @@ import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { lookupHash } from "@/lib/knowledge/lookup-hash";
 import { planSpeakerMerge } from "@/lib/knowledge/merge-plan";
 
+/** The bound on `people.displayName`, shared by every route that writes it. */
+export const MAX_DISPLAY_NAME_LENGTH = 200;
+
 /** A person as feature code sees them: decrypted, never the stored row. */
 export interface Person {
     id: string;
