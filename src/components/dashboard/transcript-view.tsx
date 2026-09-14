@@ -1,11 +1,16 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
+import { SpeakerPicker } from "@/components/people/speaker-picker";
+import { toastApiError } from "@/lib/api-errors";
 import {
+    formatSpeakerLabel,
     mayBeDiarized,
     parseSpeakerTurns,
     speakerOrder,
 } from "@/lib/transcription/diarization";
+import type { TranscriptTurn } from "@/lib/transcription/turns";
 
 /**
  * Per-speaker accents. Cycles when a recording has more speakers than
@@ -20,11 +25,29 @@ const SPEAKER_STYLES = [
     { dot: "bg-sky-500", text: "text-sky-600 dark:text-sky-400" },
 ];
 
+/** Who a raw speaker label currently refers to, as the overlay reports it. */
+interface AttributedPerson {
+    personId: string;
+    name: string;
+}
+
 export interface TranscriptViewProps {
     text: string;
     /** Transcript provenance, used to decide whether to look for speakers. */
     source?: string | null;
     model?: string | null;
+    /**
+     * Turns as the provider reported them. Preferred over re-deriving them
+     * from the text: the provider's own grouping is authoritative, and only
+     * these carry timings. Absent for transcripts written before turns were
+     * stored, which fall back to the regex.
+     */
+    storedTurns?: TranscriptTurn[] | null;
+    /**
+     * Enables naming. Without a recording to attribute against, labels render
+     * as plain text -- which is what the dashboard preview wants.
+     */
+    recordingId?: string;
 }
 
 /**
@@ -37,11 +60,96 @@ export interface TranscriptViewProps {
  * `parseSpeakerTurns` then asks whether labels actually arrived, because a
  * diarizing model can still answer with one unlabelled block.
  */
-export function TranscriptView({ text, source, model }: TranscriptViewProps) {
+export function TranscriptView({
+    text,
+    source,
+    model,
+    storedTurns,
+    recordingId,
+}: TranscriptViewProps) {
+    // Confirmed names for this transcript, fetched rather than threaded
+    // through the loaders: there are two of those and an attribution changes
+    // far more often than a page load.
+    const [names, setNames] = useState<Record<string, AttributedPerson>>({});
+    const [openLabel, setOpenLabel] = useState<string | null>(null);
+    const attributable = Boolean(recordingId) && Boolean(source);
+
+    const loadNames = useCallback(async () => {
+        if (!recordingId || !source) return;
+        // Names belong to one transcript, and two transcripts of the same
+        // recording label different people `speaker_0`. Clearing first means
+        // a slow or failed read shows the raw label rather than the previous
+        // transcript's answer over somebody else's turns.
+        setNames({});
+        const response = await fetch(
+            `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
+        );
+        if (!response.ok) return;
+        const body = (await response.json()) as {
+            speakers?: {
+                label: string;
+                personId: string | null;
+                personName: string | null;
+                status: string;
+            }[];
+        };
+        const confirmed: Record<string, AttributedPerson> = {};
+        for (const speaker of body.speakers ?? []) {
+            if (speaker.status !== "confirmed") continue;
+            if (!speaker.personId || !speaker.personName) continue;
+            confirmed[speaker.label] = {
+                personId: speaker.personId,
+                name: speaker.personName,
+            };
+        }
+        setNames(confirmed);
+    }, [recordingId, source]);
+
+    useEffect(() => {
+        if (attributable) void loadNames();
+    }, [attributable, loadNames]);
+
+    async function attribute(
+        label: string,
+        choice: { personId?: string; displayName?: string } | null,
+    ) {
+        if (!recordingId || !source) return;
+        const response = await fetch(
+            `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
+            {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ label, ...(choice ?? {}) }),
+            },
+        ).catch(() => null);
+        if (!response) {
+            toast.error("Could not reach the server");
+            return;
+        }
+        if (!response.ok) {
+            // The picker stays open on a failure, so the answer the user
+            // already chose can be sent again rather than retyped.
+            await toastApiError(response, {
+                fallback: "Failed to name this speaker",
+                errorContext: "name a transcript speaker",
+            });
+            return;
+        }
+        setOpenLabel(null);
+        await loadNames();
+    }
+
     const turns = useMemo(() => {
+        if (storedTurns?.length) {
+            return storedTurns.map((turn) => ({
+                speaker: turn.speaker,
+                label: formatSpeakerLabel(turn.speaker),
+                text: turn.text,
+            }));
+        }
         if (!mayBeDiarized({ source, model })) return null;
         return parseSpeakerTurns(text);
-    }, [text, source, model]);
+    }, [text, source, model, storedTurns]);
 
     if (!turns) {
         return (
@@ -67,15 +175,54 @@ export function TranscriptView({ text, source, model }: TranscriptViewProps) {
                         className="space-y-1"
                     >
                         {turn.label && (
-                            <div className="flex items-center gap-2">
+                            <div className="relative flex items-center gap-2">
                                 <span
                                     className={`size-1.5 rounded-full shrink-0 ${style.dot}`}
                                 />
-                                <span
-                                    className={`text-xs font-medium ${style.text}`}
-                                >
-                                    {turn.label}
-                                </span>
+                                {attributable ? (
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            setOpenLabel((open) =>
+                                                open === turn.speaker
+                                                    ? null
+                                                    : turn.speaker,
+                                            )
+                                        }
+                                        className={`rounded text-xs font-medium underline-offset-4 hover:underline ${style.text}`}
+                                        title={
+                                            names[turn.speaker]
+                                                ? "Change who this is"
+                                                : "Name this speaker"
+                                        }
+                                    >
+                                        {names[turn.speaker]?.name ??
+                                            turn.label}
+                                    </button>
+                                ) : (
+                                    <span
+                                        className={`text-xs font-medium ${style.text}`}
+                                    >
+                                        {names[turn.speaker]?.name ??
+                                            turn.label}
+                                    </span>
+                                )}
+                                {openLabel === turn.speaker && (
+                                    <SpeakerPicker
+                                        label={turn.label}
+                                        personId={
+                                            names[turn.speaker]?.personId ??
+                                            null
+                                        }
+                                        onPick={(choice) =>
+                                            void attribute(turn.speaker, choice)
+                                        }
+                                        onClear={() =>
+                                            void attribute(turn.speaker, null)
+                                        }
+                                        onClose={() => setOpenLabel(null)}
+                                    />
+                                )}
                             </div>
                         )}
                         <p className="text-sm whitespace-pre-wrap leading-relaxed pl-3.5">

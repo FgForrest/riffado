@@ -619,5 +619,49 @@ describe("Transcription", () => {
                 mockRecordingId,
             );
         });
+
+        it("clears the turns of the run it replaces", async () => {
+            mockOwnershipLookup([{ id: mockRecordingId, deletedAt: null }]);
+            const harness = makeTxMock({
+                stillActive: { deletedAt: null },
+                existingTranscription: { id: "trans-existing" },
+            });
+
+            await storeBrowserTranscription({
+                userId: mockUserId,
+                recordingId: mockRecordingId,
+                text: "flat undiarized prose",
+                detectedLanguage: null,
+                model: "whisper-base",
+            });
+
+            const updated = harness.txUpdateSet.mock.calls[0][0] as Record<
+                string,
+                unknown
+            >;
+            expect(updated.turns).toBeNull();
+        });
+
+        it("stores no turns on the row it creates", async () => {
+            mockOwnershipLookup([{ id: mockRecordingId, deletedAt: null }]);
+            const harness = makeTxMock({
+                stillActive: { deletedAt: null },
+                existingTranscription: null,
+            });
+
+            await storeBrowserTranscription({
+                userId: mockUserId,
+                recordingId: mockRecordingId,
+                text: "flat undiarized prose",
+                detectedLanguage: null,
+                model: "whisper-base",
+            });
+
+            const inserted = harness.txInsertValues.mock.calls[0][0] as Record<
+                string,
+                unknown
+            >;
+            expect(inserted.turns).toBeNull();
+        });
     });
 });

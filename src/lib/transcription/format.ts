@@ -3,6 +3,11 @@ import type {
     TranscriptionDiarized,
     TranscriptionVerbose,
 } from "openai/resources/audio/transcriptions";
+import {
+    renderTurnsAsText,
+    type TranscriptTurn,
+    turnsFromLabelledSegments,
+} from "@/lib/transcription/turns";
 
 export type ResponseFormat = "diarized_json" | "json" | "verbose_json";
 
@@ -12,16 +17,38 @@ export function getResponseFormat(model: string): ResponseFormat {
     return "verbose_json";
 }
 
+export interface ParsedTranscription {
+    text: string;
+    detectedLanguage: string | null;
+    /** Present only for a diarized response that carried segments. */
+    turns?: TranscriptTurn[];
+}
+
 export function parseTranscriptionResponse(
     transcription: unknown,
     responseFormat: ResponseFormat,
-): { text: string; detectedLanguage: string | null } {
+): ParsedTranscription {
     if (responseFormat === "diarized_json") {
         const diarized = transcription as TranscriptionDiarized;
-        const text = (diarized.segments ?? [])
-            .map((seg) => `${seg.speaker}: ${seg.text}`)
-            .join("\n");
-        return { text, detectedLanguage: null };
+        const segments = diarized.segments ?? [];
+        const turns = turnsFromLabelledSegments(
+            segments.map((seg) => ({
+                speaker: seg.speaker,
+                startMs: Math.round(seg.start * 1000),
+                endMs: Math.round(seg.end * 1000),
+                text: seg.text,
+            })),
+        );
+        // Text is rendered from the turns so the flat transcript and the
+        // structured turns are two views of one grouping and cannot drift.
+        const text = turns
+            ? renderTurnsAsText(turns)
+            : segments.map((seg) => `${seg.speaker}: ${seg.text}`).join("\n");
+        return {
+            text,
+            detectedLanguage: null,
+            ...(turns ? { turns } : {}),
+        };
     }
 
     if (responseFormat === "verbose_json") {

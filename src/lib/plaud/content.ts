@@ -1,3 +1,8 @@
+import {
+    renderTurnsAsText,
+    type TranscriptTurn,
+    turnsFromLabelledSegments,
+} from "@/lib/transcription/turns";
 import type {
     PlaudContentItem,
     PlaudFileDetailResponse,
@@ -129,28 +134,66 @@ export interface ParsedTranscript {
  * plus the structured segments. Accepts either a bare segment array or an
  * object that wraps one.
  */
+/**
+ * Convert Plaud segments into transcript turns.
+ *
+ * Plaud does not document whether segment times are seconds or milliseconds
+ * and both appear in the wild, so the unit is inferred from the recording's
+ * own duration rather than assumed: both hypotheses are projected to an end
+ * time and the one landing nearer `durationMs` wins. A one-sided "is it small
+ * against the duration" test would misread already-millisecond times on a
+ * mostly silent recording, where speech stops long before the tape does.
+ * Without a duration to compare against, values are taken as milliseconds,
+ * which is the unit `PlaudRecording.duration` uses.
+ */
+export function segmentsToTurns(
+    segments: readonly PlaudTranscriptSegment[],
+    durationMs?: number,
+): TranscriptTurn[] | null {
+    const maxTime = segments.reduce(
+        (latest, seg) => Math.max(latest, seg.end_time ?? seg.start_time ?? 0),
+        0,
+    );
+    const inSeconds =
+        typeof durationMs === "number" &&
+        durationMs > 0 &&
+        maxTime > 0 &&
+        Math.abs(maxTime * 1000 - durationMs) < Math.abs(maxTime - durationMs);
+    const scale = inSeconds ? 1000 : 1;
+
+    return turnsFromLabelledSegments(
+        segments.map((seg) => {
+            const start = Math.round((seg.start_time ?? 0) * scale);
+            return {
+                speaker: speakerLabel(seg.speaker),
+                startMs: start,
+                endMs:
+                    seg.end_time === undefined
+                        ? start
+                        : Math.round(seg.end_time * scale),
+                text: (seg.content ?? "").trim(),
+            };
+        }),
+    );
+}
+
+// The label `parseTranscript` writes into the flat text, or "" for none.
+function speakerLabel(speaker: string | number | undefined | null): string {
+    if (speaker === undefined || speaker === null || speaker === "") return "";
+    return typeof speaker === "number" ? `Speaker ${speaker}` : speaker;
+}
+
 export function parseTranscript(raw: unknown): ParsedTranscript {
     const segments = extractSegments(raw);
-    const text = segments
-        .map((seg) => {
-            const content = (seg.content ?? "").trim();
-            if (!content) return "";
-            if (
-                seg.speaker === undefined ||
-                seg.speaker === null ||
-                seg.speaker === ""
-            ) {
-                return content;
-            }
-            const label =
-                typeof seg.speaker === "number"
-                    ? `Speaker ${seg.speaker}`
-                    : seg.speaker;
-            return `${label}: ${content}`;
-        })
-        .filter(Boolean)
-        .join("\n");
-    return { text, segments, language: extractLanguage(raw) };
+    // Rendered from the same grouping the stored turns come from, so the flat
+    // text and the turns can never disagree about where a turn ends. Timings
+    // play no part in the rendering, so no duration is needed here.
+    const turns = segmentsToTurns(segments);
+    return {
+        text: turns ? renderTurnsAsText(turns) : "",
+        segments,
+        language: extractLanguage(raw),
+    };
 }
 
 export interface ParsedSummary {

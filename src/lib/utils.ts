@@ -44,6 +44,16 @@ export function audioFilenameWithExt(storagePath: string): string {
     return "audio.mp3";
 }
 
+/** Up to two initials, which is all the avatar slot has room for. */
+export function initials(name: string): string {
+    return name
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((part) => part[0]?.toUpperCase() ?? "")
+        .join("");
+}
+
 export function absoluteUrl(path: string) {
     if (typeof window !== "undefined") {
         return `${window.location.origin}${path}`;

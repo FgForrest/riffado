@@ -30,14 +30,22 @@ const RECORDED_AT = new Date("2026-09-11T18:42:00.000Z");
 type QueryChain = Promise<unknown[]> & {
     from: () => QueryChain;
     where: () => QueryChain;
+    innerJoin: () => QueryChain;
+    leftJoin: () => QueryChain;
     limit: () => Promise<unknown[]>;
 };
 
-/** Resolves a Drizzle-style chain whether or not `.limit()` is called. */
+/**
+ * Resolves a Drizzle-style chain whether or not `.limit()` is called, and
+ * whether or not it joins -- the speaker-name resolver reads through an
+ * `innerJoin` and chains identically otherwise.
+ */
 function rows(result: unknown[]): QueryChain {
     const chain: QueryChain = Object.assign(Promise.resolve(result), {
         from: () => chain,
         where: () => chain,
+        innerJoin: () => chain,
+        leftJoin: () => chain,
         limit: () => Promise.resolve(result),
     });
     return chain;
@@ -156,6 +164,46 @@ describe("buildSummaryMarkdown", () => {
     });
 });
 
+/**
+ * Queue the four reads the transcript sidecar makes: the recording, its
+ * transcripts, the preferred-source setting, and the confirmed attributions.
+ */
+function stubTranscriptSidecar(opts: {
+    text: string;
+    turns?: unknown;
+    attributions: { label: string; displayName: string }[];
+}): void {
+    vi.mocked(db.select)
+        .mockReturnValueOnce(
+            rows([
+                {
+                    id: "rec-1",
+                    userId: "user-1",
+                    filename: "Board meeting",
+                    storagePath: "user-1/Board meeting.mp3",
+                    startTime: RECORDED_AT,
+                    duration: 60_000,
+                    deletedAt: null,
+                },
+            ]) as never,
+        )
+        .mockReturnValueOnce(
+            rows([
+                {
+                    id: "tr-1",
+                    source: "riffado",
+                    text: opts.text,
+                    turns: opts.turns ?? null,
+                    detectedLanguage: "cs",
+                    provider: "Speechmatics",
+                    model: "enhanced+diarize",
+                },
+            ]) as never,
+        )
+        .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never)
+        .mockReturnValueOnce(rows(opts.attributions) as never);
+}
+
 describe("exportRecordingSidecars", () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -182,6 +230,7 @@ describe("exportRecordingSidecars", () => {
             .mockReturnValueOnce(
                 rows([
                     {
+                        id: "tr-1",
                         source: "riffado",
                         text: "Hello there.",
                         detectedLanguage: "en",
@@ -191,7 +240,9 @@ describe("exportRecordingSidecars", () => {
                 ]) as never,
             )
             // settings (preferred transcript source)
-            .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never);
+            .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never)
+            // confirmed speaker attributions, for the name projection
+            .mockReturnValueOnce(rows([]) as never);
 
         const written = await exportRecordingSidecars("user-1", "rec-1", {
             transcript: true,
@@ -208,6 +259,68 @@ describe("exportRecordingSidecars", () => {
         expect(key).toBe("user-1/Board meeting.transcript.md");
         expect(contentType).toBe("text/markdown; charset=utf-8");
         expect(buffer.toString("utf8")).toContain("Hello there.");
+    });
+
+    it("names the speakers a user has confirmed", async () => {
+        stubTranscriptSidecar({
+            text: "speaker_0: Ahoj.\nspeaker_1: Zdravim.",
+            turns: [
+                {
+                    speaker: "speaker_0",
+                    startMs: 0,
+                    endMs: 1000,
+                    text: "Ahoj.",
+                },
+                {
+                    speaker: "speaker_1",
+                    startMs: 1000,
+                    endMs: 2000,
+                    text: "Zdravim.",
+                },
+            ],
+            attributions: [{ label: "speaker_0", displayName: "Jan" }],
+        });
+
+        await exportRecordingSidecars("user-1", "rec-1", {
+            transcript: true,
+            summary: false,
+        });
+
+        const body = (uploadFile.mock.calls[0] as [string, Buffer])[1].toString(
+            "utf8",
+        );
+        expect(body).toContain("Jan: Ahoj.");
+        expect(body).not.toContain("speaker_0:");
+        // The label with nobody behind it stays a label.
+        expect(body).toContain("speaker_1: Zdravim.");
+    });
+
+    it("leaves the stored transcript untouched when nobody is named", async () => {
+        // `buildNameResolver` filters to confirmed attributions, so a merely
+        // suggested one arrives here as no rows at all. That gate is pinned
+        // separately, in the projection-gate suite.
+        stubTranscriptSidecar({
+            text: "speaker_0: Ahoj.\nspeaker_0: Jeste jednou.",
+            turns: [
+                {
+                    speaker: "speaker_0",
+                    startMs: 0,
+                    endMs: 2000,
+                    text: "Ahoj. Jeste jednou.",
+                },
+            ],
+            attributions: [],
+        });
+
+        await exportRecordingSidecars("user-1", "rec-1", {
+            transcript: true,
+            summary: false,
+        });
+
+        const body = (uploadFile.mock.calls[0] as [string, Buffer])[1].toString(
+            "utf8",
+        );
+        expect(body).toContain("speaker_0: Ahoj.\nspeaker_0: Jeste jednou.");
     });
 
     it("writes nothing when the recording has no transcript yet", async () => {

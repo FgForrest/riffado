@@ -27,6 +27,7 @@ import {
 import { useTranscriptionSummary } from "@/hooks/use-transcription-summary";
 import { describeMultiPass } from "@/lib/summary/multi-pass";
 import { formatSummaryStatus } from "@/lib/summary/progress-stream";
+import type { TranscriptTurn } from "@/lib/transcription/turns";
 import type { Recording } from "@/types/recording";
 
 export interface Transcription {
@@ -34,6 +35,8 @@ export interface Transcription {
     language?: string;
     source?: string;
     model?: string;
+    /** Provider-reported turns, when the transcript was stored with them. */
+    turns?: TranscriptTurn[] | null;
 }
 
 /** A transcript variant for a single source (Plaud, the user's own, etc.). */
@@ -43,6 +46,8 @@ export interface TranscriptOption {
     language?: string;
     provider?: string;
     model?: string;
+    /** Provider-reported turns, when the transcript was stored with them. */
+    turns?: TranscriptTurn[] | null;
 }
 
 interface TranscriptionPanelProps {
@@ -84,6 +89,7 @@ export function toTranscriptList(
             text: transcription.text,
             language: transcription.language,
             model: transcription.model,
+            turns: transcription.turns,
         },
     ];
 }
@@ -236,6 +242,8 @@ export function TranscriptionPanel({
                                     text={activeTranscript.text}
                                     source={activeTranscript.source}
                                     model={activeTranscript.model}
+                                    storedTurns={activeTranscript.turns}
+                                    recordingId={recording.id}
                                 />
                             </div>
                             <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t">

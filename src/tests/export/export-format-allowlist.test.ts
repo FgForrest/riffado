@@ -32,14 +32,18 @@ import { EXPORT_FORMATS } from "@/lib/export/formats";
  * `export-route.test.ts`.
  */
 function queueSelect(rows: unknown[]) {
-    (db.select as Mock).mockReturnValueOnce({
-        from: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue(
-                Object.assign(Promise.resolve(rows), {
-                    limit: vi.fn().mockResolvedValue(rows),
-                }),
-            ),
+    const where = vi.fn().mockReturnValue(
+        Object.assign(Promise.resolve(rows), {
+            limit: vi.fn().mockResolvedValue(rows),
         }),
+    );
+    // `innerJoin` returns the same shape so a joined read (the speaker-name
+    // resolver) chains the same way an unjoined one does.
+    const from: Record<string, unknown> = { where };
+    from.innerJoin = vi.fn().mockReturnValue(from);
+    from.leftJoin = vi.fn().mockReturnValue(from);
+    (db.select as Mock).mockReturnValueOnce({
+        from: vi.fn().mockReturnValue(from),
     });
 }
 
@@ -67,8 +71,10 @@ function queueExportReads() {
         },
     ]);
     // transcriptions
-    queueSelect([{ recordingId: "rec-1", text: "hello world" }]);
+    queueSelect([{ id: "tr-1", recordingId: "rec-1", text: "hello world" }]);
     // aiEnhancements
+    queueSelect([]);
+    // confirmed speaker attributions, for the name projection
     queueSelect([]);
 }
 

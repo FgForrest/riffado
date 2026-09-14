@@ -10,11 +10,37 @@ vi.mock("@/db/schema", () => ({
     recordings: "recordings",
     transcriptions: "transcriptions",
     aiEnhancements: "aiEnhancements",
+    // The knowledge-base reads project individual columns, so these two
+    // need a shape rather than a placeholder string.
+    people: {
+        id: "people.id",
+        userId: "people.userId",
+        displayName: "people.displayName",
+        primaryEmail: "people.primaryEmail",
+        notes: "people.notes",
+        mergedIntoId: "people.mergedIntoId",
+        createdAt: "people.createdAt",
+    },
+    transcriptSpeakers: {
+        userId: "transcriptSpeakers.userId",
+        transcriptionId: "transcriptSpeakers.transcriptionId",
+        label: "transcriptSpeakers.label",
+        personId: "transcriptSpeakers.personId",
+        source: "transcriptSpeakers.source",
+        status: "transcriptSpeakers.status",
+        confidence: "transcriptSpeakers.confidence",
+        evidenceStartMs: "transcriptSpeakers.evidenceStartMs",
+    },
 }));
 vi.mock("@/lib/encryption/fields", () => ({
     decryptText: (v: string | null) => (v == null ? v : `decrypted:${v}`),
-    decryptJsonField: (v: unknown) =>
-        Array.isArray(v) ? v.map((x) => `decrypted:${x}`) : v,
+    decryptJsonField: (v: unknown) => {
+        if (Array.isArray(v)) return v.map((x) => `decrypted:${x}`);
+        if (v && typeof v === "object" && "c" in v) {
+            return JSON.parse((v as { c: string }).c);
+        }
+        return v;
+    },
 }));
 
 type Row = Record<string, unknown>;
@@ -125,6 +151,391 @@ describe("buildAndUploadExportArchive", () => {
         storage = new FakeStorage();
     });
 
+    it("carries the knowledge base so a restore keeps who was speaking", async () => {
+        // With no recordings, the transcript and enhancement reads are
+        // skipped entirely, so the knowledge reads follow immediately.
+        mockSelectSequence([
+            // recordings
+            [],
+            // people
+            [
+                {
+                    id: "p-1",
+                    displayName: "enc-Jan",
+                    primaryEmail: "enc-jan@fg.cz",
+                    notes: null,
+                    mergedIntoId: null,
+                    createdAt: new Date("2026-01-01T00:00:00Z"),
+                },
+            ],
+            // transcript speakers
+            [
+                {
+                    transcriptionId: "tr-1",
+                    label: "speaker_0",
+                    personId: "p-1",
+                    source: "user",
+                    status: "confirmed",
+                    confidence: null,
+                    evidenceStartMs: 14_320,
+                },
+            ],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const knowledge = JSON.parse(
+            entries.get("knowledge/people.json")?.buffer.toString("utf-8") ??
+                "{}",
+        );
+
+        expect(knowledge.people).toHaveLength(1);
+        expect(knowledge.people[0].displayName).toBe("decrypted:enc-Jan");
+        expect(knowledge.people[0].primaryEmail).toBe(
+            "decrypted:enc-jan@fg.cz",
+        );
+        // The email hash is derived from a server secret, so it is recomputed
+        // on restore rather than pinning the archive to one instance.
+        expect(knowledge.people[0].primaryEmailHash).toBeUndefined();
+        expect(knowledge.attributions).toEqual([
+            {
+                transcriptionId: "tr-1",
+                label: "speaker_0",
+                personId: "p-1",
+                source: "user",
+                status: "confirmed",
+                confidence: null,
+                evidenceStartMs: 14_320,
+            },
+        ]);
+
+        const manifest = JSON.parse(
+            entries.get("manifest.json")?.buffer.toString("utf-8") ?? "{}",
+        );
+        expect(manifest.knowledge).toEqual({ people: 1, attributions: 1 });
+    });
+
+    it("carries the transcription ids the attributions are keyed on", async () => {
+        storage.files.set("audio/rec-1.mp3", Buffer.from("audio"));
+        mockSelectSequence([
+            [
+                {
+                    id: "rec-1",
+                    userId: "user-1",
+                    filename: "enc-filename",
+                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    endTime: new Date("2026-01-01T00:01:00Z"),
+                    duration: 60000,
+                    filesize: 5,
+                    deviceSn: "SN123",
+                    storagePath: "audio/rec-1.mp3",
+                },
+            ],
+            [
+                {
+                    id: "tr-1",
+                    recordingId: "rec-1",
+                    source: "riffado",
+                    text: "enc-transcript",
+                    turns: {
+                        c: JSON.stringify([
+                            {
+                                speaker: "speaker_0",
+                                startMs: 0,
+                                endMs: 1000,
+                                text: "Ahoj.",
+                            },
+                        ]),
+                    },
+                    createdAt: new Date("2026-01-01T00:02:00Z"),
+                },
+            ],
+            [],
+            [
+                {
+                    id: "p-1",
+                    displayName: "enc-Jan",
+                    primaryEmail: null,
+                    notes: null,
+                    mergedIntoId: null,
+                    createdAt: new Date("2026-01-01T00:00:00Z"),
+                },
+            ],
+            [
+                {
+                    transcriptionId: "tr-1",
+                    label: "speaker_0",
+                    personId: "p-1",
+                    source: "user",
+                    status: "confirmed",
+                    confidence: null,
+                    evidenceStartMs: null,
+                },
+            ],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const outsideKnowledge = [...entries.entries()]
+            .filter(([name]) => name !== "knowledge/people.json")
+            .map(([, entry]) => entry.buffer.toString("utf-8"))
+            .join("\n");
+
+        expect(outsideKnowledge.includes("tr-1")).toBe(true);
+    });
+
+    it("carries the turns an attribution is projected onto", async () => {
+        storage.files.set("audio/rec-1.mp3", Buffer.from("audio"));
+        mockSelectSequence([
+            [
+                {
+                    id: "rec-1",
+                    userId: "user-1",
+                    filename: "enc-filename",
+                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    endTime: new Date("2026-01-01T00:01:00Z"),
+                    duration: 60000,
+                    filesize: 5,
+                    deviceSn: "SN123",
+                    storagePath: "audio/rec-1.mp3",
+                },
+            ],
+            [
+                {
+                    id: "tr-1",
+                    recordingId: "rec-1",
+                    source: "riffado",
+                    text: "enc-transcript",
+                    turns: {
+                        c: JSON.stringify([
+                            {
+                                speaker: "speaker_0",
+                                startMs: 0,
+                                endMs: 1000,
+                                text: "Ahoj.",
+                            },
+                        ]),
+                    },
+                    createdAt: new Date("2026-01-01T00:02:00Z"),
+                },
+            ],
+            [],
+            [],
+            [],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const transcripts = [...entries.entries()].find(([name]) =>
+            name.endsWith("/transcripts.json"),
+        );
+
+        expect(transcripts).toBeDefined();
+        const record = JSON.parse(
+            (transcripts as [string, { buffer: Buffer }])[1].buffer.toString(
+                "utf-8",
+            ),
+        );
+        expect(record[0].id).toBe("tr-1");
+        expect(record[0].turns).not.toBeNull();
+    });
+
+    it("keeps both transcripts when a recording has two", async () => {
+        storage.files.set("audio/rec-1.mp3", Buffer.from("audio"));
+        mockSelectSequence([
+            [
+                {
+                    id: "rec-1",
+                    userId: "user-1",
+                    filename: "enc-filename",
+                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    endTime: new Date("2026-01-01T00:01:00Z"),
+                    duration: 60000,
+                    filesize: 5,
+                    deviceSn: "SN123",
+                    storagePath: "audio/rec-1.mp3",
+                },
+            ],
+            [
+                {
+                    id: "tr-plaud",
+                    recordingId: "rec-1",
+                    source: "plaud",
+                    text: "enc-plaud",
+                    createdAt: new Date("2026-01-01T00:02:00Z"),
+                },
+                {
+                    id: "tr-riffado",
+                    recordingId: "rec-1",
+                    source: "riffado",
+                    text: "enc-riffado",
+                    createdAt: new Date("2026-01-01T00:03:00Z"),
+                },
+            ],
+            [],
+            [],
+            [],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const transcripts = [...entries.entries()].find(([name]) =>
+            name.endsWith("/transcripts.json"),
+        );
+        const record = JSON.parse(
+            (transcripts as [string, { buffer: Buffer }])[1].buffer.toString(
+                "utf-8",
+            ),
+        );
+
+        expect(record).toHaveLength(2);
+        expect(record.map((t: { id: string }) => t.id)).toEqual([
+            "tr-plaud",
+            "tr-riffado",
+        ]);
+    });
+
+    it("keeps the raw speaker labels in the archived transcript", async () => {
+        storage.files.set("audio/rec-1.mp3", Buffer.from("audio"));
+        mockSelectSequence([
+            [
+                {
+                    id: "rec-1",
+                    userId: "user-1",
+                    filename: "enc-filename",
+                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    endTime: new Date("2026-01-01T00:01:00Z"),
+                    duration: 60000,
+                    filesize: 5,
+                    deviceSn: "SN123",
+                    storagePath: "audio/rec-1.mp3",
+                },
+            ],
+            [
+                {
+                    id: "tr-1",
+                    recordingId: "rec-1",
+                    source: "riffado",
+                    text: "speaker_0: Ahoj.",
+                    createdAt: new Date("2026-01-01T00:02:00Z"),
+                },
+            ],
+            [],
+            [],
+            [],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const transcript = [...entries.entries()].find(([name]) =>
+            name.endsWith("/transcript.txt"),
+        );
+
+        // The archive is the restorable copy, so it stores what the database
+        // stores and leaves the overlay to `knowledge/people.json`. The JSON
+        // export and the document sidecars project names instead; the three
+        // must not silently converge on different answers.
+        expect(transcript?.[1].buffer.toString("utf-8")).toBe(
+            "decrypted:speaker_0: Ahoj.",
+        );
+    });
+
+    it("keeps every tombstone's winner inside the same archive", async () => {
+        mockSelectSequence([
+            [],
+            [
+                {
+                    id: "p-loser",
+                    displayName: "enc-Alice",
+                    primaryEmail: null,
+                    notes: null,
+                    mergedIntoId: "p-keep",
+                    createdAt: new Date("2026-01-01T00:00:00Z"),
+                },
+                {
+                    id: "p-keep",
+                    displayName: "enc-Bob",
+                    primaryEmail: null,
+                    notes: null,
+                    mergedIntoId: null,
+                    createdAt: new Date("2026-01-01T00:00:00Z"),
+                },
+            ],
+            [],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const knowledge = JSON.parse(
+            entries.get("knowledge/people.json")?.buffer.toString("utf-8") ??
+                "{}",
+        );
+        const ids = new Set(
+            (knowledge.people as { id: string }[]).map((person) => person.id),
+        );
+        for (const person of knowledge.people as {
+            mergedIntoId: string | null;
+        }[]) {
+            if (person.mergedIntoId) {
+                expect(ids.has(person.mergedIntoId)).toBe(true);
+            }
+        }
+    });
+
+    it("omits the knowledge section entirely when there is none", async () => {
+        mockSelectSequence([[], [], []]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        expect([...entries.keys()]).not.toContain("knowledge/people.json");
+        const manifest = JSON.parse(
+            entries.get("manifest.json")?.buffer.toString("utf-8") ?? "{}",
+        );
+        expect(manifest.knowledge).toBeUndefined();
+    });
+
     it("bundles audio, transcript, and summary per recording plus a manifest", async () => {
         storage.files.set("audio/rec-1.mp3", Buffer.from("fake-audio-bytes-1"));
 
@@ -144,8 +555,11 @@ describe("buildAndUploadExportArchive", () => {
             ],
             [
                 {
+                    id: "tr-1",
                     recordingId: "rec-1",
+                    source: "riffado",
                     text: "enc-transcript",
+                    createdAt: new Date("2026-01-01T00:02:00Z"),
                 },
             ],
             [

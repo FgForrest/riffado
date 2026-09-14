@@ -2,9 +2,17 @@ import { PassThrough, type Readable } from "node:stream";
 import { ZipArchive } from "archiver";
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { aiEnhancements, recordings, transcriptions } from "@/db/schema";
+import {
+    aiEnhancements,
+    people,
+    recordings,
+    transcriptions,
+    transcriptSpeakers,
+} from "@/db/schema";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import type { StorageProvider } from "@/lib/storage/types";
+import { readTranscriptTurns } from "@/lib/transcription/read-turns";
+import { resolvePrimaryTranscript } from "@/lib/v1/serialize";
 
 export interface ArchiveResult {
     recordingCount: number;
@@ -21,8 +29,18 @@ interface ManifestRecording {
     deviceSn: string;
     audio: { included: boolean; path: string | null; reason?: string };
     transcript: { included: boolean; path: string | null };
+    transcripts: {
+        included: boolean;
+        path: string | null;
+        count: number;
+    };
     summary: { included: boolean; path: string | null };
 }
+
+// Which transcript `transcript.txt` renders when a recording has more than
+// one. `resolvePrimaryTranscript` falls back to "riffado" and then to the
+// first row, so this only decides the head of that order.
+const ARCHIVE_PRIMARY_SOURCE = "plaud";
 
 function audioExtension(storagePath: string): string {
     const match = storagePath.match(/\.([a-z0-9]+)$/i);
@@ -98,9 +116,16 @@ export async function buildAndUploadExportArchive(input: {
                   .from(transcriptions)
                   .where(eq(transcriptions.userId, userId))
             : [];
-    const transcriptionMap = new Map(
-        userTranscriptions.map((t) => [t.recordingId, decryptText(t.text)]),
-    );
+    // Grouped, not keyed: `transcriptions_recording_user_source_unique` lets a
+    // Plaud import and the user's own provider coexist for one recording, and
+    // a map keyed on the recording keeps whichever row the query returned last
+    // -- silently dropping the other from the backup.
+    const transcriptionMap = new Map<string, typeof userTranscriptions>();
+    for (const transcript of userTranscriptions) {
+        const group = transcriptionMap.get(transcript.recordingId) ?? [];
+        group.push(transcript);
+        transcriptionMap.set(transcript.recordingId, group);
+    }
 
     const userEnhancements =
         recordingIds.length > 0
@@ -184,6 +209,7 @@ export async function buildAndUploadExportArchive(input: {
         createdAt: string;
         userId: string;
         recordings: ManifestRecording[];
+        knowledge?: { people: number; attributions: number };
     } = {
         version: "2.0",
         createdAt: new Date().toISOString(),
@@ -216,6 +242,7 @@ export async function buildAndUploadExportArchive(input: {
             deviceSn: recording.deviceSn,
             audio: { included: false, path: null },
             transcript: { included: false, path: null },
+            transcripts: { included: false, path: null, count: 0 },
             summary: { included: false, path: null },
         };
 
@@ -290,13 +317,55 @@ export async function buildAndUploadExportArchive(input: {
             };
         }
 
-        const transcriptText = transcriptionMap.get(recording.id);
-        if (transcriptText) {
+        const recordingTranscripts = transcriptionMap.get(recording.id) ?? [];
+        // `transcript.txt` is the readable one and holds a single transcript,
+        // so which one is a choice. It is made without consulting the user's
+        // display preference on purpose: a backup whose bytes change because
+        // somebody flipped a setting is a worse backup, and nothing is lost
+        // either way -- `transcripts.json` beside it carries all of them.
+        const primary = resolvePrimaryTranscript(
+            recordingTranscripts,
+            ARCHIVE_PRIMARY_SOURCE,
+        );
+        if (primary) {
             const transcriptPath = `${folder}/transcript.txt`;
-            archive.append(Buffer.from(transcriptText, "utf-8"), {
+            archive.append(Buffer.from(decryptText(primary.text), "utf-8"), {
                 name: transcriptPath,
             });
             entry.transcript = { included: true, path: transcriptPath };
+        }
+
+        // The restorable record. `knowledge/people.json` keys every
+        // attribution on a transcription id, so without the ids written down
+        // beside the text the knowledge base names rows a restore cannot
+        // find, and the turns it would be projected onto are gone too.
+        if (recordingTranscripts.length > 0) {
+            const transcriptsPath = `${folder}/transcripts.json`;
+            archive.append(
+                Buffer.from(
+                    JSON.stringify(
+                        recordingTranscripts.map((transcript) => ({
+                            id: transcript.id,
+                            recordingId: transcript.recordingId,
+                            source: transcript.source,
+                            provider: transcript.provider,
+                            model: transcript.model,
+                            detectedLanguage: transcript.detectedLanguage,
+                            text: decryptText(transcript.text),
+                            turns: readTranscriptTurns(transcript),
+                            createdAt: transcript.createdAt.toISOString(),
+                        })),
+                        null,
+                        2,
+                    ),
+                ),
+                { name: transcriptsPath },
+            );
+            entry.transcripts = {
+                included: true,
+                path: transcriptsPath,
+                count: recordingTranscripts.length,
+            };
         }
 
         const enhancement = enhancementMap.get(recording.id);
@@ -370,6 +439,21 @@ export async function buildAndUploadExportArchive(input: {
         );
     });
 
+    // The knowledge base rides along as data, decrypted like everything else
+    // in the archive. Export parity is the proof a user can leave, so a
+    // backup that restores recordings but loses who was speaking in them is
+    // not a backup of this feature at all.
+    const knowledge = await collectKnowledgeBase(userId);
+    if (knowledge.people.length > 0 || knowledge.attributions.length > 0) {
+        archive.append(Buffer.from(JSON.stringify(knowledge, null, 2)), {
+            name: "knowledge/people.json",
+        });
+        manifest.knowledge = {
+            people: knowledge.people.length,
+            attributions: knowledge.attributions.length,
+        };
+    }
+
     archive.append(Buffer.from(JSON.stringify(manifest, null, 2)), {
         name: "manifest.json",
     });
@@ -382,4 +466,73 @@ export async function buildAndUploadExportArchive(input: {
     }
 
     return { recordingCount: userRecordings.length, fileSize };
+}
+
+interface ArchivedKnowledgeBase {
+    people: {
+        id: string;
+        displayName: string;
+        primaryEmail: string | null;
+        notes: string | null;
+        mergedIntoId: string | null;
+        createdAt: string;
+    }[];
+    attributions: {
+        transcriptionId: string;
+        label: string;
+        personId: string | null;
+        source: string;
+        status: string;
+        confidence: number | null;
+        evidenceStartMs: number | null;
+    }[];
+}
+
+// The knowledge base for one user, decrypted for the archive.
+//
+// `primaryEmailHash` is deliberately not exported: it is derived from the
+// email with a server secret and a restore can recompute it, while carrying
+// it would pin the archive to one instance's secret.
+async function collectKnowledgeBase(
+    userId: string,
+): Promise<ArchivedKnowledgeBase> {
+    const [peopleRows, attributionRows] = await Promise.all([
+        db
+            .select({
+                id: people.id,
+                displayName: people.displayName,
+                primaryEmail: people.primaryEmail,
+                notes: people.notes,
+                mergedIntoId: people.mergedIntoId,
+                createdAt: people.createdAt,
+            })
+            .from(people)
+            .where(eq(people.userId, userId)),
+        db
+            .select({
+                transcriptionId: transcriptSpeakers.transcriptionId,
+                label: transcriptSpeakers.label,
+                personId: transcriptSpeakers.personId,
+                source: transcriptSpeakers.source,
+                status: transcriptSpeakers.status,
+                confidence: transcriptSpeakers.confidence,
+                evidenceStartMs: transcriptSpeakers.evidenceStartMs,
+            })
+            .from(transcriptSpeakers)
+            .where(eq(transcriptSpeakers.userId, userId)),
+    ]);
+
+    return {
+        people: peopleRows.map((row) => ({
+            id: row.id,
+            displayName: decryptText(row.displayName),
+            primaryEmail: row.primaryEmail
+                ? decryptText(row.primaryEmail)
+                : null,
+            notes: row.notes ? decryptText(row.notes) : null,
+            mergedIntoId: row.mergedIntoId,
+            createdAt: row.createdAt.toISOString(),
+        })),
+        attributions: attributionRows,
+    };
 }

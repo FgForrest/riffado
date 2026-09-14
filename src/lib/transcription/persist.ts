@@ -2,6 +2,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { aiEnhancements, recordings, transcriptions } from "@/db/schema";
 import { encryptJsonField, encryptText } from "@/lib/encryption/fields";
+import type { TranscriptTurn } from "@/lib/transcription/turns";
 
 /**
  * Provenance of a transcript row, orthogonal to `transcriptionType`:
@@ -27,6 +28,12 @@ export interface UpsertTranscriptionArgs {
     model: string;
     /** Where it ran. Defaults to "server"; unrelated to `source`. */
     transcriptionType?: "server" | "browser";
+    /**
+     * Diarized turns, encrypted at rest. Always written, including as
+     * undefined, so an undiarized re-run clears the previous run's turns
+     * instead of leaving them beside text they no longer describe.
+     */
+    turns?: TranscriptTurn[];
 }
 
 export interface UpsertEnhancementArgs {
@@ -89,6 +96,7 @@ export async function upsertTranscription(
         provider,
         model,
         transcriptionType = "server",
+        turns,
     } = args;
 
     try {
@@ -122,12 +130,16 @@ export async function upsertTranscription(
                 .limit(1);
 
             const encryptedText = encryptText(text);
+            const encryptedTurns = turns?.length
+                ? encryptJsonField(turns)
+                : null;
 
             if (current) {
                 await tx
                     .update(transcriptions)
                     .set({
                         text: encryptedText,
+                        turns: encryptedTurns,
                         detectedLanguage,
                         transcriptionType,
                         provider,
@@ -145,6 +157,7 @@ export async function upsertTranscription(
                     recordingId,
                     userId,
                     text: encryptedText,
+                    turns: encryptedTurns,
                     detectedLanguage,
                     transcriptionType,
                     provider,

@@ -1,6 +1,7 @@
 "use client";
 
 import { Command, Upload } from "lucide-react";
+import { AppNav } from "@/components/app-nav";
 import { UserMenu } from "@/components/dashboard/user-menu";
 import { SyncButton } from "@/components/sync-button";
 import { Button } from "@/components/ui/button";
@@ -68,15 +69,17 @@ export function WorkstationHeader({
     return (
         <div className="sticky top-0 z-30 -mx-4 mb-6 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
             <div className="flex min-w-0 items-baseline gap-3">
-                <h1 className="truncate text-xl font-semibold leading-tight sm:text-2xl md:text-3xl">
-                    Recordings
-                </h1>
                 {/*
+                  The section nav doubles as the page title: "Recordings" is
+                  the current section and reads exactly as the heading it
+                  replaced.
+
                   Recording count lives in the list pane's own meta row
                   ("N of N recordings") -- showing it again in the page
                   header is duplicative on every breakpoint, so the
                   count is gone here.
                 */}
+                <AppNav className="min-w-0" />
             </div>
             <div className="ml-auto flex shrink-0 items-center gap-2">
                 <Tooltip>

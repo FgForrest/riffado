@@ -7,6 +7,7 @@ import {
     plaudConnections,
     recordings,
     transcriptions,
+    transcriptSpeakers,
     userSettings,
 } from "@/db/schema";
 import { generateTitleFromTranscription } from "@/lib/ai/generate-title";
@@ -44,6 +45,7 @@ import { geminiTranscribe } from "@/lib/transcription/gemini-transcribe";
 import { isRiffadoIncludedProviderId } from "@/lib/transcription/included-provider";
 import { upsertTranscription } from "@/lib/transcription/persist";
 import { speechmaticsTranscribe } from "@/lib/transcription/speechmatics-transcribe";
+import type { TranscriptTurn } from "@/lib/transcription/turns";
 import { emitEvent } from "@/lib/webhooks/emit";
 
 /**
@@ -159,6 +161,7 @@ export async function storeBrowserTranscription(
                         transcriptionType: "browser",
                         provider: "browser",
                         model,
+                        turns: null,
                     })
                     .where(
                         and(
@@ -175,6 +178,7 @@ export async function storeBrowserTranscription(
                     transcriptionType: "browser",
                     provider: "browser",
                     model,
+                    turns: null,
                 });
             }
 
@@ -421,6 +425,9 @@ async function transcribeRecordingInner(
         let detectedLanguage: string | null;
         let persistProvider: string;
         let persistModel: string;
+        // Only the diarizing providers set this; the rest leave it undefined
+        // and `upsertTranscription` clears any turns a previous run stored.
+        let turns: TranscriptTurn[] | undefined;
 
         if (useManaged) {
             if (!isMynahConfigured()) {
@@ -494,6 +501,7 @@ async function transcribeRecordingInner(
                 });
                 transcriptionText = result.text;
                 detectedLanguage = result.detectedLanguage;
+                turns = result.turns;
             } else if (transcriptionStyle === "speechmatics") {
                 // Batch accepts hours-long uploads, so the Whisper 25 MiB
                 // re-encode is skipped here the same way it is for Scribe.
@@ -506,6 +514,7 @@ async function transcribeRecordingInner(
                 });
                 transcriptionText = result.text;
                 detectedLanguage = result.detectedLanguage;
+                turns = result.turns;
             } else {
                 const openai = new OpenAI({
                     apiKey,
@@ -563,6 +572,7 @@ async function transcribeRecordingInner(
                     );
                     transcriptionText = parsed.text;
                     detectedLanguage = parsed.detectedLanguage;
+                    turns = parsed.turns;
                 }
             }
         } else {
@@ -592,6 +602,7 @@ async function transcribeRecordingInner(
             source: "riffado",
             provider: persistProvider,
             model: persistModel,
+            turns,
         });
 
         if (!committed) {
@@ -602,18 +613,39 @@ async function transcribeRecordingInner(
             };
         }
 
+        // Re-transcribe path: speaker attributions need an explicit delete
+        // rather than a cascade, because `upsertTranscription` updates the
+        // existing row in place, so the transcription id survives and the FK
+        // never fires. A fresh diarization run renumbers the labels, so an
+        // attribution kept across it names the wrong turns -- silently, since
+        // `speaker_0` still exists, it is just somebody else now. It runs
+        // before the sidecar export below, or that file -- one the user keeps
+        // -- would be written with the previous run's names on the new labels.
+        if (existingTranscription?.text && opts.force) {
+            await db
+                .delete(transcriptSpeakers)
+                .where(
+                    and(
+                        eq(transcriptSpeakers.userId, userId),
+                        eq(
+                            transcriptSpeakers.transcriptionId,
+                            existingTranscription.id,
+                        ),
+                    ),
+                );
+        }
+
         await exportRecordingSidecarsIfEnabled(
             userId,
             recordingId,
             "transcript",
         );
 
-        // Re-transcribe path: the previous transcript is being overwritten,
-        // so any existing summary now references stale source text. Drop it
-        // so readers never see "fresh transcript + old summary". If
-        // auto-summarize is on, a fresh summary is generated below;
-        // otherwise the recording shows no summary until the user clicks
-        // "Generate summary" manually.
+        // The previous transcript is being overwritten, so any existing
+        // summary now references stale source text. Drop it so readers never
+        // see "fresh transcript + old summary". If auto-summarize is on, a
+        // fresh summary is generated below; otherwise the recording shows no
+        // summary until the user clicks "Generate summary" manually.
         if (existingTranscription?.text && opts.force) {
             await db
                 .delete(aiEnhancements)

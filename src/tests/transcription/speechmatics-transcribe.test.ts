@@ -13,6 +13,7 @@ import {
     SpeechmaticsTranscribeError,
     speechmaticsTranscribe,
 } from "@/lib/transcription/speechmatics-transcribe";
+import { expectTextAndTurnsAgree } from "./turns-parity";
 
 function audioFile(): File {
     return new File([new Uint8Array([1, 2, 3])], "meeting.mp3", {
@@ -30,22 +31,37 @@ function jsonResponse(body: unknown, status = 200): Response {
 /** One `results` entry in the shape `format=json-v2` returns. */
 function word(
     content: string,
-    extra: { speaker?: string; language?: string } = {},
+    extra: {
+        speaker?: string;
+        language?: string;
+        start?: number;
+        end?: number;
+    } = {},
 ) {
+    const { start = 0, end = 0, ...alt } = extra;
     return {
         type: "word",
-        alternatives: [{ content, confidence: 0.9, ...extra }],
+        start_time: start,
+        end_time: end,
+        alternatives: [{ content, confidence: 0.9, ...alt }],
     };
 }
 
 function punctuation(
     content: string,
-    extra: { speaker?: string; attaches_to?: string } = {},
+    extra: {
+        speaker?: string;
+        attaches_to?: string;
+        start?: number;
+        end?: number;
+    } = {},
 ) {
-    const { attaches_to = "previous", ...alt } = extra;
+    const { attaches_to = "previous", start = 0, end = 0, ...alt } = extra;
     return {
         type: "punctuation",
         attaches_to,
+        start_time: start,
+        end_time: end,
         alternatives: [{ content, confidence: 1, ...alt }],
     };
 }
@@ -315,6 +331,86 @@ describe("speechmatics-transcribe", () => {
             JSON.parse(form.get("config") as string).transcription_config
                 .diarization,
         ).toBe("speaker");
+    });
+
+    it("returns turns with millisecond timings for a diarized job", async () => {
+        installFetch({
+            transcript: () =>
+                jsonResponse({
+                    results: [
+                        word("Ahoj", { speaker: "S1", start: 0, end: 0.5 }),
+                        punctuation(".", {
+                            speaker: "S1",
+                            start: 0.5,
+                            end: 0.5,
+                        }),
+                        word("Ahoj", { speaker: "S2", start: 1.2, end: 1.8 }),
+                        word("taky", { speaker: "S2", start: 1.8, end: 2.4 }),
+                        word("Zacneme", {
+                            speaker: "S1",
+                            start: 3.1,
+                            end: 3.95,
+                        }),
+                    ],
+                }),
+        });
+
+        const result = await transcribe({ model: "enhanced+diarize" });
+
+        expect(result.turns).toEqual([
+            { speaker: "speaker_1", startMs: 0, endMs: 500, text: "Ahoj." },
+            {
+                speaker: "speaker_2",
+                startMs: 1200,
+                endMs: 2400,
+                text: "Ahoj taky",
+            },
+            {
+                speaker: "speaker_1",
+                startMs: 3100,
+                endMs: 3950,
+                text: "Zacneme",
+            },
+        ]);
+    });
+
+    it("renders text and turns from the same grouping", async () => {
+        installFetch({
+            transcript: () =>
+                jsonResponse({
+                    results: [
+                        // A run of two words by one speaker, punctuation that
+                        // inherits the turn it trails, and an item carrying no
+                        // content -- the three places a second pass over the
+                        // same results would group differently.
+                        word("Ahoj", { speaker: "S1", start: 0, end: 0.5 }),
+                        word("jeste", { speaker: "S1", start: 0.5, end: 0.9 }),
+                        punctuation(".", { speaker: "S1", start: 0.9, end: 1 }),
+                        word("", { speaker: "S2", start: 1, end: 1.1 }),
+                        word("Zdravim", {
+                            speaker: "S2",
+                            start: 1.2,
+                            end: 1.8,
+                        }),
+                        punctuation("!", { speaker: "S1", start: 1.8, end: 2 }),
+                    ],
+                }),
+        });
+
+        const result = await transcribe({ model: "enhanced+diarize" });
+
+        expectTextAndTurnsAgree(result.text, result.turns);
+    });
+
+    it("returns no turns for an undiarized job", async () => {
+        installFetch({
+            transcript: () =>
+                jsonResponse({ results: [word("Ahoj", { start: 0, end: 1 })] }),
+        });
+
+        const result = await transcribe({ model: "enhanced" });
+
+        expect(result.turns).toBeUndefined();
     });
 
     it("falls back to plain text when diarization attributed nothing", async () => {

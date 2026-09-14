@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { recordings, transcriptions, userSettings } from "@/db/schema";
 import { requireAuth, requireCompletedOnboarding } from "@/lib/auth-server";
 import { decryptText } from "@/lib/encryption/fields";
+import { readTranscriptTurns } from "@/lib/transcription/read-turns";
 import { resolvePrimaryTranscript } from "@/lib/v1/serialize";
 
 interface RecordingDetailPageProps {
@@ -82,6 +83,7 @@ export default async function RecordingDetailPage({
         language: t.detectedLanguage || undefined,
         provider: t.provider,
         model: t.model,
+        turns: readTranscriptTurns(t),
     }));
     const scrubberStyle: "waveform" | "slider" =
         settingsRow?.playerScrubber === "slider" ? "slider" : "waveform";

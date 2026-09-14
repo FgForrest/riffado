@@ -1,0 +1,56 @@
+export interface SpeakerMergeRow {
+    id: string;
+    transcriptionId: string;
+    label: string;
+    status: "confirmed" | "suggested" | "rejected";
+}
+
+export interface SpeakerMergePlan {
+    /** Loser rows whose (transcript, label) slot is free: repoint them. */
+    repointLoserIds: string[];
+    /** Loser rows the winner already occupies with a stronger status. */
+    dropLoserIds: string[];
+    /** Winner rows the loser beats on status, replaced by the loser's. */
+    dropWinnerIds: string[];
+}
+
+/**
+ * Decide what happens to each attribution when two people merge.
+ *
+ * Pure, because the interesting part is the collision rule rather than the
+ * SQL: when both people were attributed to the same label of the same
+ * transcript, exactly one row can survive the unique constraint. A
+ * human-confirmed attribution beats a machine-suggested one; otherwise the
+ * row already pointing at the surviving person stays, because repointing
+ * would churn an id for no gain.
+ */
+export function planSpeakerMerge(
+    winnerRows: readonly SpeakerMergeRow[],
+    loserRows: readonly SpeakerMergeRow[],
+): SpeakerMergePlan {
+    const slot = (row: SpeakerMergeRow) =>
+        `${row.transcriptionId}\0${row.label}`;
+    const bySlot = new Map(winnerRows.map((row) => [slot(row), row]));
+
+    const plan: SpeakerMergePlan = {
+        repointLoserIds: [],
+        dropLoserIds: [],
+        dropWinnerIds: [],
+    };
+
+    for (const loser of loserRows) {
+        const held = bySlot.get(slot(loser));
+        if (!held) {
+            plan.repointLoserIds.push(loser.id);
+            continue;
+        }
+        if (loser.status === "confirmed" && held.status !== "confirmed") {
+            plan.dropWinnerIds.push(held.id);
+            plan.repointLoserIds.push(loser.id);
+            continue;
+        }
+        plan.dropLoserIds.push(loser.id);
+    }
+
+    return plan;
+}
