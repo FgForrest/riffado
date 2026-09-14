@@ -36,9 +36,16 @@ export interface SetTranscriptSpeakerArgs {
     evidenceStartMs?: number | null;
 }
 
-/** Every attribution for one transcript, resolved names included. */
+/**
+ * Every attribution for one transcript, resolved names included.
+ *
+ * `ownerId` is the user the transcript belongs to, not necessarily the user
+ * asking: a speaker is named by the owner, so a reader of a shared transcript
+ * must see the owner's naming rather than their own. It also bounds the join
+ * to `people`, so a stored `personId` can never reach across a tenant.
+ */
 export async function getTranscriptSpeakers(
-    userId: string,
+    ownerId: string,
     transcriptionId: string,
 ): Promise<TranscriptSpeaker[]> {
     const rows = await db
@@ -53,10 +60,16 @@ export async function getTranscriptSpeakers(
             evidenceStartMs: transcriptSpeakers.evidenceStartMs,
         })
         .from(transcriptSpeakers)
-        .leftJoin(people, eq(people.id, transcriptSpeakers.personId))
+        .leftJoin(
+            people,
+            and(
+                eq(people.id, transcriptSpeakers.personId),
+                eq(people.userId, ownerId),
+            ),
+        )
         .where(
             and(
-                eq(transcriptSpeakers.userId, userId),
+                eq(transcriptSpeakers.userId, ownerId),
                 eq(transcriptSpeakers.transcriptionId, transcriptionId),
             ),
         );
@@ -121,27 +134,41 @@ export async function setTranscriptSpeaker({
  * export or the API: a machine guess that silently became the name on a
  * meeting minute is the failure this feature most needs to avoid, and
  * refusing to project it is what prevents that.
+ *
+ * Returns `undefined` when nobody is named, so `projectTranscript` serves the
+ * stored text verbatim rather than re-rendering it from the turns for no gain.
+ *
+ * `ownerId` is the user the transcript belongs to, not necessarily the user
+ * asking: a speaker is named by the owner, so a reader of a shared transcript
+ * must see the owner's naming rather than their own. It also bounds the join
+ * to `people`, so a stored `personId` can never reach across a tenant.
  */
 export async function buildNameResolver(
-    userId: string,
+    ownerId: string,
     transcriptionId: string,
-): Promise<SpeakerNameResolver> {
+): Promise<SpeakerNameResolver | undefined> {
     const rows = await db
         .select({
             label: transcriptSpeakers.label,
             displayName: people.displayName,
         })
         .from(transcriptSpeakers)
-        .innerJoin(people, eq(people.id, transcriptSpeakers.personId))
+        .innerJoin(
+            people,
+            and(
+                eq(people.id, transcriptSpeakers.personId),
+                eq(people.userId, ownerId),
+            ),
+        )
         .where(
             and(
-                eq(transcriptSpeakers.userId, userId),
+                eq(transcriptSpeakers.userId, ownerId),
                 eq(transcriptSpeakers.transcriptionId, transcriptionId),
                 eq(transcriptSpeakers.status, "confirmed"),
             ),
         );
 
-    return namesFromRows(rows);
+    return rows.length > 0 ? namesFromRows(rows) : undefined;
 }
 
 /**

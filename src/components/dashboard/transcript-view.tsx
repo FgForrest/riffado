@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import { SpeakerPicker } from "@/components/people/speaker-picker";
+import { toastApiError } from "@/lib/api-errors";
 import {
     formatSpeakerLabel,
     mayBeDiarized,
@@ -22,6 +24,12 @@ const SPEAKER_STYLES = [
     { dot: "bg-rose-500", text: "text-rose-600 dark:text-rose-400" },
     { dot: "bg-sky-500", text: "text-sky-600 dark:text-sky-400" },
 ];
+
+/** Who a raw speaker label currently refers to, as the overlay reports it. */
+interface AttributedPerson {
+    personId: string;
+    name: string;
+}
 
 export interface TranscriptViewProps {
     text: string;
@@ -62,12 +70,17 @@ export function TranscriptView({
     // Confirmed names for this transcript, fetched rather than threaded
     // through the loaders: there are two of those and an attribution changes
     // far more often than a page load.
-    const [names, setNames] = useState<Record<string, string>>({});
+    const [names, setNames] = useState<Record<string, AttributedPerson>>({});
     const [openLabel, setOpenLabel] = useState<string | null>(null);
     const attributable = Boolean(recordingId) && Boolean(source);
 
     const loadNames = useCallback(async () => {
         if (!recordingId || !source) return;
+        // Names belong to one transcript, and two transcripts of the same
+        // recording label different people `speaker_0`. Clearing first means
+        // a slow or failed read shows the raw label rather than the previous
+        // transcript's answer over somebody else's turns.
+        setNames({});
         const response = await fetch(
             `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
         );
@@ -75,24 +88,21 @@ export function TranscriptView({
         const body = (await response.json()) as {
             speakers?: {
                 label: string;
+                personId: string | null;
                 personName: string | null;
                 status: string;
             }[];
         };
-        setNames(
-            Object.fromEntries(
-                (body.speakers ?? [])
-                    .filter(
-                        (speaker) =>
-                            speaker.personName &&
-                            speaker.status === "confirmed",
-                    )
-                    .map((speaker) => [
-                        speaker.label,
-                        speaker.personName as string,
-                    ]),
-            ),
-        );
+        const confirmed: Record<string, AttributedPerson> = {};
+        for (const speaker of body.speakers ?? []) {
+            if (speaker.status !== "confirmed") continue;
+            if (!speaker.personId || !speaker.personName) continue;
+            confirmed[speaker.label] = {
+                personId: speaker.personId,
+                name: speaker.personName,
+            };
+        }
+        setNames(confirmed);
     }, [recordingId, source]);
 
     useEffect(() => {
@@ -104,14 +114,27 @@ export function TranscriptView({
         choice: { personId?: string; displayName?: string } | null,
     ) {
         if (!recordingId || !source) return;
-        await fetch(
+        const response = await fetch(
             `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
             {
                 method: "PUT",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ label, ...(choice ?? {}) }),
             },
-        );
+        ).catch(() => null);
+        if (!response) {
+            toast.error("Could not reach the server");
+            return;
+        }
+        if (!response.ok) {
+            // The picker stays open on a failure, so the answer the user
+            // already chose can be sent again rather than retyped.
+            await toastApiError(response, {
+                fallback: "Failed to name this speaker",
+                errorContext: "name a transcript speaker",
+            });
+            return;
+        }
         setOpenLabel(null);
         await loadNames();
     }
@@ -173,20 +196,23 @@ export function TranscriptView({
                                                 : "Name this speaker"
                                         }
                                     >
-                                        {names[turn.speaker] ?? turn.label}
+                                        {names[turn.speaker]?.name ??
+                                            turn.label}
                                     </button>
                                 ) : (
                                     <span
                                         className={`text-xs font-medium ${style.text}`}
                                     >
-                                        {names[turn.speaker] ?? turn.label}
+                                        {names[turn.speaker]?.name ??
+                                            turn.label}
                                     </span>
                                 )}
                                 {openLabel === turn.speaker && (
                                     <SpeakerPicker
                                         label={turn.label}
                                         personId={
-                                            names[turn.speaker] ? "set" : null
+                                            names[turn.speaker]?.personId ??
+                                            null
                                         }
                                         onPick={(choice) =>
                                             void attribute(turn.speaker, choice)

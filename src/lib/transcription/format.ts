@@ -4,6 +4,7 @@ import type {
     TranscriptionVerbose,
 } from "openai/resources/audio/transcriptions";
 import {
+    renderTurnsAsText,
     type TranscriptTurn,
     turnsFromLabelledSegments,
 } from "@/lib/transcription/turns";
@@ -30,9 +31,6 @@ export function parseTranscriptionResponse(
     if (responseFormat === "diarized_json") {
         const diarized = transcription as TranscriptionDiarized;
         const segments = diarized.segments ?? [];
-        const text = segments
-            .map((seg) => `${seg.speaker}: ${seg.text}`)
-            .join("\n");
         const turns = turnsFromLabelledSegments(
             segments.map((seg) => ({
                 speaker: seg.speaker,
@@ -41,6 +39,11 @@ export function parseTranscriptionResponse(
                 text: seg.text,
             })),
         );
+        // Text is rendered from the turns so the flat transcript and the
+        // structured turns are two views of one grouping and cannot drift.
+        const text = turns
+            ? renderTurnsAsText(turns)
+            : segments.map((seg) => `${seg.speaker}: ${seg.text}`).join("\n");
         return {
             text,
             detectedLanguage: null,

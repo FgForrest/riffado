@@ -216,10 +216,6 @@ describe("forced re-transcribe and speaker attributions", () => {
 
         await transcribeRecording(userId, recordingId, { force: true });
 
-        // Known limitation: the sidecar is written first, so a forced re-run
-        // commits the previous run's names projected onto freshly renumbered
-        // labels to a file the user keeps. Should be
-        // `expect(order).toEqual(["delete", "sidecar"])`.
-        expect(order).toEqual(["sidecar", "delete"]);
+        expect(order).toEqual(["delete", "sidecar"]);
     });
 });

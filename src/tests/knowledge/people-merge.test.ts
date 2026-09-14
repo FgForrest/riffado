@@ -19,6 +19,7 @@ import { exprReferencesColumn } from "../fixtures/drizzle-expr";
 const USER = "user-1";
 const KEEP = "person-keep";
 const LOSER = "person-loser";
+const FINAL = "person-final";
 
 interface Write {
     table: unknown;
@@ -179,23 +180,21 @@ describe("mergePeople", () => {
         expect(db.transaction).not.toHaveBeenCalled();
     });
 
-    it("refuses to merge into a person who has already been merged away", async () => {
+    it("follows a merged-away target to the person it redirects to", async () => {
         const harness = stubTransaction({
-            keepRow: { id: KEEP, mergedIntoId: "person-final" },
+            keepRow: { id: KEEP, mergedIntoId: FINAL },
         });
 
         await mergePeople(USER, KEEP, LOSER);
 
-        // Known limitation: the existence check selects `mergedIntoId` and
-        // never looks at it, so the loser is pointed at a tombstone the
-        // People list hides, and the attributions move to a person the UI
-        // will never show. Should either reject or resolve the winner to the
-        // end of its chain first.
+        const peopleUpdates = harness.updates.filter(
+            (write) => write.table === people,
+        );
+        expect(peopleUpdates.length).toBeGreaterThan(0);
+        // Nothing is pointed at the tombstone the People list hides.
         expect(
-            harness.updates.some(
-                (write) =>
-                    write.table === people &&
-                    write.values?.mergedIntoId === KEEP,
+            peopleUpdates.every(
+                (write) => write.values?.mergedIntoId === FINAL,
             ),
         ).toBe(true);
     });
@@ -210,11 +209,6 @@ describe("mergePeople", () => {
         const tombstone = harness.updates.find(
             (write) => write.table === people,
         );
-        // Known limitation: the tombstone keeps `primaryEmailHash`, which
-        // carries the unique constraint, so that address can never be given
-        // to anybody again while the friendly pre-check -- which skips
-        // tombstones -- reports it as free. Should be
-        // `expect(tombstone?.values).toMatchObject({ primaryEmailHash: null })`.
-        expect(tombstone?.values).not.toHaveProperty("primaryEmailHash");
+        expect(tombstone?.values).toMatchObject({ primaryEmailHash: null });
     });
 });

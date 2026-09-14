@@ -161,6 +161,7 @@ export async function storeBrowserTranscription(
                         transcriptionType: "browser",
                         provider: "browser",
                         model,
+                        turns: null,
                     })
                     .where(
                         and(
@@ -177,6 +178,7 @@ export async function storeBrowserTranscription(
                     transcriptionType: "browser",
                     provider: "browser",
                     model,
+                    turns: null,
                 });
             }
 
@@ -611,24 +613,14 @@ async function transcribeRecordingInner(
             };
         }
 
-        await exportRecordingSidecarsIfEnabled(
-            userId,
-            recordingId,
-            "transcript",
-        );
-
-        // Re-transcribe path: the previous transcript is being overwritten,
-        // so any existing summary now references stale source text. Drop it
-        // so readers never see "fresh transcript + old summary". If
-        // auto-summarize is on, a fresh summary is generated below;
-        // otherwise the recording shows no summary until the user clicks
-        // "Generate summary" manually.
-        // Same reasoning for speaker attributions, and they need an explicit
-        // delete rather than a cascade: `upsertTranscription` updates the
+        // Re-transcribe path: speaker attributions need an explicit delete
+        // rather than a cascade, because `upsertTranscription` updates the
         // existing row in place, so the transcription id survives and the FK
         // never fires. A fresh diarization run renumbers the labels, so an
         // attribution kept across it names the wrong turns -- silently, since
-        // `speaker_0` still exists, it is just somebody else now.
+        // `speaker_0` still exists, it is just somebody else now. It runs
+        // before the sidecar export below, or that file -- one the user keeps
+        // -- would be written with the previous run's names on the new labels.
         if (existingTranscription?.text && opts.force) {
             await db
                 .delete(transcriptSpeakers)
@@ -643,6 +635,17 @@ async function transcribeRecordingInner(
                 );
         }
 
+        await exportRecordingSidecarsIfEnabled(
+            userId,
+            recordingId,
+            "transcript",
+        );
+
+        // The previous transcript is being overwritten, so any existing
+        // summary now references stale source text. Drop it so readers never
+        // see "fresh transcript + old summary". If auto-summarize is on, a
+        // fresh summary is generated below; otherwise the recording shows no
+        // summary until the user clicks "Generate summary" manually.
         if (existingTranscription?.text && opts.force) {
             await db
                 .delete(aiEnhancements)

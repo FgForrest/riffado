@@ -41,9 +41,14 @@ export function projectTranscript(
  * transcript would be an N+1 against a table that already joins to people.
  * Returns an empty map when nothing is confirmed, and callers then project
  * nothing, which is the correct no-op.
+ *
+ * `ownerId` is the user the transcripts belong to, not necessarily the user
+ * asking: a speaker is named by the owner, so a reader of a shared transcript
+ * must see the owner's naming rather than their own. It also bounds the join
+ * to `people`, so a stored `personId` can never reach across a tenant.
  */
 export async function buildResolverMap(
-    userId: string,
+    ownerId: string,
     transcriptionIds: readonly string[],
 ): Promise<Map<string, SpeakerNameResolver>> {
     if (transcriptionIds.length === 0) return new Map();
@@ -55,10 +60,16 @@ export async function buildResolverMap(
             displayName: people.displayName,
         })
         .from(transcriptSpeakers)
-        .innerJoin(people, eq(people.id, transcriptSpeakers.personId))
+        .innerJoin(
+            people,
+            and(
+                eq(people.id, transcriptSpeakers.personId),
+                eq(people.userId, ownerId),
+            ),
+        )
         .where(
             and(
-                eq(transcriptSpeakers.userId, userId),
+                eq(transcriptSpeakers.userId, ownerId),
                 eq(transcriptSpeakers.status, "confirmed"),
                 inArray(
                     transcriptSpeakers.transcriptionId,

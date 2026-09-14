@@ -74,12 +74,7 @@ describe("SpeakerPicker matching", () => {
         stubPeople(NINE_JANS);
         await renderAndType("Jan");
 
-        // Known limitation: `exactMatch` is computed over the list already
-        // sliced to eight, so a ninth-ranked exact match is invisible and the
-        // picker offers to create a duplicate -- the very thing the merge
-        // machinery then exists to clean up. Should be
-        // `expect(screen.queryByText(/Add/)).toBeNull()`.
-        expect(screen.getByText("Add “Jan”")).toBeDefined();
+        expect(screen.queryByText(/Add/)).toBeNull();
     });
 
     it("does not offer to create a person shown in the list", async () => {

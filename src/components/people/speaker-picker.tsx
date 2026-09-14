@@ -65,20 +65,23 @@ export function SpeakerPicker({
         return () => document.removeEventListener("keydown", onKey);
     }, [onClose]);
 
-    const matches = useMemo(() => {
+    const matched = useMemo(() => {
         const needle = query.trim().toLowerCase();
         const all = people ?? [];
-        if (!needle) return all.slice(0, 8);
-        return all
-            .filter(
-                (person) =>
-                    person.displayName.toLowerCase().includes(needle) ||
-                    person.primaryEmail?.toLowerCase().includes(needle),
-            )
-            .slice(0, 8);
+        if (!needle) return all;
+        return all.filter(
+            (person) =>
+                person.displayName.toLowerCase().includes(needle) ||
+                person.primaryEmail?.toLowerCase().includes(needle),
+        );
     }, [people, query]);
 
-    const exactMatch = matches.some(
+    const matches = matched.slice(0, 8);
+
+    // Asked of every match, not only the eight that fit: offering to create
+    // somebody who already exists is how duplicate people get made, and the
+    // exact one is not always ranked into view.
+    const exactMatch = matched.some(
         (person) =>
             person.displayName.toLowerCase() === query.trim().toLowerCase(),
     );

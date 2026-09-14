@@ -97,6 +97,8 @@ interface ImportCandidate {
     plaudFileId: string;
     isTrans: boolean;
     isSummary: boolean;
+    /** Recording length in milliseconds, per `PlaudRecording.duration`. */
+    durationMs: number;
 }
 
 async function storagePathHeldByOtherRecording(
@@ -182,6 +184,7 @@ function buildImportCandidate(
         plaudFileId: plaudRecording.id,
         isTrans: plaudRecording.is_trans,
         isSummary: plaudRecording.is_summary,
+        durationMs: plaudRecording.duration,
     };
 }
 
@@ -1017,10 +1020,12 @@ async function importPlaudContent(
                         source: "plaud",
                         provider: "plaud",
                         model: "plaud-native",
+                        // `PlaudFileDetail.duration` carries no documented
+                        // unit; the list payload's does, so use that.
                         turns:
                             segmentsToTurns(
                                 parsed.segments,
-                                detail?.data?.duration,
+                                candidate.durationMs,
                             ) ?? undefined,
                     });
                     if (committed) {

@@ -52,13 +52,8 @@ describe("deletePerson", () => {
 
         await deletePerson("user-1", "person-1");
 
-        // Known limitation: `mergedIntoId` carries no foreign key, so nothing
-        // cascades. A person merged away before the erasure keeps their
-        // encrypted name, email and notes in the database -- invisible to the
-        // People list, unreachable from the UI, and still exported. For a
-        // data-subject request that is the wrong outcome. Should be `true`.
         expect(exprReferencesColumn(captured.where, people.mergedIntoId)).toBe(
-            false,
+            true,
         );
     });
 });

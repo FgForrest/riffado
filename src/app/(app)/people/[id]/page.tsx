@@ -29,7 +29,10 @@ export default async function PersonPage({ params }: Params) {
 
     // Where this person has been heard. Joined through the transcript rather
     // than the recording, because an attribution belongs to one transcript
-    // and a recording may hold two.
+    // and a recording may hold two -- so the same recording can arrive twice
+    // and `PersonDetail` lists it once. Confirmed attributions only, the same
+    // gate `/people` counts through, so the two surfaces cannot disagree
+    // about how many recordings one person appears in.
     const appearances = await db
         .select({
             recordingId: recordings.id,
@@ -49,6 +52,7 @@ export default async function PersonPage({ params }: Params) {
             and(
                 eq(transcriptSpeakers.userId, userId),
                 eq(transcriptSpeakers.personId, id),
+                eq(transcriptSpeakers.status, "confirmed"),
                 isNull(recordings.deletedAt),
             ),
         );

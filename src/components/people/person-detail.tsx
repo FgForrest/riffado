@@ -3,7 +3,7 @@
 import { ArrowLeft, Mail, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/format-date";
 import { formatSpeakerLabel } from "@/lib/transcription/diarization";
@@ -30,6 +30,20 @@ export interface PersonDetailProps {
 export function PersonDetail({ person, appearances }: PersonDetailProps) {
     const router = useRouter();
     const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+    // One recording can hold two transcripts -- the user's own and a Plaud
+    // import -- and the same person can be attributed in both, so the overlay
+    // answers twice for one appearance. This page lists recordings, so each
+    // is shown, keyed and counted once, which is also how `/people` counts.
+    const heard = useMemo(() => {
+        const byRecording = new Map<string, PersonAppearance>();
+        for (const appearance of appearances) {
+            if (!byRecording.has(appearance.recordingId)) {
+                byRecording.set(appearance.recordingId, appearance);
+            }
+        }
+        return [...byRecording.values()];
+    }, [appearances]);
 
     async function erase() {
         const response = await fetch(`/api/people/${person.id}`, {
@@ -66,9 +80,9 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                         </p>
                     )}
                     <p className="mt-1 text-sm text-muted-foreground">
-                        {appearances.length === 1
+                        {heard.length === 1
                             ? "Heard in 1 recording"
-                            : `Heard in ${appearances.length} recordings`}
+                            : `Heard in ${heard.length} recordings`}
                     </p>
                 </div>
                 {confirmingDelete ? (
@@ -124,17 +138,15 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                 <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                     Appears in
                 </h2>
-                {appearances.length === 0 ? (
+                {heard.length === 0 ? (
                     <p className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
                         Not attributed to any recording yet. Open a diarized
                         transcript and name one of its speakers.
                     </p>
                 ) : (
                     <ul className="divide-y rounded-lg border">
-                        {appearances.map((appearance) => (
-                            <li
-                                key={`${appearance.recordingId}-${appearance.label}`}
-                            >
+                        {heard.map((appearance) => (
+                            <li key={appearance.recordingId}>
                                 <Link
                                     href={`/recordings/${appearance.recordingId}`}
                                     className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"

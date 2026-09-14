@@ -3,7 +3,6 @@ import {
     getResponseFormat,
     parseTranscriptionResponse,
 } from "@/lib/transcription/format";
-import { renderTurnsAsText } from "@/lib/transcription/turns";
 import { expectTextAndTurnsAgree } from "./turns-parity";
 
 describe("getResponseFormat", () => {
@@ -51,12 +50,7 @@ describe("parseTranscriptionResponse", () => {
             "diarized_json",
         );
 
-        // Known limitation: `text` joins the raw segments one line each while
-        // `turns` merges consecutive same-speaker runs, so the two disagree
-        // about turn boundaries. Should be
-        // `expectTextAndTurnsAgree(parsed.text, parsed.turns)`.
-        expect(parsed.text).toBe("A: one\nA: two");
-        expect(renderTurnsAsText(parsed.turns ?? [])).toBe("A: one two");
+        expectTextAndTurnsAgree(parsed.text, parsed.turns);
     });
 
     it("renders text and turns consistently when a segment is blank", () => {
@@ -70,11 +64,7 @@ describe("parseTranscriptionResponse", () => {
             "diarized_json",
         );
 
-        // Known limitation: a blank segment still contributes a bare
-        // `"B: "` line to `text`, while `turns` drops it. Should be
-        // `expectTextAndTurnsAgree(parsed.text, parsed.turns)`.
-        expect(parsed.text).toBe("A: hi\nB:    ");
-        expect(renderTurnsAsText(parsed.turns ?? [])).toBe("A: hi");
+        expectTextAndTurnsAgree(parsed.text, parsed.turns);
     });
 
     it("renders text and turns consistently when a segment is padded", () => {
@@ -93,11 +83,7 @@ describe("parseTranscriptionResponse", () => {
             "diarized_json",
         );
 
-        // Known limitation: `text` keeps the provider's surrounding
-        // whitespace, `turns` trims it. Should be
-        // `expectTextAndTurnsAgree(parsed.text, parsed.turns)`.
-        expect(parsed.text).toBe("A:   padded  ");
-        expect(renderTurnsAsText(parsed.turns ?? [])).toBe("A: padded");
+        expectTextAndTurnsAgree(parsed.text, parsed.turns);
     });
 
     it("returns no turns for a diarized response with no segments", () => {

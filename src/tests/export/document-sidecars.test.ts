@@ -320,12 +320,7 @@ describe("exportRecordingSidecars", () => {
         const body = (uploadFile.mock.calls[0] as [string, Buffer])[1].toString(
             "utf8",
         );
-        // Known limitation: `buildNameResolver` answers with a resolver that
-        // names nobody rather than with `undefined`, so `projectTranscript`
-        // never takes its early return and the sidecar is re-rendered from
-        // the turns even though there is nothing to apply. Should be
-        // `expect(body).toContain("speaker_0: Ahoj.\nspeaker_0: Jeste jednou.")`.
-        expect(body).toContain("speaker_0: Ahoj. Jeste jednou.");
+        expect(body).toContain("speaker_0: Ahoj.\nspeaker_0: Jeste jednou.");
     });
 
     it("writes nothing when the recording has no transcript yet", async () => {

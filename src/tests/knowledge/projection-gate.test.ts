@@ -111,13 +111,9 @@ describe("confirmed-only projection gate", () => {
 
         const joins = [...listing.joins, ...resolver.joins, ...map.joins];
         expect(joins).toHaveLength(3);
-        // Known limitation: all three join `people` on `personId` alone, so
-        // the row a stored foreign `personId` points at would be read and its
-        // name projected. Should be
-        // `expect(joins.every((on) => exprReferencesColumn(on, people.userId))).toBe(true)`.
         expect(
-            joins.some((on) => exprReferencesColumn(on, people.userId)),
-        ).toBe(false);
+            joins.every((on) => exprReferencesColumn(on, people.userId)),
+        ).toBe(true);
         expect(joins.every((on) => exprReferencesColumn(on, people.id))).toBe(
             true,
         );

@@ -70,16 +70,9 @@ describe("segmentsToTurns", () => {
             { start_time: 2, end_time: 4, speaker: 1, content: "jeste jednou" },
         ];
 
-        // Known limitation: parseTranscript emits one line per segment while
-        // segmentsToTurns merges consecutive same-speaker runs, so the stored
-        // text and the stored turns disagree from the moment of import.
-        // Should be `expectTextAndTurnsAgree(parseTranscript(run).text,
-        // segmentsToTurns(run, 600_000) ?? undefined)`.
-        expect(parseTranscript(run).text).toBe(
-            "Speaker 1: Ahoj\nSpeaker 1: jeste jednou",
-        );
-        expect(renderTurnsAsText(segmentsToTurns(run, 600_000) ?? [])).toBe(
-            "Speaker 1: Ahoj jeste jednou",
+        expectTextAndTurnsAgree(
+            parseTranscript(run).text,
+            segmentsToTurns(run, 600_000) ?? undefined,
         );
     });
 
@@ -90,15 +83,9 @@ describe("segmentsToTurns", () => {
             { start_time: 3, end_time: 4, speaker: 1, content: "jeste jednou" },
         ];
 
-        // Known limitation: both sides drop the empty segment, but only the
-        // turns side merges what is left, so the two still disagree. Should be
-        // `expectTextAndTurnsAgree(parseTranscript(run).text,
-        // segmentsToTurns(run, 600_000) ?? undefined)`.
-        expect(parseTranscript(run).text).toBe(
-            "Speaker 1: Ahoj\nSpeaker 1: jeste jednou",
-        );
-        expect(renderTurnsAsText(segmentsToTurns(run, 600_000) ?? [])).toBe(
-            "Speaker 1: Ahoj jeste jednou",
+        expectTextAndTurnsAgree(
+            parseTranscript(run).text,
+            segmentsToTurns(run, 600_000) ?? undefined,
         );
     });
 
@@ -107,13 +94,8 @@ describe("segmentsToTurns", () => {
             { start_time: 0, end_time: 30_000, speaker: 1, content: "Ahoj" },
         ];
 
-        // Known limitation: the unit test is one-sided — `maxTime <
-        // durationMs / 100` is true both for seconds-valued times and for
-        // millisecond-valued times on an hour of near-silence, so these
-        // already-millisecond times are multiplied by a thousand and the turn
-        // ends 8 hours into a 1-hour recording. Should be `30_000`.
         const [first] = segmentsToTurns(sparse, 3_600_000) ?? [];
-        expect(first.endMs).toBe(30_000_000);
+        expect(first.endMs).toBe(30_000);
     });
 
     it("keeps unlabelled segments unprefixed", () => {

@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { people, transcriptSpeakers } from "@/db/schema";
 import { decryptText, encryptText } from "@/lib/encryption/fields";
@@ -151,6 +151,10 @@ export async function getPerson(
  * The losing person row is kept as a tombstone carrying `mergedIntoId` so
  * that anything still holding the old id resolves to the winner instead of
  * dangling.
+ *
+ * `keepId` may itself be a tombstone -- the picker and the API both accept an
+ * id that was merged away since the caller read it -- so it is resolved to
+ * the person it redirects to before anything moves.
  */
 export async function mergePeople(
     userId: string,
@@ -169,6 +173,12 @@ export async function mergePeople(
             throw new Error("Merge target does not exist");
         }
 
+        // Every tombstone is repointed at the surviving person when its own
+        // target is merged away (the collapse below), so a redirect is never
+        // more than one hop deep and following it cannot loop.
+        const winnerId = rows[0].mergedIntoId ?? keepId;
+        if (winnerId === loserId) return;
+
         const winners = await tx
             .select({
                 id: transcriptSpeakers.id,
@@ -180,7 +190,7 @@ export async function mergePeople(
             .where(
                 and(
                     eq(transcriptSpeakers.userId, userId),
-                    eq(transcriptSpeakers.personId, keepId),
+                    eq(transcriptSpeakers.personId, winnerId),
                 ),
             );
 
@@ -224,7 +234,7 @@ export async function mergePeople(
         for (const id of plan.repointLoserIds) {
             await tx
                 .update(transcriptSpeakers)
-                .set({ personId: keepId, updatedAt: new Date() })
+                .set({ personId: winnerId, updatedAt: new Date() })
                 .where(
                     and(
                         eq(transcriptSpeakers.id, id),
@@ -236,14 +246,22 @@ export async function mergePeople(
         // Chains collapse to the final winner rather than forming a linked
         // list nobody walks: anything already pointing at the loser is
         // repointed in the same transaction.
+        //
+        // The lookup key goes with the name it belonged to. A tombstone
+        // exists to redirect an id, and holding the unique email hash would
+        // reserve an address nothing displays and nothing can release.
         await tx
             .update(people)
-            .set({ mergedIntoId: keepId, updatedAt: new Date() })
+            .set({
+                mergedIntoId: winnerId,
+                primaryEmailHash: null,
+                updatedAt: new Date(),
+            })
             .where(and(eq(people.userId, userId), eq(people.id, loserId)));
 
         await tx
             .update(people)
-            .set({ mergedIntoId: keepId, updatedAt: new Date() })
+            .set({ mergedIntoId: winnerId, updatedAt: new Date() })
             .where(
                 and(
                     eq(people.userId, userId),
@@ -260,6 +278,11 @@ export async function mergePeople(
  * has to be one action. Attributions cascade with the row; the transcript
  * keeps its raw `speaker_N` label and simply loses the overlay, which is the
  * right outcome -- the recording is not the thing being erased.
+ *
+ * The tombstones of anyone merged into this person go with them. They hold
+ * the same human's encrypted name and email, `mergedIntoId` carries no
+ * foreign key so nothing cascades to them, and no surface lists them -- so
+ * leaving them behind would quietly keep the data the request is about.
  */
 export async function deletePerson(
     userId: string,
@@ -267,5 +290,10 @@ export async function deletePerson(
 ): Promise<void> {
     await db
         .delete(people)
-        .where(and(eq(people.userId, userId), eq(people.id, personId)));
+        .where(
+            and(
+                eq(people.userId, userId),
+                or(eq(people.id, personId), eq(people.mergedIntoId, personId)),
+            ),
+        );
 }

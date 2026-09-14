@@ -639,12 +639,7 @@ describe("Transcription", () => {
                 string,
                 unknown
             >;
-            // Known limitation: the browser path rewrites `text` without
-            // naming `turns`, so a previous diarized run's turns survive
-            // beside prose they no longer describe, and every seam that
-            // re-renders turns serves the superseded transcript. Should be
-            // `expect(updated.turns).toBeNull()`.
-            expect(updated).not.toHaveProperty("turns");
+            expect(updated.turns).toBeNull();
         });
 
         it("stores no turns on the row it creates", async () => {
@@ -666,10 +661,7 @@ describe("Transcription", () => {
                 string,
                 unknown
             >;
-            // Known limitation: the column defaults to NULL so the insert is
-            // correct by accident, not by statement. Should be
-            // `expect(inserted.turns).toBeNull()`.
-            expect(inserted).not.toHaveProperty("turns");
+            expect(inserted.turns).toBeNull();
         });
     });
 });
