@@ -13,7 +13,7 @@ import {
     SpeechmaticsTranscribeError,
     speechmaticsTranscribe,
 } from "@/lib/transcription/speechmatics-transcribe";
-import { renderTurnsAsText } from "@/lib/transcription/turns";
+import { expectTextAndTurnsAgree } from "./turns-parity";
 
 function audioFile(): File {
     return new File([new Uint8Array([1, 2, 3])], "meeting.mp3", {
@@ -379,15 +379,27 @@ describe("speechmatics-transcribe", () => {
             transcript: () =>
                 jsonResponse({
                     results: [
+                        // A run of two words by one speaker, punctuation that
+                        // inherits the turn it trails, and an item carrying no
+                        // content -- the three places a second pass over the
+                        // same results would group differently.
                         word("Ahoj", { speaker: "S1", start: 0, end: 0.5 }),
-                        word("Zdravim", { speaker: "S2", start: 1, end: 1.5 }),
+                        word("jeste", { speaker: "S1", start: 0.5, end: 0.9 }),
+                        punctuation(".", { speaker: "S1", start: 0.9, end: 1 }),
+                        word("", { speaker: "S2", start: 1, end: 1.1 }),
+                        word("Zdravim", {
+                            speaker: "S2",
+                            start: 1.2,
+                            end: 1.8,
+                        }),
+                        punctuation("!", { speaker: "S1", start: 1.8, end: 2 }),
                     ],
                 }),
         });
 
         const result = await transcribe({ model: "enhanced+diarize" });
 
-        expect(renderTurnsAsText(result.turns ?? [])).toBe(result.text);
+        expectTextAndTurnsAgree(result.text, result.turns);
     });
 
     it("returns no turns for an undiarized job", async () => {

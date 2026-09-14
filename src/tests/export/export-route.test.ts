@@ -107,3 +107,103 @@ describe("GET /api/export (regression: summary decryption)", () => {
         expect(JSON.stringify(body)).not.toContain("enc:");
     });
 });
+
+describe("GET /api/export and speaker names", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        (requireApiSession as unknown as Mock).mockResolvedValue({
+            user: { id: "user-1" },
+        });
+    });
+
+    it("exports a confirmed speaker under their name", async () => {
+        queueSelect([]);
+        queueSelect([
+            {
+                id: "rec-1",
+                userId: "user-1",
+                filename: "enc:Planning Call",
+                duration: 60000,
+                startTime: now,
+                filesize: 100,
+                deletedAt: null,
+            },
+        ]);
+        queueSelect([
+            {
+                id: "tr-1",
+                recordingId: "rec-1",
+                text: "enc:speaker_0: Ahoj.\nspeaker_1: Zdravim.",
+                turns: [
+                    {
+                        speaker: "speaker_0",
+                        startMs: 0,
+                        endMs: 1000,
+                        text: "Ahoj.",
+                    },
+                    {
+                        speaker: "speaker_1",
+                        startMs: 1000,
+                        endMs: 2000,
+                        text: "Zdravim.",
+                    },
+                ],
+            },
+        ]);
+        queueSelect([]);
+        queueSelect([
+            {
+                transcriptionId: "tr-1",
+                label: "speaker_0",
+                displayName: "Jan",
+            },
+        ]);
+
+        const response = await GET(
+            new Request("https://app.example.com/api/export?format=json"),
+        );
+        const body = JSON.parse(await response.text());
+
+        expect(body[0].transcription).toBe("Jan: Ahoj.\nspeaker_1: Zdravim.");
+    });
+
+    it("exports a transcript with no turns exactly as it is stored", async () => {
+        queueSelect([]);
+        queueSelect([
+            {
+                id: "rec-1",
+                userId: "user-1",
+                filename: "enc:Planning Call",
+                duration: 60000,
+                startTime: now,
+                filesize: 100,
+                deletedAt: null,
+            },
+        ]);
+        queueSelect([
+            {
+                id: "tr-1",
+                recordingId: "rec-1",
+                text: "enc:speaker_0: Ahoj.",
+                turns: null,
+            },
+        ]);
+        queueSelect([]);
+        queueSelect([
+            {
+                transcriptionId: "tr-1",
+                label: "speaker_0",
+                displayName: "Jan",
+            },
+        ]);
+
+        const response = await GET(
+            new Request("https://app.example.com/api/export?format=json"),
+        );
+        const body = JSON.parse(await response.text());
+
+        // Nothing to project onto, so the stored text is returned untouched
+        // rather than guessed at from the flat labels.
+        expect(body[0].transcription).toBe("speaker_0: Ahoj.");
+    });
+});

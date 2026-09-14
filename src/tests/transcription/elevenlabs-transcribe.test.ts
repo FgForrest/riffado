@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { renderTurnsAsText } from "@/lib/transcription/turns";
 
 vi.mock("@/lib/env", () => ({
     env: {
@@ -13,6 +12,23 @@ import {
     parseElevenLabsModel,
     resolveElevenLabsUrl,
 } from "@/lib/transcription/elevenlabs-transcribe";
+import { expectTextAndTurnsAgree } from "./turns-parity";
+
+/** One `words` entry in the shape the transcription endpoint returns. */
+function spoken(
+    text: string,
+    speakerId: string,
+    start: number,
+    end: number,
+): {
+    text: string;
+    type: string;
+    speaker_id: string;
+    start: number;
+    end: number;
+} {
+    return { text, type: "word", speaker_id: speakerId, start, end };
+}
 
 function audioFile(): File {
     return new File([new Uint8Array([1, 2, 3])], "meeting.mp3", {
@@ -286,7 +302,34 @@ describe("elevenLabsTranscribe turns", () => {
                 text: "Zdravim",
             },
         ]);
-        expect(renderTurnsAsText(result.turns ?? [])).toBe(result.text);
+        expectTextAndTurnsAgree(result.text, result.turns);
+    });
+
+    it("renders text and turns from the same grouping", async () => {
+        stubJson({
+            text: "ignored",
+            language_code: "cs",
+            // Spacing that extends a run, a speaker returning after an
+            // interruption, and a word carrying no text -- the three places a
+            // second pass over the same words would group differently.
+            words: [
+                spoken("Ahoj", "speaker_0", 0, 0.4),
+                { ...spoken(" ", "speaker_0", 0.4, 0.5), type: "spacing" },
+                spoken("Jan", "speaker_0", 0.5, 0.9),
+                spoken("Zdravim", "speaker_1", 1.5, 2.25),
+                spoken("", "speaker_1", 2.25, 2.3),
+                spoken("Dobre", "speaker_0", 3, 3.4),
+                { ...spoken(" ", "speaker_0", 3.4, 3.5), type: "spacing" },
+            ],
+        });
+
+        const result = await elevenLabsTranscribe({
+            apiKey: "k",
+            model: "scribe_v1+diarize",
+            file: new File([new Uint8Array([1])], "a.mp3"),
+        });
+
+        expectTextAndTurnsAgree(result.text, result.turns);
     });
 
     it("returns no turns when diarization is not requested", async () => {

@@ -12,8 +12,53 @@
  * needs and exactly what nobody would notice missing.
  */
 
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
+
+vi.mock("@/db", () => ({ db: { select: vi.fn() } }));
+
+vi.mock("@/lib/env", () => ({ env: { IS_HOSTED: false } }));
+
+vi.mock("@/lib/auth-server", () => ({
+    requireAuth: vi
+        .fn()
+        .mockResolvedValue({ user: { id: "user-1", email: "a@b.c" } }),
+    requireCompletedOnboarding: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/lib/hosted/admin/guard", () => ({
+    isAdminEmail: vi.fn().mockReturnValue(false),
+}));
+
+vi.mock("@/lib/encryption/fields", () => ({
+    decryptText: (value: string | null) => value,
+    decryptJsonField: (value: unknown) => value,
+}));
+
+// The loaders are the subject; the client trees they hand their props to
+// are not, and rendering them here would pull in the whole workstation.
+vi.mock("@/components/dashboard/workstation", () => ({
+    Workstation: function Workstation() {
+        return null;
+    },
+}));
+
+vi.mock("@/components/recordings/recording-workstation", () => ({
+    RecordingWorkstation: function RecordingWorkstation() {
+        return null;
+    },
+}));
+
+vi.mock("next/navigation", () => ({
+    notFound: () => {
+        throw new Error("notFound");
+    },
+}));
+
+import DashboardPage from "@/app/(app)/dashboard/page";
+import RecordingDetailPage from "@/app/(app)/recordings/[id]/page";
 import { toTranscriptList } from "@/components/dashboard/transcription-panel";
+import { db } from "@/db";
+import { transcriptions } from "@/db/schema";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
 
 const TURNS: TranscriptTurn[] = [
@@ -60,5 +105,105 @@ describe("stored turns survive the single-transcript path", () => {
         );
 
         expect(option.turns).toEqual(TURNS);
+    });
+});
+
+/** The projection every `db.select(...)` in a loader was built with. */
+let projections: unknown[] = [];
+
+/**
+ * One `db.select()` answer that resolves whichever way a loader ends the
+ * chain -- awaiting the `where`, or chaining `orderBy` or `limit` off it.
+ */
+function queueSelect(rows: unknown[]): void {
+    const afterWhere = Object.assign(Promise.resolve(rows), {
+        orderBy: () => Promise.resolve(rows),
+        limit: () => Promise.resolve(rows),
+    });
+    const node: Record<string, unknown> = {};
+    node.from = () => node;
+    node.where = () => afterWhere;
+    (db.select as Mock).mockImplementationOnce((projection: unknown) => {
+        projections.push(projection);
+        return node;
+    });
+}
+
+const TRANSCRIPT_ROW = {
+    id: "tr-1",
+    recordingId: "rec-1",
+    text: DIARIZED_TEXT,
+    detectedLanguage: "ces",
+    language: "ces",
+    source: "riffado",
+    provider: "ElevenLabs",
+    model: "scribe_v2+diarize",
+    turns: TURNS,
+};
+
+const RECORDING_ROW = {
+    id: "rec-1",
+    userId: "user-1",
+    filename: "Board meeting",
+    duration: 60_000,
+    startTime: new Date("2026-09-11T18:42:00.000Z"),
+    filesize: 100,
+    deviceSn: "SN-1",
+    waveformPeaks: null,
+    audioReapedAt: null,
+};
+
+describe("stored turns survive both SSR loaders", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        projections = [];
+    });
+
+    it("selects and passes turns from the dashboard loader", async () => {
+        queueSelect([RECORDING_ROW]);
+        queueSelect([TRANSCRIPT_ROW]);
+        queueSelect([]);
+        queueSelect([]);
+        queueSelect([]);
+
+        const element = (await DashboardPage()) as {
+            props: {
+                transcriptions: Map<string, { turns: TranscriptTurn[] | null }>;
+            };
+        };
+
+        const selected = projections[1] as Record<string, unknown>;
+        expect(selected.turns).toBe(transcriptions.turns);
+        expect(element.props.transcriptions.get("rec-1")?.turns).toEqual(TURNS);
+    });
+
+    it("passes turns from the single-recording loader", async () => {
+        queueSelect([RECORDING_ROW]);
+        queueSelect([TRANSCRIPT_ROW]);
+        queueSelect([]);
+
+        const element = (await RecordingDetailPage({
+            params: Promise.resolve({ id: "rec-1" }),
+        })) as {
+            props: { transcripts: { turns: TranscriptTurn[] | null }[] };
+        };
+
+        expect(element.props.transcripts[0].turns).toEqual(TURNS);
+    });
+
+    it("passes no turns from the dashboard loader when the row carries none", async () => {
+        queueSelect([RECORDING_ROW]);
+        queueSelect([{ ...TRANSCRIPT_ROW, turns: null }]);
+        queueSelect([]);
+        queueSelect([]);
+        queueSelect([]);
+
+        const element = (await DashboardPage()) as {
+            props: {
+                transcriptions: Map<string, { turns: TranscriptTurn[] | null }>;
+            };
+        };
+
+        expect(element.props.transcriptions.get("rec-1")?.turns).toBeNull();
     });
 });

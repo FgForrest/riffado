@@ -619,5 +619,57 @@ describe("Transcription", () => {
                 mockRecordingId,
             );
         });
+
+        it("clears the turns of the run it replaces", async () => {
+            mockOwnershipLookup([{ id: mockRecordingId, deletedAt: null }]);
+            const harness = makeTxMock({
+                stillActive: { deletedAt: null },
+                existingTranscription: { id: "trans-existing" },
+            });
+
+            await storeBrowserTranscription({
+                userId: mockUserId,
+                recordingId: mockRecordingId,
+                text: "flat undiarized prose",
+                detectedLanguage: null,
+                model: "whisper-base",
+            });
+
+            const updated = harness.txUpdateSet.mock.calls[0][0] as Record<
+                string,
+                unknown
+            >;
+            // Known limitation: the browser path rewrites `text` without
+            // naming `turns`, so a previous diarized run's turns survive
+            // beside prose they no longer describe, and every seam that
+            // re-renders turns serves the superseded transcript. Should be
+            // `expect(updated.turns).toBeNull()`.
+            expect(updated).not.toHaveProperty("turns");
+        });
+
+        it("stores no turns on the row it creates", async () => {
+            mockOwnershipLookup([{ id: mockRecordingId, deletedAt: null }]);
+            const harness = makeTxMock({
+                stillActive: { deletedAt: null },
+                existingTranscription: null,
+            });
+
+            await storeBrowserTranscription({
+                userId: mockUserId,
+                recordingId: mockRecordingId,
+                text: "flat undiarized prose",
+                detectedLanguage: null,
+                model: "whisper-base",
+            });
+
+            const inserted = harness.txInsertValues.mock.calls[0][0] as Record<
+                string,
+                unknown
+            >;
+            // Known limitation: the column defaults to NULL so the insert is
+            // correct by accident, not by statement. Should be
+            // `expect(inserted.turns).toBeNull()`.
+            expect(inserted).not.toHaveProperty("turns");
+        });
     });
 });

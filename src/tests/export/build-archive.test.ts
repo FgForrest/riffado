@@ -216,6 +216,209 @@ describe("buildAndUploadExportArchive", () => {
         expect(manifest.knowledge).toEqual({ people: 1, attributions: 1 });
     });
 
+    it("carries the transcription ids the attributions are keyed on", async () => {
+        storage.files.set("audio/rec-1.mp3", Buffer.from("audio"));
+        mockSelectSequence([
+            [
+                {
+                    id: "rec-1",
+                    userId: "user-1",
+                    filename: "enc-filename",
+                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    endTime: new Date("2026-01-01T00:01:00Z"),
+                    duration: 60000,
+                    filesize: 5,
+                    deviceSn: "SN123",
+                    storagePath: "audio/rec-1.mp3",
+                },
+            ],
+            [
+                {
+                    id: "tr-1",
+                    recordingId: "rec-1",
+                    text: "enc-transcript",
+                    turns: { c: "enc-turns" },
+                },
+            ],
+            [],
+            [
+                {
+                    id: "p-1",
+                    displayName: "enc-Jan",
+                    primaryEmail: null,
+                    notes: null,
+                    mergedIntoId: null,
+                    createdAt: new Date("2026-01-01T00:00:00Z"),
+                },
+            ],
+            [
+                {
+                    transcriptionId: "tr-1",
+                    label: "speaker_0",
+                    personId: "p-1",
+                    source: "user",
+                    status: "confirmed",
+                    confidence: null,
+                    evidenceStartMs: null,
+                },
+            ],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const outsideKnowledge = [...entries.entries()]
+            .filter(([name]) => name !== "knowledge/people.json")
+            .map(([, entry]) => entry.buffer.toString("utf-8"))
+            .join("\n");
+
+        // Known limitation: every attribution is keyed on a transcription id
+        // the archive never writes down, so `knowledge/people.json` names
+        // rows a restore cannot find. Should be `true`.
+        expect(outsideKnowledge.includes("tr-1")).toBe(false);
+    });
+
+    it("carries the turns an attribution is projected onto", async () => {
+        storage.files.set("audio/rec-1.mp3", Buffer.from("audio"));
+        mockSelectSequence([
+            [
+                {
+                    id: "rec-1",
+                    userId: "user-1",
+                    filename: "enc-filename",
+                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    endTime: new Date("2026-01-01T00:01:00Z"),
+                    duration: 60000,
+                    filesize: 5,
+                    deviceSn: "SN123",
+                    storagePath: "audio/rec-1.mp3",
+                },
+            ],
+            [
+                {
+                    id: "tr-1",
+                    recordingId: "rec-1",
+                    text: "enc-transcript",
+                    turns: { c: "enc-turns" },
+                },
+            ],
+            [],
+            [],
+            [],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const names = [...entries.keys()];
+
+        // Known limitation: only the flat text rides along, so a restore
+        // loses the per-speaker timings and a reattached attribution has
+        // nothing to project onto. Should be `true`.
+        expect(names.some((name) => name.endsWith("/turns.json"))).toBe(false);
+    });
+
+    it("keeps the raw speaker labels in the archived transcript", async () => {
+        storage.files.set("audio/rec-1.mp3", Buffer.from("audio"));
+        mockSelectSequence([
+            [
+                {
+                    id: "rec-1",
+                    userId: "user-1",
+                    filename: "enc-filename",
+                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    endTime: new Date("2026-01-01T00:01:00Z"),
+                    duration: 60000,
+                    filesize: 5,
+                    deviceSn: "SN123",
+                    storagePath: "audio/rec-1.mp3",
+                },
+            ],
+            [{ id: "tr-1", recordingId: "rec-1", text: "speaker_0: Ahoj." }],
+            [],
+            [],
+            [],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const transcript = [...entries.entries()].find(([name]) =>
+            name.endsWith("/transcript.txt"),
+        );
+
+        // The archive is the restorable copy, so it stores what the database
+        // stores and leaves the overlay to `knowledge/people.json`. The JSON
+        // export and the document sidecars project names instead; the three
+        // must not silently converge on different answers.
+        expect(transcript?.[1].buffer.toString("utf-8")).toBe(
+            "decrypted:speaker_0: Ahoj.",
+        );
+    });
+
+    it("keeps every tombstone's winner inside the same archive", async () => {
+        mockSelectSequence([
+            [],
+            [
+                {
+                    id: "p-loser",
+                    displayName: "enc-Alice",
+                    primaryEmail: null,
+                    notes: null,
+                    mergedIntoId: "p-keep",
+                    createdAt: new Date("2026-01-01T00:00:00Z"),
+                },
+                {
+                    id: "p-keep",
+                    displayName: "enc-Bob",
+                    primaryEmail: null,
+                    notes: null,
+                    mergedIntoId: null,
+                    createdAt: new Date("2026-01-01T00:00:00Z"),
+                },
+            ],
+            [],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const knowledge = JSON.parse(
+            entries.get("knowledge/people.json")?.buffer.toString("utf-8") ??
+                "{}",
+        );
+        const ids = new Set(
+            (knowledge.people as { id: string }[]).map((person) => person.id),
+        );
+        for (const person of knowledge.people as {
+            mergedIntoId: string | null;
+        }[]) {
+            if (person.mergedIntoId) {
+                expect(ids.has(person.mergedIntoId)).toBe(true);
+            }
+        }
+    });
+
     it("omits the knowledge section entirely when there is none", async () => {
         mockSelectSequence([[], [], []]);
 

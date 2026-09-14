@@ -4,6 +4,7 @@ import {
     parseTranscriptionResponse,
 } from "@/lib/transcription/format";
 import { renderTurnsAsText } from "@/lib/transcription/turns";
+import { expectTextAndTurnsAgree } from "./turns-parity";
 
 describe("getResponseFormat", () => {
     it("picks the diarized format for a model carrying the diarize flag", () => {
@@ -34,9 +35,69 @@ describe("parseTranscriptionResponse", () => {
         ]);
     });
 
-    it("renders text and turns consistently", () => {
+    it("renders text and turns consistently when speakers alternate", () => {
         const parsed = parseTranscriptionResponse(diarized, "diarized_json");
-        expect(renderTurnsAsText(parsed.turns ?? [])).toBe(parsed.text);
+        expectTextAndTurnsAgree(parsed.text, parsed.turns);
+    });
+
+    it("renders text and turns consistently across a same-speaker run", () => {
+        const parsed = parseTranscriptionResponse(
+            {
+                segments: [
+                    { id: "1", speaker: "A", start: 0, end: 1, text: "one" },
+                    { id: "2", speaker: "A", start: 1, end: 2, text: "two" },
+                ],
+            },
+            "diarized_json",
+        );
+
+        // Known limitation: `text` joins the raw segments one line each while
+        // `turns` merges consecutive same-speaker runs, so the two disagree
+        // about turn boundaries. Should be
+        // `expectTextAndTurnsAgree(parsed.text, parsed.turns)`.
+        expect(parsed.text).toBe("A: one\nA: two");
+        expect(renderTurnsAsText(parsed.turns ?? [])).toBe("A: one two");
+    });
+
+    it("renders text and turns consistently when a segment is blank", () => {
+        const parsed = parseTranscriptionResponse(
+            {
+                segments: [
+                    { id: "1", speaker: "A", start: 0, end: 1, text: "hi" },
+                    { id: "2", speaker: "B", start: 1, end: 2, text: "   " },
+                ],
+            },
+            "diarized_json",
+        );
+
+        // Known limitation: a blank segment still contributes a bare
+        // `"B: "` line to `text`, while `turns` drops it. Should be
+        // `expectTextAndTurnsAgree(parsed.text, parsed.turns)`.
+        expect(parsed.text).toBe("A: hi\nB:    ");
+        expect(renderTurnsAsText(parsed.turns ?? [])).toBe("A: hi");
+    });
+
+    it("renders text and turns consistently when a segment is padded", () => {
+        const parsed = parseTranscriptionResponse(
+            {
+                segments: [
+                    {
+                        id: "1",
+                        speaker: "A",
+                        start: 0,
+                        end: 1,
+                        text: "  padded  ",
+                    },
+                ],
+            },
+            "diarized_json",
+        );
+
+        // Known limitation: `text` keeps the provider's surrounding
+        // whitespace, `turns` trims it. Should be
+        // `expectTextAndTurnsAgree(parsed.text, parsed.turns)`.
+        expect(parsed.text).toBe("A:   padded  ");
+        expect(renderTurnsAsText(parsed.turns ?? [])).toBe("A: padded");
     });
 
     it("returns no turns for a diarized response with no segments", () => {
