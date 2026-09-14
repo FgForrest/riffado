@@ -68,9 +68,9 @@ function toPerson(row: PersonRow): Person {
 /**
  * Create a person from a name the user typed.
  *
- * This is the Phase 1 path and it deliberately requires no external
- * identifier: naming a speaker in a transcript supplies a name and nothing
- * else. An email is optional and only some people will ever have one.
+ * Deliberately requires no external identifier: naming a speaker in a
+ * transcript supplies a name and nothing else. An email is optional, and
+ * only some people will ever have one.
  */
 export async function createPerson({
     userId,
