@@ -34,8 +34,13 @@ vi.mock("@/db/schema", () => ({
 }));
 vi.mock("@/lib/encryption/fields", () => ({
     decryptText: (v: string | null) => (v == null ? v : `decrypted:${v}`),
-    decryptJsonField: (v: unknown) =>
-        Array.isArray(v) ? v.map((x) => `decrypted:${x}`) : v,
+    decryptJsonField: (v: unknown) => {
+        if (Array.isArray(v)) return v.map((x) => `decrypted:${x}`);
+        if (v && typeof v === "object" && "c" in v) {
+            return JSON.parse((v as { c: string }).c);
+        }
+        return v;
+    },
 }));
 
 type Row = Record<string, unknown>;
@@ -236,8 +241,19 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "tr-1",
                     recordingId: "rec-1",
+                    source: "riffado",
                     text: "enc-transcript",
-                    turns: { c: "enc-turns" },
+                    turns: {
+                        c: JSON.stringify([
+                            {
+                                speaker: "speaker_0",
+                                startMs: 0,
+                                endMs: 1000,
+                                text: "Ahoj.",
+                            },
+                        ]),
+                    },
+                    createdAt: new Date("2026-01-01T00:02:00Z"),
                 },
             ],
             [],
@@ -277,10 +293,7 @@ describe("buildAndUploadExportArchive", () => {
             .map(([, entry]) => entry.buffer.toString("utf-8"))
             .join("\n");
 
-        // Known limitation: every attribution is keyed on a transcription id
-        // the archive never writes down, so `knowledge/people.json` names
-        // rows a restore cannot find. Should be `true`.
-        expect(outsideKnowledge.includes("tr-1")).toBe(false);
+        expect(outsideKnowledge.includes("tr-1")).toBe(true);
     });
 
     it("carries the turns an attribution is projected onto", async () => {
@@ -303,8 +316,19 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "tr-1",
                     recordingId: "rec-1",
+                    source: "riffado",
                     text: "enc-transcript",
-                    turns: { c: "enc-turns" },
+                    turns: {
+                        c: JSON.stringify([
+                            {
+                                speaker: "speaker_0",
+                                startMs: 0,
+                                endMs: 1000,
+                                text: "Ahoj.",
+                            },
+                        ]),
+                    },
+                    createdAt: new Date("2026-01-01T00:02:00Z"),
                 },
             ],
             [],
@@ -320,12 +344,79 @@ describe("buildAndUploadExportArchive", () => {
         });
 
         const entries = await readZipEntries(storage.uploaded as Buffer);
-        const names = [...entries.keys()];
+        const transcripts = [...entries.entries()].find(([name]) =>
+            name.endsWith("/transcripts.json"),
+        );
 
-        // Known limitation: only the flat text rides along, so a restore
-        // loses the per-speaker timings and a reattached attribution has
-        // nothing to project onto. Should be `true`.
-        expect(names.some((name) => name.endsWith("/turns.json"))).toBe(false);
+        expect(transcripts).toBeDefined();
+        const record = JSON.parse(
+            (transcripts as [string, { buffer: Buffer }])[1].buffer.toString(
+                "utf-8",
+            ),
+        );
+        expect(record[0].id).toBe("tr-1");
+        expect(record[0].turns).not.toBeNull();
+    });
+
+    it("keeps both transcripts when a recording has two", async () => {
+        storage.files.set("audio/rec-1.mp3", Buffer.from("audio"));
+        mockSelectSequence([
+            [
+                {
+                    id: "rec-1",
+                    userId: "user-1",
+                    filename: "enc-filename",
+                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    endTime: new Date("2026-01-01T00:01:00Z"),
+                    duration: 60000,
+                    filesize: 5,
+                    deviceSn: "SN123",
+                    storagePath: "audio/rec-1.mp3",
+                },
+            ],
+            [
+                {
+                    id: "tr-plaud",
+                    recordingId: "rec-1",
+                    source: "plaud",
+                    text: "enc-plaud",
+                    createdAt: new Date("2026-01-01T00:02:00Z"),
+                },
+                {
+                    id: "tr-riffado",
+                    recordingId: "rec-1",
+                    source: "riffado",
+                    text: "enc-riffado",
+                    createdAt: new Date("2026-01-01T00:03:00Z"),
+                },
+            ],
+            [],
+            [],
+            [],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/job-1.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const transcripts = [...entries.entries()].find(([name]) =>
+            name.endsWith("/transcripts.json"),
+        );
+        const record = JSON.parse(
+            (transcripts as [string, { buffer: Buffer }])[1].buffer.toString(
+                "utf-8",
+            ),
+        );
+
+        expect(record).toHaveLength(2);
+        expect(record.map((t: { id: string }) => t.id)).toEqual([
+            "tr-plaud",
+            "tr-riffado",
+        ]);
     });
 
     it("keeps the raw speaker labels in the archived transcript", async () => {
@@ -344,7 +435,15 @@ describe("buildAndUploadExportArchive", () => {
                     storagePath: "audio/rec-1.mp3",
                 },
             ],
-            [{ id: "tr-1", recordingId: "rec-1", text: "speaker_0: Ahoj." }],
+            [
+                {
+                    id: "tr-1",
+                    recordingId: "rec-1",
+                    source: "riffado",
+                    text: "speaker_0: Ahoj.",
+                    createdAt: new Date("2026-01-01T00:02:00Z"),
+                },
+            ],
             [],
             [],
             [],
@@ -456,8 +555,11 @@ describe("buildAndUploadExportArchive", () => {
             ],
             [
                 {
+                    id: "tr-1",
                     recordingId: "rec-1",
+                    source: "riffado",
                     text: "enc-transcript",
+                    createdAt: new Date("2026-01-01T00:02:00Z"),
                 },
             ],
             [

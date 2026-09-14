@@ -60,7 +60,15 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
 
     await mergePeople(session.user.id, mergeIntoId, id);
 
-    return NextResponse.json({ person: target });
+    // The target may itself have been merged away since the caller read it,
+    // in which case the rows land on the person it redirects to. Report that
+    // person rather than the tombstone the request happened to name, so the
+    // response describes where the data actually went.
+    const winner = target.mergedIntoId
+        ? await getPerson(session.user.id, target.mergedIntoId)
+        : target;
+
+    return NextResponse.json({ person: winner ?? target });
 });
 
 /**

@@ -14,6 +14,14 @@ export interface Person {
     displayName: string;
     primaryEmail: string | null;
     notes: string | null;
+    /**
+     * Set when this row is a tombstone left behind by a merge, naming the
+     * person it redirects to. `listPeople` and `findPersonByEmail` filter
+     * these out; `getPerson` does not, because callers hold ids that may
+     * have been merged away since they were read, and answering "not found"
+     * would lose the redirect that exists to prevent exactly that.
+     */
+    mergedIntoId: string | null;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -30,6 +38,7 @@ interface PersonRow {
     displayName: string;
     primaryEmail: string | null;
     notes: string | null;
+    mergedIntoId: string | null;
     createdAt: Date;
     updatedAt: Date;
 }
@@ -39,6 +48,7 @@ const personColumns = {
     displayName: people.displayName,
     primaryEmail: people.primaryEmail,
     notes: people.notes,
+    mergedIntoId: people.mergedIntoId,
     createdAt: people.createdAt,
     updatedAt: people.updatedAt,
 };
@@ -49,6 +59,7 @@ function toPerson(row: PersonRow): Person {
         displayName: decryptText(row.displayName),
         primaryEmail: row.primaryEmail ? decryptText(row.primaryEmail) : null,
         notes: row.notes ? decryptText(row.notes) : null,
+        mergedIntoId: row.mergedIntoId,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
     };

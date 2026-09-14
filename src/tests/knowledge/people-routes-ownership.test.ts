@@ -47,9 +47,26 @@ function personRow(id: string) {
         displayName: "Jan",
         primaryEmail: null,
         notes: null,
+        mergedIntoId: null,
         createdAt: new Date(),
         updatedAt: new Date(),
     };
+}
+
+/** Answer successive `select`s from a queue, so one call can differ from the next. */
+function queueSelect(results: unknown[][]): void {
+    let call = 0;
+    (db.select as Mock).mockImplementation(() => ({
+        from: vi.fn().mockReturnValue({
+            where: vi.fn(() => {
+                const rows = results[call++] ?? [];
+                return {
+                    limit: vi.fn().mockResolvedValue(rows),
+                    orderBy: vi.fn().mockResolvedValue(rows),
+                };
+            }),
+        }),
+    }));
 }
 
 /**
@@ -84,6 +101,29 @@ function context(id: string) {
 describe("people routes and ownership", () => {
     beforeEach(() => {
         vi.clearAllMocks();
+    });
+
+    it("reports the person a merge landed on, not the tombstone it named", async () => {
+        const tombstone = {
+            ...personRow("person-stale"),
+            mergedIntoId: "person-live",
+        };
+        const live = { ...personRow("person-live"), displayName: "Novotny" };
+        // The loser, the named target, then the person the merge resolved to.
+        queueSelect([[personRow(OWN_ID)], [tombstone], [live]]);
+        (db.transaction as Mock).mockResolvedValue(undefined);
+
+        const response = await mergePersonRoute(
+            new Request("http://localhost/api/people/person-mine", {
+                method: "POST",
+                body: JSON.stringify({ mergeIntoId: "person-stale" }),
+            }),
+            context(OWN_ID) as never,
+        );
+
+        expect(response.status).toBe(200);
+        const body = (await response.json()) as { person: { id: string } };
+        expect(body.person.id).toBe("person-live");
     });
 
     it("scopes the person lookup by userId and 404s on somebody else's", async () => {
