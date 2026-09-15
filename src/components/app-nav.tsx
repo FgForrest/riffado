@@ -1,11 +1,14 @@
 "use client";
 
+import { Mic, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { WaveformLogo } from "@/components/icons/waveform-logo";
+import { cn } from "@/lib/utils";
 
 const SECTIONS = [
-    { href: "/dashboard", label: "Recordings" },
-    { href: "/people", label: "People" },
+    { href: "/dashboard", label: "Recordings", icon: Mic },
+    { href: "/people", label: "People", icon: UsersRound },
 ] as const;
 
 /**
@@ -20,27 +23,48 @@ export function AppNav({ className }: { className?: string }) {
     const pathname = usePathname();
 
     return (
-        <nav
-            aria-label="Sections"
-            className={`flex items-baseline gap-4 ${className ?? ""}`}
-        >
-            {SECTIONS.map((section) => {
-                const active = pathname.startsWith(section.href);
-                return (
-                    <Link
-                        key={section.href}
-                        href={section.href}
-                        aria-current={active ? "page" : undefined}
-                        className={
-                            active
-                                ? "text-xl font-semibold leading-tight sm:text-2xl md:text-3xl"
-                                : "text-xl font-semibold leading-tight text-muted-foreground transition-colors hover:text-foreground sm:text-2xl md:text-3xl"
-                        }
-                    >
-                        {section.label}
-                    </Link>
-                );
-            })}
-        </nav>
+        <div className={cn("flex min-w-0 items-center gap-6", className)}>
+            <Link
+                href="/dashboard"
+                aria-label="Riffado home"
+                className="hidden shrink-0 text-primary transition-opacity hover:opacity-80 md:block"
+            >
+                <WaveformLogo className="h-10 w-9" />
+            </Link>
+            <nav
+                aria-label="Sections"
+                className="flex h-11 min-w-0 items-stretch overflow-hidden rounded-xl border border-border/90 bg-card/30 shadow-sm sm:h-[54px]"
+            >
+                {SECTIONS.map((section) => {
+                    const active = pathname.startsWith(section.href);
+                    const Icon = section.icon;
+                    return (
+                        <Link
+                            key={section.href}
+                            href={section.href}
+                            aria-current={active ? "page" : undefined}
+                            aria-label={section.label}
+                            className={cn(
+                                "relative flex min-w-12 items-center justify-center gap-2.5 px-3 text-sm font-semibold tracking-tight transition-[color,background-color] focus-visible:z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring sm:gap-3 sm:px-9 sm:text-lg",
+                                active
+                                    ? "bg-primary/[0.12] text-foreground after:absolute after:inset-x-1 after:bottom-0 after:h-0.5 after:rounded-full after:bg-primary"
+                                    : "text-muted-foreground hover:bg-muted/50 hover:text-foreground",
+                            )}
+                        >
+                            <Icon
+                                className={cn(
+                                    "size-[18px] shrink-0 sm:size-5",
+                                    active && "text-primary",
+                                )}
+                                strokeWidth={1.9}
+                            />
+                            <span className="hidden sm:inline">
+                                {section.label}
+                            </span>
+                        </Link>
+                    );
+                })}
+            </nav>
+        </div>
     );
 }
