@@ -1,7 +1,6 @@
 import { and, count, eq, isNull, sql } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { AppNav } from "@/components/app-nav";
 import { PeopleList } from "@/components/people/people-list";
 import { db } from "@/db";
 import { recordings, transcriptions, transcriptSpeakers } from "@/db/schema";
@@ -56,11 +55,7 @@ export default async function PeoplePage() {
     );
 
     return (
-        <div className="mx-auto w-full max-w-5xl px-4">
-            <div className="sticky top-0 z-30 -mx-4 mb-6 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
-                <AppNav className="min-w-0" />
-            </div>
-
+        <div className="container mx-auto max-w-7xl px-4 py-6">
             <PeopleList
                 people={rows.map((row) => ({
                     id: row.id,

@@ -1,9 +1,12 @@
 "use client";
 
-import { Plus, Search, Users } from "lucide-react";
+import { ChevronRight, Plus, Search, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
+import { AppHeader } from "@/components/app-header";
+import { AppNav } from "@/components/app-nav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatDateTime } from "@/lib/format-date";
@@ -22,6 +25,7 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
     const router = useRouter();
     const [query, setQuery] = useState("");
     const [creating, setCreating] = useState(false);
+    const [saving, setSaving] = useState(false);
     const [newName, setNewName] = useState("");
 
     const filtered = useMemo(() => {
@@ -36,125 +40,222 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
 
     async function createPerson() {
         const displayName = newName.trim();
-        if (!displayName) return;
-        const response = await fetch("/api/people", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ displayName }),
-        });
-        if (response.ok) {
+        if (!displayName || saving) return;
+
+        setSaving(true);
+        try {
+            const response = await fetch("/api/people", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ displayName }),
+            });
+            if (!response.ok) {
+                throw new Error("Could not add this person");
+            }
+
             setNewName("");
             setCreating(false);
             router.refresh();
+            toast.success(`${displayName} added`);
+        } catch (error) {
+            toast.error(
+                error instanceof Error
+                    ? error.message
+                    : "Could not add this person",
+            );
+        } finally {
+            setSaving(false);
         }
     }
 
-    if (people.length === 0 && !creating) {
-        return (
-            <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed py-16 text-center">
-                <Users className="size-8 text-muted-foreground" />
-                <p className="text-sm font-medium">No people yet</p>
-                <p className="max-w-sm text-sm text-muted-foreground">
-                    Name a speaker in any diarized transcript and they will
-                    appear here. Everyone you have named is remembered across
-                    recordings.
-                </p>
-                <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => setCreating(true)}
-                >
-                    <Plus className="mr-2 size-4" />
-                    Add someone
-                </Button>
-            </div>
-        );
+    function closeCreator() {
+        setCreating(false);
+        setNewName("");
     }
 
+    const creatorForm = (
+        <form
+            className="flex w-full flex-col gap-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-4 text-left shadow-sm sm:flex-row sm:items-end"
+            onSubmit={(event) => {
+                event.preventDefault();
+                void createPerson();
+            }}
+        >
+            <label className="min-w-0 flex-1" htmlFor="person-display-name">
+                <span className="mb-2 block text-sm font-medium">
+                    Who would you like to remember?
+                </span>
+                <Input
+                    id="person-display-name"
+                    autoFocus
+                    value={newName}
+                    onChange={(event) => setNewName(event.target.value)}
+                    onKeyDown={(event) => {
+                        if (event.key === "Escape") closeCreator();
+                    }}
+                    placeholder="Full name"
+                    aria-label="Name of the person to add"
+                    className="bg-background"
+                />
+            </label>
+            <div className="flex gap-2">
+                <Button type="button" variant="ghost" onClick={closeCreator}>
+                    Cancel
+                </Button>
+                <Button type="submit" disabled={!newName.trim() || saving}>
+                    {saving ? "Adding…" : "Add person"}
+                </Button>
+            </div>
+        </form>
+    );
+
     return (
-        <div className="space-y-4 pb-12">
-            <div className="flex items-center gap-2">
-                <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                        value={query}
-                        onChange={(event) => setQuery(event.target.value)}
-                        placeholder="Search people"
-                        className="pl-9"
-                        aria-label="Search people"
-                    />
-                </div>
+        <>
+            <AppHeader>
+                <AppNav className="min-w-0" />
                 <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setCreating((open) => !open)}
+                    className="ml-auto h-9"
+                    onClick={() =>
+                        creating ? closeCreator() : setCreating(true)
+                    }
+                    aria-expanded={creating}
                 >
-                    <Plus className="mr-2 size-4" />
-                    Add
+                    <Plus className="size-4" />
+                    <span className="hidden sm:inline">
+                        {creating ? "Cancel" : "Add person"}
+                    </span>
+                    <span className="sm:hidden">
+                        {creating ? "Cancel" : "Add"}
+                    </span>
                 </Button>
+            </AppHeader>
+
+            <div className="space-y-5 pb-12">
+                {people.length === 0 ? (
+                    <section className="relative isolate overflow-hidden rounded-2xl border bg-card px-6 py-16 text-center shadow-sm sm:py-20">
+                        <div
+                            aria-hidden="true"
+                            className="absolute left-1/2 top-0 -z-10 size-72 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/10 blur-3xl"
+                        />
+                        <div className="mx-auto flex max-w-lg flex-col items-center">
+                            <div className="mb-5 grid size-16 place-items-center rounded-2xl border bg-background shadow-sm">
+                                <UsersRound className="size-7 text-primary" />
+                            </div>
+                            <p className="mb-3 rounded-full border bg-background/80 px-3 py-1 text-xs font-medium text-foreground/70 shadow-xs">
+                                Speaker memory
+                            </p>
+                            <h1 className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
+                                Put a name to every voice
+                            </h1>
+                            <p className="mt-3 max-w-md text-pretty text-sm leading-6 text-foreground/70 sm:text-base">
+                                Name a speaker once and Riffado remembers them
+                                across recordings, keeping every conversation
+                                easier to follow.
+                            </p>
+                            <div className="mt-7 w-full">
+                                {creating ? (
+                                    creatorForm
+                                ) : (
+                                    <Button onClick={() => setCreating(true)}>
+                                        <Plus className="size-4" />
+                                        Add your first person
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    </section>
+                ) : (
+                    <>
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                            <div>
+                                <p className="text-sm font-medium">
+                                    {people.length === 1
+                                        ? "1 person"
+                                        : `${people.length} people`}
+                                </p>
+                                <p className="mt-1 text-sm text-foreground/70">
+                                    Familiar speakers remembered across your
+                                    recordings.
+                                </p>
+                            </div>
+                            <div className="relative w-full sm:max-w-sm">
+                                <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                                <Input
+                                    value={query}
+                                    onChange={(event) =>
+                                        setQuery(event.target.value)
+                                    }
+                                    placeholder="Search people"
+                                    className="bg-card pl-9 shadow-xs"
+                                    aria-label="Search people"
+                                />
+                            </div>
+                        </div>
+
+                        {creating && creatorForm}
+
+                        {filtered.length > 0 && (
+                            <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                                {filtered.map((person) => (
+                                    <li key={person.id}>
+                                        <Link
+                                            href={`/people/${person.id}`}
+                                            className="group flex h-full min-h-40 flex-col rounded-xl border bg-card p-4 shadow-sm transition-[transform,box-shadow,border-color] hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                        >
+                                            <span className="flex items-start justify-between gap-3">
+                                                <span className="grid size-11 shrink-0 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary ring-1 ring-primary/15">
+                                                    {initials(
+                                                        person.displayName,
+                                                    )}
+                                                </span>
+                                                <ChevronRight className="size-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+                                            </span>
+                                            <span className="mt-4 min-w-0">
+                                                <span className="block truncate font-medium">
+                                                    {person.displayName}
+                                                </span>
+                                                <span className="mt-1 block truncate text-xs text-foreground/70">
+                                                    {person.primaryEmail ??
+                                                        "No email added"}
+                                                </span>
+                                            </span>
+                                            <span className="mt-auto flex items-end justify-between gap-3 pt-5 text-xs text-foreground/70">
+                                                <span>
+                                                    {person.recordingCount === 1
+                                                        ? "1 recording"
+                                                        : `${person.recordingCount} recordings`}
+                                                </span>
+                                                {person.lastSeen && (
+                                                    <span className="truncate text-right">
+                                                        {formatDateTime(
+                                                            person.lastSeen,
+                                                        )}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        </Link>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+
+                        {filtered.length === 0 && (
+                            <div className="rounded-xl border bg-card px-6 py-12 text-center shadow-sm">
+                                <Search className="mx-auto size-6 text-muted-foreground" />
+                                <p className="mt-3 text-sm font-medium">
+                                    No matching people
+                                </p>
+                                <p className="mt-1 text-sm text-foreground/70">
+                                    Nobody matches “{query}”. Try another name
+                                    or email.
+                                </p>
+                            </div>
+                        )}
+                    </>
+                )}
             </div>
-
-            {creating && (
-                <div className="flex items-center gap-2 rounded-lg border bg-muted/30 p-3">
-                    <Input
-                        autoFocus
-                        value={newName}
-                        onChange={(event) => setNewName(event.target.value)}
-                        onKeyDown={(event) => {
-                            if (event.key === "Enter") void createPerson();
-                            if (event.key === "Escape") setCreating(false);
-                        }}
-                        placeholder="Full name"
-                        aria-label="Name of the person to add"
-                    />
-                    <Button size="sm" onClick={() => void createPerson()}>
-                        Add
-                    </Button>
-                </div>
-            )}
-
-            <ul className="divide-y rounded-lg border">
-                {filtered.map((person) => (
-                    <li key={person.id}>
-                        <Link
-                            href={`/people/${person.id}`}
-                            className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
-                        >
-                            <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-medium">
-                                {initials(person.displayName)}
-                            </span>
-                            <span className="min-w-0 flex-1">
-                                <span className="block truncate text-sm font-medium">
-                                    {person.displayName}
-                                </span>
-                                {person.primaryEmail && (
-                                    <span className="block truncate text-xs text-muted-foreground">
-                                        {person.primaryEmail}
-                                    </span>
-                                )}
-                            </span>
-                            <span className="shrink-0 text-right text-xs text-muted-foreground">
-                                <span className="block">
-                                    {person.recordingCount === 1
-                                        ? "1 recording"
-                                        : `${person.recordingCount} recordings`}
-                                </span>
-                                {person.lastSeen && (
-                                    <span className="block">
-                                        {formatDateTime(person.lastSeen)}
-                                    </span>
-                                )}
-                            </span>
-                        </Link>
-                    </li>
-                ))}
-            </ul>
-
-            {filtered.length === 0 && (
-                <p className="py-8 text-center text-sm text-muted-foreground">
-                    Nobody matches “{query}”.
-                </p>
-            )}
-        </div>
+        </>
     );
 }

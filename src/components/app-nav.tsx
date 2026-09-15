@@ -34,7 +34,7 @@ export function AppNav({ className }: { className?: string }) {
                         className={
                             active
                                 ? "text-xl font-semibold leading-tight sm:text-2xl md:text-3xl"
-                                : "text-xl font-semibold leading-tight text-muted-foreground/50 transition-colors hover:text-muted-foreground sm:text-2xl md:text-3xl"
+                                : "text-xl font-semibold leading-tight text-muted-foreground transition-colors hover:text-foreground sm:text-2xl md:text-3xl"
                         }
                     >
                         {section.label}

@@ -91,11 +91,11 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# ffmpeg is required by the transcription path: OpenAI Whisper rejects any
-# request body above 25 MiB, so long meeting recordings are re-encoded to
-# mono Opus before being sent. Pure-JS audio encoders cannot match Opus on
-# speech bitrate, so we keep the system binary here even though issue #58
-# removed the duration-parsing shell-out.
+# ffmpeg extracts audio from uploaded videos. It is also required by the
+# transcription path: OpenAI Whisper rejects any request body above 25 MiB,
+# so long meeting recordings are re-encoded to mono Opus before being sent.
+# Pure-JS audio encoders cannot match Opus on speech bitrate, so we keep the
+# system binary here even though issue #58 removed the duration-parser shell-out.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*

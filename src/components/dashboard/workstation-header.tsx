@@ -1,6 +1,7 @@
 "use client";
 
 import { Command, Upload } from "lucide-react";
+import { AppHeader } from "@/components/app-header";
 import { AppNav } from "@/components/app-nav";
 import { UserMenu } from "@/components/dashboard/user-menu";
 import { SyncButton } from "@/components/sync-button";
@@ -67,7 +68,7 @@ export function WorkstationHeader({
     onOpenShortcuts,
 }: Props) {
     return (
-        <div className="sticky top-0 z-30 -mx-4 mb-6 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <AppHeader>
             <div className="flex min-w-0 items-baseline gap-3">
                 {/*
                   The section nav doubles as the page title: "Recordings" is
@@ -112,7 +113,7 @@ export function WorkstationHeader({
                 <input
                     ref={uploadInputRef}
                     type="file"
-                    accept="audio/*"
+                    accept="audio/*,video/*,.mkv,.avi,.wmv,.m4v,.3gp,.ogv"
                     className="hidden"
                     onChange={onUploadInputChange}
                 />
@@ -124,18 +125,16 @@ export function WorkstationHeader({
                             variant="outline"
                             size="sm"
                             className="h-9"
-                            aria-label={
-                                isUploading ? "Uploading audio" : "Upload audio"
-                            }
+                            aria-label={isUploading ? "Uploading" : "Upload"}
                         >
                             <Upload className="size-4 sm:mr-2" />
                             <span className="hidden sm:inline">
-                                {isUploading ? "Uploading…" : "Upload Audio"}
+                                {isUploading ? "Uploading…" : "Upload"}
                             </span>
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
-                        Upload an audio file from your computer
+                        Upload an audio or video file from your computer
                     </TooltipContent>
                 </Tooltip>
                 <UserMenu
@@ -146,6 +145,6 @@ export function WorkstationHeader({
                     onOpenShortcuts={onOpenShortcuts}
                 />
             </div>
-        </div>
+        </AppHeader>
     );
 }
