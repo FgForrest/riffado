@@ -8,11 +8,13 @@
  */
 
 import { summaryJobHandler } from "@/lib/summary/summary-job-handler";
+import { transcriptionJobHandler } from "@/lib/transcription/transcription-job-handler";
 import { videoExtractionJobHandler } from "@/lib/uploads/video-extraction-job-handler";
 import { registerJobHandler } from "./registry";
 
 /** Idempotent: safe to call from more than one entry point. */
 export function registerJobHandlers(): void {
     registerJobHandler(summaryJobHandler);
+    registerJobHandler(transcriptionJobHandler);
     registerJobHandler(videoExtractionJobHandler);
 }

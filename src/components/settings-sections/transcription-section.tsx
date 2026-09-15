@@ -300,8 +300,8 @@ export function TranscriptionSection() {
                             Auto-transcribe new recordings
                         </Label>
                         <p className="text-sm text-muted-foreground">
-                            Automatically transcribe recordings when they are
-                            synced from your Plaud device
+                            Automatically transcribe every new recording,
+                            whether synced from a voice recorder or uploaded
                         </p>
                     </div>
                     <Switch

@@ -7,6 +7,7 @@ import { env } from "@/lib/env";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { captureServerEvent } from "@/lib/posthog-server";
 import type { StorageProvider } from "@/lib/storage/types";
+import { autoTranscribeNewRecording } from "@/lib/transcription/auto-transcribe-new-recording";
 import { getAudioMimeType } from "@/lib/utils";
 
 export interface SaveUploadedAudioInput {
@@ -21,6 +22,7 @@ export interface SaveUploadedAudioInput {
 }
 
 export interface SavedUploadedAudio {
+    recordingId: string;
     filename: string;
     storageKey: string;
     durationMs: number;
@@ -65,23 +67,32 @@ export async function saveUploadedAudio(
 
     await input.storage.uploadFile(storageKey, input.buffer, contentType);
 
+    let recordingId: string;
     try {
-        await db.insert(recordings).values({
-            userId: input.userId,
-            deviceSn: "local",
-            plaudFileId: input.fileId,
-            filename: encryptText(input.basename),
-            duration: durationMs,
-            startTime: now,
-            endTime: new Date(now.getTime() + durationMs),
-            filesize: input.buffer.length,
-            fileMd5: md5,
-            storageType: env.DEFAULT_STORAGE_TYPE,
-            storagePath: storageKey,
-            downloadedAt: now,
-            plaudVersion: "1",
-            isTrash: false,
-        });
+        const [recording] = await db
+            .insert(recordings)
+            .values({
+                userId: input.userId,
+                deviceSn: "local",
+                plaudFileId: input.fileId,
+                filename: encryptText(input.basename),
+                duration: durationMs,
+                startTime: now,
+                endTime: new Date(now.getTime() + durationMs),
+                filesize: input.buffer.length,
+                fileMd5: md5,
+                storageType: env.DEFAULT_STORAGE_TYPE,
+                storagePath: storageKey,
+                downloadedAt: now,
+                plaudVersion: "1",
+                isTrash: false,
+            })
+            .returning({ id: recordings.id });
+
+        if (!recording) {
+            throw new Error("Recording insert did not return a row");
+        }
+        recordingId = recording.id;
     } catch (dbError) {
         try {
             await input.storage.deleteFile(storageKey);
@@ -106,7 +117,17 @@ export async function saveUploadedAudio(
         },
     });
 
+    try {
+        await autoTranscribeNewRecording(input.userId, recordingId);
+    } catch (error) {
+        console.error(
+            `Could not queue automatic transcription for recording ${recordingId}:`,
+            error,
+        );
+    }
+
     return {
+        recordingId,
         filename: input.basename,
         storageKey,
         durationMs,
