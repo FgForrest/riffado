@@ -1,0 +1,52 @@
+name: riffado-e2e
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: riffado_e2e
+      POSTGRES_PASSWORD: ${RIFFADO_E2E_DB_PASSWORD:-riffado-e2e-db-password}
+      POSTGRES_DB: riffado_e2e
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U riffado_e2e -d riffado_e2e"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: riffado:e2e
+    restart: unless-stopped
+    ports:
+      - "${RIFFADO_E2E_PORT:-3310}:3000"
+    environment:
+      DATABASE_URL: postgresql://riffado_e2e:${RIFFADO_E2E_DB_PASSWORD:-riffado-e2e-db-password}@db:5432/riffado_e2e
+      BETTER_AUTH_SECRET: ${RIFFADO_E2E_AUTH_SECRET:-riffado-e2e-auth-secret-for-local-testing-only}
+      APP_URL: ${RIFFADO_E2E_APP_URL:-http://docker:3310}
+      ENCRYPTION_KEY: ${RIFFADO_E2E_ENCRYPTION_KEY:-0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef}
+      HOSTNAME: 0.0.0.0
+      DEFAULT_STORAGE_TYPE: local
+      LOCAL_STORAGE_PATH: /app/audio
+      DISABLE_UPDATE_CHECK: "true"
+    volumes:
+      - audio:/app/audio
+      - storage:/app/storage
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      start_period: 30s
+      retries: 12
+
+volumes:
+  pgdata:
+  audio:
+  storage:

@@ -241,7 +241,7 @@ export function ActionsGroup({
             <Command.Item onSelect={runAction(onUpload)}>
                 <Row
                     icon={<Upload className="size-4 text-muted-foreground" />}
-                    title="Upload audio"
+                    title="Upload"
                 />
             </Command.Item>
             <Command.Item onSelect={runAction(onOpenSettings)}>

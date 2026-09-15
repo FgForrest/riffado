@@ -13,7 +13,7 @@ interface Props {
 /**
  * Shown when the user has no recordings yet (and no in-flight upload).
  * Offers the two paths into having content: sync from a Plaud device
- * (the common case) or upload an audio file from disk.
+ * (the common case) or upload an audio or video file from disk.
  */
 export function WorkstationEmptyState({ isSyncing, onSync, onUpload }: Props) {
     return (
@@ -43,7 +43,7 @@ export function WorkstationEmptyState({ isSyncing, onSync, onUpload }: Props) {
                     </Button>
                     <Button variant="outline" onClick={onUpload}>
                         <Upload className="mr-2 size-4" />
-                        Upload Audio
+                        Upload
                     </Button>
                 </div>
             </CardContent>

@@ -123,6 +123,64 @@ export PLAUD_BEARER_TOKEN="Bearer your-token"
 bun test src/tests/plaud.integration.test.ts
 ```
 
+### Isolated Docker E2E Instance
+
+The E2E Compose file builds the application from the current worktree and keeps
+its database, storage, credentials, containers, and port separate from a normal
+Riffado installation. Its defaults are disposable local-test credentials.
+
+Build the image and start the stack:
+
+```bash
+docker compose -f docker-compose.e2e.yml up -d --build
+curl --fail http://docker:3310/api/health
+docker compose -f docker-compose.e2e.yml exec app ffmpeg -version
+```
+
+The same command rebuilds the image if it was removed. Re-run it after changing
+source code so the E2E container uses the latest worktree.
+
+Restart the existing stack without rebuilding:
+
+```bash
+docker compose -f docker-compose.e2e.yml restart
+```
+
+Stop and later resume while preserving E2E data:
+
+```bash
+docker compose -f docker-compose.e2e.yml stop
+docker compose -f docker-compose.e2e.yml start
+```
+
+Inspect status and logs:
+
+```bash
+docker compose -f docker-compose.e2e.yml ps
+docker compose -f docker-compose.e2e.yml logs
+```
+
+Run a browser session against the isolated instance:
+
+```bash
+agent-browser --session riffado-e2e open http://docker:3310
+agent-browser --session riffado-e2e snapshot -i
+agent-browser --session riffado-e2e close
+```
+
+The `docker` hostname is how Hole exposes Docker-in-Docker services to the agent.
+Outside Hole, set `RIFFADO_E2E_APP_URL=http://127.0.0.1:3310` and use that URL
+for health checks and browser sessions. Override the host port with
+`RIFFADO_E2E_PORT` and set a matching `RIFFADO_E2E_APP_URL`. Override the
+disposable secrets with `RIFFADO_E2E_DB_PASSWORD`, `RIFFADO_E2E_AUTH_SECRET`,
+and `RIFFADO_E2E_ENCRYPTION_KEY` when needed.
+
+To remove the isolated containers and erase only their E2E database and storage:
+
+```bash
+docker compose -f docker-compose.e2e.yml down --volumes
+```
+
 ### Writing Tests
 
 Use Vitest for testing:

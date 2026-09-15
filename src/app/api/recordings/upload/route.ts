@@ -1,58 +1,53 @@
-import { createHash } from "node:crypto";
 import * as path from "node:path";
-import { parseBuffer } from "music-metadata";
 import { nanoid } from "nanoid";
 import { NextResponse } from "next/server";
-import { db } from "@/db";
-import { recordings } from "@/db/schema";
+import { listJobsForUser } from "@/db/queries/async-jobs";
 import { requireApiSession } from "@/lib/auth-server";
-import { encryptText } from "@/lib/encryption/fields";
+import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { isHostedLockedOut } from "@/lib/entitlements";
-import { env } from "@/lib/env";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { enforceStorageCap } from "@/lib/hosted/billing/storage-cap";
-import { captureServerEvent } from "@/lib/posthog-server";
 import { createUserStorageProvider } from "@/lib/storage/factory";
-import { getAudioMimeType } from "@/lib/utils";
+import {
+    acceptedUploadExtensions,
+    isSupportedUpload,
+    shouldExtractVideo,
+    uploadExtension,
+} from "@/lib/uploads/media-types";
+import { saveUploadedAudio } from "@/lib/uploads/save-uploaded-audio";
+import {
+    enqueueVideoExtractionJob,
+    parseVideoExtractionJobPayload,
+    VIDEO_EXTRACTION_JOB_KIND,
+} from "@/lib/uploads/video-extraction-job";
 
-const ACCEPTED_EXTENSIONS = new Set([
-    ".mp3",
-    ".mp4",
-    ".m4a",
-    ".wav",
-    ".ogg",
-    ".opus",
-    ".webm",
-    ".aac",
-    ".flac",
-]);
+export const GET = apiHandler(async (request: Request) => {
+    const session = await requireApiSession(request);
+    const jobs = await listJobsForUser(session.user.id, {
+        kind: VIDEO_EXTRACTION_JOB_KIND,
+        activeOnly: true,
+        limit: 20,
+    });
 
-async function getAudioDurationMs(
-    buffer: Uint8Array,
-    mimeType: string,
-): Promise<number> {
-    // Pure-JS metadata parse — no system ffprobe binary required. The
-    // `duration: true` option forces a full scan when the container
-    // doesn't expose duration in its headers (e.g. Chrome-recorded
-    // WebM/Opus, raw ADTS AAC). MIME hint short-circuits format sniffing.
-    try {
-        const { format } = await parseBuffer(
-            buffer,
-            { mimeType, size: buffer.byteLength },
-            { duration: true },
-        );
-        const sec = format.duration ?? 0;
-        if (sec > 0) return Math.round(sec * 1000);
-        return 0;
-    } catch (err) {
-        // Surface the real reason instead of silently returning 0 — the
-        // caller turns 0 into a 422 "invalid audio stream" response, and
-        // a swallowed parse error there is the exact bug class that made
-        // #58 hard to diagnose.
-        console.error("Audio metadata parse failed:", err);
-        return 0;
-    }
-}
+    const uploads = jobs.flatMap((job) => {
+        try {
+            const payload = parseVideoExtractionJobPayload(job.payload);
+            return [
+                {
+                    jobId: job.id,
+                    filename: decryptText(payload.encryptedFilename),
+                    filesize: payload.sourceSize,
+                    status: job.status,
+                    progress: job.progress,
+                },
+            ];
+        } catch {
+            return [];
+        }
+    });
+
+    return NextResponse.json({ uploads });
+});
 
 export const POST = apiHandler(async (request: Request) => {
     const session = await requireApiSession(request);
@@ -103,12 +98,12 @@ export const POST = apiHandler(async (request: Request) => {
         );
     }
 
-    const ext = path.extname(file.name).toLowerCase();
+    const ext = uploadExtension(file.name);
 
-    if (!ACCEPTED_EXTENSIONS.has(ext)) {
+    if (!isSupportedUpload(file.name, file.type)) {
         throw new AppError(
             ErrorCode.INVALID_FILE_FORMAT,
-            `Unsupported format. Accepted: ${[...ACCEPTED_EXTENSIONS].join(", ")}`,
+            `Unsupported format. Upload a browser-recognized video or use one of these extensions: ${acceptedUploadExtensions()}`,
             400,
         );
     }
@@ -118,77 +113,65 @@ export const POST = apiHandler(async (request: Request) => {
     // double memory usage for large files)
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Unique ID and storage key for this upload
-    const fileId = `uploaded-${nanoid()}`;
-    const storageKey = `${session.user.id}/${fileId}${ext}`;
-    // Always derive content type from the validated extension — never
-    // trust the user-supplied file.type, which could be set to text/html
-    // and cause a stored XSS if the file is ever served directly.
-    const contentType = getAudioMimeType(storageKey);
-
-    // Compute MD5 synchronously (no need to parallelize a sync operation)
-    const md5 = createHash("md5").update(buffer).digest("hex");
-    const durationMs = await getAudioDurationMs(buffer, contentType);
-
-    // Reject files where the audio metadata parser could not detect a
-    // valid stream. Duration 0 means no readable audio data — the
-    // underlying parse error (if any) is logged inside the helper.
-    if (durationMs === 0) {
-        throw new AppError(
-            ErrorCode.INVALID_FILE_FORMAT,
-            "File does not contain a valid audio stream",
-            422,
-        );
-    }
-
     const storage = await createUserStorageProvider(session.user.id);
-    await storage.uploadFile(storageKey, buffer, contentType);
-
     const basename = path.basename(file.name, ext);
-    const now = new Date();
-    const endTime = new Date(now.getTime() + durationMs);
 
-    try {
-        await db.insert(recordings).values({
-            userId: session.user.id,
-            deviceSn: "local",
-            plaudFileId: fileId,
-            // Filename can carry topic info ("Call w/ Acme legal");
-            // encrypt at rest. The response below returns plaintext.
-            filename: encryptText(basename),
-            duration: durationMs,
-            startTime: now,
-            endTime,
-            filesize: buffer.length,
-            fileMd5: md5,
-            storageType: env.DEFAULT_STORAGE_TYPE,
-            storagePath: storageKey,
-            downloadedAt: now,
-            plaudVersion: "1",
-            isTrash: false,
-        });
-    } catch (dbError) {
-        // DB insert failed — clean up the already-uploaded storage file
-        // to avoid orphaned objects with no corresponding DB record.
+    if (shouldExtractVideo(file.name, file.type)) {
+        const uploadId = nanoid();
+        const sourceStorageKey = `${session.user.id}/video-uploads/${uploadId}`;
+        await storage.uploadFile(
+            sourceStorageKey,
+            buffer,
+            "application/octet-stream",
+        );
+
         try {
-            await storage.deleteFile(storageKey);
-        } catch (cleanupErr) {
-            console.error(
-                "Failed to clean up orphaned storage file after DB insert error:",
-                cleanupErr,
+            const enqueued = await enqueueVideoExtractionJob({
+                uploadId,
+                sourceStorageKey,
+                encryptedFilename: encryptText(file.name),
+                sourceSize: buffer.length,
+                userId: session.user.id,
+            });
+            if (!enqueued.created) {
+                throw new AppError(
+                    ErrorCode.RATE_LIMITED,
+                    "Another video is already being converted. Try this upload again when it finishes.",
+                    429,
+                );
+            }
+            return NextResponse.json(
+                {
+                    success: true,
+                    filename: basename,
+                    conversion: true,
+                    jobId: enqueued.job.id,
+                },
+                { status: 202 },
             );
+        } catch (queueError) {
+            try {
+                await storage.deleteFile(sourceStorageKey);
+            } catch (cleanupError) {
+                console.error(
+                    "Failed to clean up video after queueing error:",
+                    cleanupError,
+                );
+            }
+            throw queueError;
         }
-        throw dbError;
     }
 
-    await captureServerEvent({
-        distinctId: session.user.id,
-        event: "recording_uploaded",
-        properties: {
-            duration_ms: durationMs,
-            filesize_bytes: buffer.length,
-            extension: ext,
-        },
+    const fileId = `uploaded-${nanoid()}`;
+    await saveUploadedAudio({
+        userId: session.user.id,
+        fileId,
+        basename,
+        extension: ext,
+        buffer,
+        storage,
+        sourceExtension: ext,
+        convertedFromVideo: false,
     });
 
     return NextResponse.json({ success: true, filename: basename });

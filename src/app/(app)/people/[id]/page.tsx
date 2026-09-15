@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
+import { AppHeader } from "@/components/app-header";
 import { AppNav } from "@/components/app-nav";
 import { PersonDetail } from "@/components/people/person-detail";
 import { db } from "@/db";
@@ -58,29 +59,33 @@ export default async function PersonPage({ params }: Params) {
         );
 
     return (
-        <div className="mx-auto w-full max-w-5xl px-4">
-            <div className="sticky top-0 z-30 -mx-4 mb-6 flex items-center gap-3 border-b bg-background/95 px-4 py-3 backdrop-blur supports-[backdrop-filter]:bg-background/70">
+        <div className="container mx-auto max-w-7xl px-4 py-6">
+            <AppHeader>
                 <AppNav className="min-w-0" />
-            </div>
+            </AppHeader>
 
-            <PersonDetail
-                person={{
-                    id: person.id,
-                    displayName: person.displayName,
-                    primaryEmail: person.primaryEmail,
-                    notes: person.notes,
-                }}
-                appearances={appearances
-                    .map((row) => ({
-                        recordingId: row.recordingId,
-                        title: decryptText(row.filename),
-                        recordedAt: row.startTime.toISOString(),
-                        label: row.label,
-                        status: row.status,
-                        source: row.source,
-                    }))
-                    .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))}
-            />
+            <div className="mx-auto w-full max-w-5xl">
+                <PersonDetail
+                    person={{
+                        id: person.id,
+                        displayName: person.displayName,
+                        primaryEmail: person.primaryEmail,
+                        notes: person.notes,
+                    }}
+                    appearances={appearances
+                        .map((row) => ({
+                            recordingId: row.recordingId,
+                            title: decryptText(row.filename),
+                            recordedAt: row.startTime.toISOString(),
+                            label: row.label,
+                            status: row.status,
+                            source: row.source,
+                        }))
+                        .sort((a, b) =>
+                            b.recordedAt.localeCompare(a.recordedAt),
+                        )}
+                />
+            </div>
         </div>
     );
 }
