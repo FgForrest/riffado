@@ -230,7 +230,7 @@ export interface TranscribeOptions {
      */
     force?: boolean;
     /** What triggered this call. Drives the `recording_transcribed` event's `trigger` property. */
-    trigger?: "manual" | "sync";
+    trigger?: "manual" | "sync" | "upload";
 }
 
 export interface TranscribeResult {
