@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
     aiEnhancements,
@@ -14,11 +14,8 @@ import {
     audioExtension,
     buildRecordingStoragePath,
 } from "@/lib/recordings/filename";
-import {
-    copyExistingRecordingFiles,
-    deleteOldRecordingFiles,
-    sidecarKey,
-} from "@/lib/recordings/storage-files";
+import { reconcileRecordingStorage } from "@/lib/recordings/reconcile-storage";
+import { sidecarKey } from "@/lib/recordings/storage-files";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import {
     formatSpeakerLabel,
@@ -157,44 +154,13 @@ export async function exportRecordingSidecars(
         audioExtension(recording.storagePath),
     );
     if (expectedStoragePath !== recording.storagePath) {
-        const [shared] = await db
-            .select({ id: recordings.id })
-            .from(recordings)
-            .where(
-                and(
-                    eq(recordings.userId, userId),
-                    eq(recordings.storagePath, recording.storagePath),
-                    ne(recordings.id, recordingId),
-                ),
-            )
-            .limit(1);
-        storage = await createUserStorageProvider(userId);
-        const copiedSources = await copyExistingRecordingFiles(
-            storage,
-            recording.storagePath,
-            expectedStoragePath,
-        );
-        const [relocated] = await db
-            .update(recordings)
-            .set({ storagePath: expectedStoragePath, updatedAt: new Date() })
-            .where(
-                and(
-                    eq(recordings.id, recordingId),
-                    eq(recordings.userId, userId),
-                    eq(recordings.storagePath, recording.storagePath),
-                    isNull(recordings.deletedAt),
-                ),
-            )
-            .returning({ storagePath: recordings.storagePath });
-        if (!relocated) {
-            throw new Error(
-                `Recording ${recordingId} changed while its storage files were being renamed`,
-            );
-        }
-        storagePath = relocated.storagePath;
-        if (!shared) {
-            await deleteOldRecordingFiles(storage, copiedSources, recordingId);
-        }
+        const reconciled = await reconcileRecordingStorage({
+            id: recording.id,
+            userId,
+            title,
+            storagePath: recording.storagePath,
+        });
+        storagePath = reconciled.storagePath;
     }
 
     const projection = await loadSidecarProjectionContext(userId, recordingId);
@@ -337,35 +303,43 @@ async function loadSidecarProjectionContext(
 }
 
 /** Rewrite only sidecars that already exist for this recording. */
+export async function rewriteExistingRecordingSidecars(
+    userId: string,
+    recordingId: string,
+): Promise<void> {
+    const [recording] = await db
+        .select({ storagePath: recordings.storagePath })
+        .from(recordings)
+        .where(
+            and(
+                eq(recordings.id, recordingId),
+                eq(recordings.userId, userId),
+                isNull(recordings.deletedAt),
+            ),
+        )
+        .limit(1);
+    if (!recording) return;
+
+    const storage = await createUserStorageProvider(userId);
+    const [transcript, summary] = await Promise.all([
+        storage.exists(sidecarKey(recording.storagePath, "transcript")),
+        storage.exists(sidecarKey(recording.storagePath, "summary")),
+    ]);
+    if (!transcript && !summary) return;
+
+    await exportRecordingSidecars(userId, recordingId, {
+        transcript,
+        summary,
+    });
+}
+
+/** Best-effort wrapper for user-facing mutation and attribution paths. */
 export async function refreshExistingRecordingSidecars(
     userId: string,
     recordingId: string,
 ): Promise<void> {
     try {
-        const [recording] = await db
-            .select({ storagePath: recordings.storagePath })
-            .from(recordings)
-            .where(
-                and(
-                    eq(recordings.id, recordingId),
-                    eq(recordings.userId, userId),
-                    isNull(recordings.deletedAt),
-                ),
-            )
-            .limit(1);
-        if (!recording) return;
-
-        const storage = await createUserStorageProvider(userId);
-        const [transcript, summary] = await Promise.all([
-            storage.exists(sidecarKey(recording.storagePath, "transcript")),
-            storage.exists(sidecarKey(recording.storagePath, "summary")),
-        ]);
-        if (!transcript && !summary) return;
-
-        await exportRecordingSidecars(userId, recordingId, {
-            transcript,
-            summary,
-        });
+        await rewriteExistingRecordingSidecars(userId, recordingId);
     } catch (error) {
         console.error(
             `Failed to refresh document sidecars for recording ${recordingId}:`,
