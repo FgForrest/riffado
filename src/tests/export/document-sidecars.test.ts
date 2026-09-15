@@ -10,10 +10,12 @@ vi.mock("@/lib/encryption/fields", () => ({
 }));
 
 const uploadFile = vi.fn().mockResolvedValue("stored");
+const exists = vi.fn().mockResolvedValue(false);
 
 vi.mock("@/lib/storage/factory", () => ({
     createUserStorageProvider: vi.fn().mockResolvedValue({
         uploadFile: (...args: unknown[]) => uploadFile(...args),
+        exists: (...args: unknown[]) => exists(...args),
     }),
 }));
 
@@ -22,6 +24,7 @@ import {
     buildSummaryMarkdown,
     buildTranscriptMarkdown,
     exportRecordingSidecars,
+    refreshExistingRecordingSidecars,
     sidecarKey,
 } from "@/lib/export/document-sidecars";
 
@@ -208,6 +211,7 @@ describe("exportRecordingSidecars", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         uploadFile.mockResolvedValue("stored");
+        exists.mockResolvedValue(false);
     });
 
     it("writes the transcript next to the audio file", async () => {
@@ -321,6 +325,114 @@ describe("exportRecordingSidecars", () => {
             "utf8",
         );
         expect(body).toContain("speaker_0: Ahoj.\nspeaker_0: Jeste jednou.");
+    });
+
+    it("exports summary speaker references as plain attributed names", async () => {
+        vi.mocked(db.select)
+            .mockReturnValueOnce(
+                rows([
+                    {
+                        id: "rec-1",
+                        userId: "user-1",
+                        filename: "Board meeting",
+                        storagePath: "user-1/Board meeting.mp3",
+                        startTime: RECORDED_AT,
+                        duration: 60_000,
+                        deletedAt: null,
+                    },
+                ]) as never,
+            )
+            .mockReturnValueOnce(
+                rows([
+                    {
+                        id: "tr-1",
+                        source: "riffado",
+                        text: "speaker_0: Hello.",
+                    },
+                ]) as never,
+            )
+            .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never)
+            .mockReturnValueOnce(
+                rows([
+                    { label: "speaker_0", displayName: "Jane Doe" },
+                ]) as never,
+            )
+            .mockReturnValueOnce(
+                rows([
+                    {
+                        summary:
+                            "[Speaker 0](#speaker-0) approved [Speaker 1](#speaker-1).",
+                        keyPoints: ["Decision by [Speaker 0](#speaker-0)"],
+                        actionItems: ["Follow up with [Speaker 1](#speaker-1)"],
+                        provider: "OpenAI",
+                        model: "gpt-4o-mini",
+                    },
+                ]) as never,
+            );
+
+        await exportRecordingSidecars("user-1", "rec-1", {
+            transcript: false,
+            summary: true,
+        });
+
+        const body = (uploadFile.mock.calls[0] as [string, Buffer])[1].toString(
+            "utf8",
+        );
+        expect(body).toContain("Jane Doe approved Speaker 1.");
+        expect(body).toContain("Decision by Jane Doe");
+        expect(body).toContain("Follow up with Speaker 1");
+        expect(body).not.toContain("](#speaker-");
+    });
+
+    it("refreshes only sidecars already present in storage", async () => {
+        exists.mockImplementation(async (key: string) =>
+            key.endsWith(".transcript.md"),
+        );
+        vi.mocked(db.select)
+            // existing-sidecar recording lookup
+            .mockReturnValueOnce(
+                rows([
+                    {
+                        storagePath: "user-1/Board meeting.mp3",
+                    },
+                ]) as never,
+            )
+            // export recording lookup
+            .mockReturnValueOnce(
+                rows([
+                    {
+                        id: "rec-1",
+                        userId: "user-1",
+                        filename: "Board meeting",
+                        storagePath: "user-1/Board meeting.mp3",
+                        startTime: RECORDED_AT,
+                        duration: 60_000,
+                        deletedAt: null,
+                    },
+                ]) as never,
+            )
+            .mockReturnValueOnce(
+                rows([
+                    {
+                        id: "tr-1",
+                        source: "riffado",
+                        text: "speaker_0: Hello.",
+                        provider: "OpenAI",
+                        model: "gpt-4o-transcribe-diarize",
+                        detectedLanguage: "en",
+                    },
+                ]) as never,
+            )
+            .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never)
+            .mockReturnValueOnce(rows([]) as never);
+
+        await refreshExistingRecordingSidecars("user-1", "rec-1");
+
+        expect(exists).toHaveBeenCalledTimes(2);
+        expect(uploadFile).toHaveBeenCalledTimes(1);
+        expect(uploadFile.mock.calls[0]?.[0]).toBe(
+            "user-1/Board meeting.transcript.md",
+        );
     });
 
     it("writes nothing when the recording has no transcript yet", async () => {

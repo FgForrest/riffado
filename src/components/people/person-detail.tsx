@@ -1,10 +1,17 @@
 "use client";
 
-import { ArrowLeft, Mail, Trash2 } from "lucide-react";
+import {
+    ArrowLeft,
+    AudioLines,
+    ChevronRight,
+    Mail,
+    Trash2,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/format-date";
 import { formatSpeakerLabel } from "@/lib/transcription/diarization";
 import { initials } from "@/lib/utils";
@@ -137,44 +144,64 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                 </section>
             )}
 
-            <section className="space-y-2">
-                <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                    Appears in
-                </h2>
+            <Card>
+                <CardHeader className="border-b">
+                    <div className="flex items-center justify-between gap-3">
+                        <CardTitle className="flex items-center gap-2">
+                            <AudioLines className="size-5 text-primary" />
+                            Recordings
+                        </CardTitle>
+                        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
+                            {heard.length}
+                        </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                        Recordings where this person has been identified as a
+                        speaker.
+                    </p>
+                </CardHeader>
                 {heard.length === 0 ? (
-                    <p className="rounded-lg border border-dashed py-8 text-center text-sm text-muted-foreground">
+                    <CardContent className="py-10 text-center text-sm text-muted-foreground">
                         Not attributed to any recording yet. Open a diarized
                         transcript and name one of its speakers.
-                    </p>
+                    </CardContent>
                 ) : (
-                    <ul className="divide-y rounded-lg border">
-                        {heard.map((appearance) => (
-                            <li key={appearance.recordingId}>
-                                <Link
-                                    href={`/recordings/${appearance.recordingId}`}
-                                    className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50"
-                                >
-                                    <span className="min-w-0 flex-1">
-                                        <span className="block truncate text-sm font-medium">
-                                            {appearance.title}
+                    <CardContent className="p-0">
+                        <ul className="divide-y">
+                            {heard.map((appearance) => (
+                                <li key={appearance.recordingId}>
+                                    <Link
+                                        href={`/recordings/${appearance.recordingId}`}
+                                        className="group flex items-center gap-3 px-5 py-4 transition-colors hover:bg-muted/40"
+                                    >
+                                        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/30 text-muted-foreground transition-colors group-hover:text-primary">
+                                            <AudioLines className="size-4" />
                                         </span>
-                                        <span className="block text-xs text-muted-foreground">
-                                            {formatSpeakerLabel(
-                                                appearance.label,
-                                            )}
-                                            {appearance.status !==
-                                                "confirmed" && " · suggested"}
+                                        <span className="min-w-0 flex-1">
+                                            <span className="block truncate text-sm font-medium">
+                                                {appearance.title}
+                                            </span>
+                                            <span className="mt-0.5 block text-xs text-muted-foreground">
+                                                {formatSpeakerLabel(
+                                                    appearance.label,
+                                                )}
+                                                {appearance.status !==
+                                                    "confirmed" &&
+                                                    " · suggested"}
+                                                {" · "}
+                                                {formatDateTime(
+                                                    appearance.recordedAt,
+                                                )}
+                                            </span>
                                         </span>
-                                    </span>
-                                    <span className="shrink-0 text-xs text-muted-foreground">
-                                        {formatDateTime(appearance.recordedAt)}
-                                    </span>
-                                </Link>
-                            </li>
-                        ))}
-                    </ul>
+                                        <ChevronRight className="size-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+                                    </Link>
+                                </li>
+                            ))}
+                        </ul>
+                    </CardContent>
                 )}
-            </section>
+            </Card>
         </div>
     );
 }

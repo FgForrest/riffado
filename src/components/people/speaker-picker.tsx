@@ -1,8 +1,16 @@
 "use client";
 
-import { Check, UserPlus, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Loader2, Search, UserPlus } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 
 export interface PickablePerson {
@@ -14,14 +22,11 @@ export interface PickablePerson {
 export interface SpeakerPickerProps {
     /** The raw provider label being named, e.g. `speaker_0`. */
     label: string;
-    /** Currently attributed person, if any. */
-    personId: string | null;
-    /**
-     * Exactly one of the two is ever set: `personId` to attribute an
-     * existing person, `displayName` to create and attribute a new one.
-     */
-    onPick: (choice: { personId?: string; displayName?: string }) => void;
-    onClear: () => void;
+    /** Resolves true only after the attribution was persisted. */
+    onPick: (choice: {
+        personId?: string;
+        displayName?: string;
+    }) => Promise<boolean>;
     onClose: () => void;
 }
 
@@ -33,16 +38,13 @@ export interface SpeakerPickerProps {
  * Typing a name that matches nobody creates them, so naming a new person is
  * one action rather than a detour through the People section.
  */
-export function SpeakerPicker({
-    label,
-    personId,
-    onPick,
-    onClear,
-    onClose,
-}: SpeakerPickerProps) {
+export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
     const [people, setPeople] = useState<PickablePerson[] | null>(null);
     const [query, setQuery] = useState("");
-    const containerRef = useRef<HTMLDivElement>(null);
+    const [selectedPersonId, setSelectedPersonId] = useState<string | null>(
+        null,
+    );
+    const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
         let cancelled = false;
@@ -61,14 +63,6 @@ export function SpeakerPicker({
         };
     }, []);
 
-    useEffect(() => {
-        function onKey(event: KeyboardEvent) {
-            if (event.key === "Escape") onClose();
-        }
-        document.addEventListener("keydown", onKey);
-        return () => document.removeEventListener("keydown", onKey);
-    }, [onClose]);
-
     const matched = useMemo(() => {
         const needle = query.trim().toLowerCase();
         const all = people ?? [];
@@ -81,103 +75,154 @@ export function SpeakerPicker({
     }, [people, query]);
 
     const matches = matched.slice(0, 8);
-
-    // Asked of every match, not only the eight that fit: offering to create
-    // somebody who already exists is how duplicate people get made, and the
-    // exact one is not always ranked into view.
-    const exactMatch = matched.some(
+    const exactMatch = (people ?? []).find(
         (person) =>
             person.displayName.toLowerCase() === query.trim().toLowerCase(),
     );
-    const canCreate = query.trim().length > 0 && !exactMatch;
+    const selectedPerson = (people ?? []).find(
+        (person) => person.id === selectedPersonId,
+    );
+    const personToSelect = selectedPerson ?? exactMatch;
+    const trimmedQuery = query.trim();
+    const canSubmit = Boolean(personToSelect || trimmedQuery);
+    const createsPerson = canSubmit && !personToSelect;
+
+    async function submit() {
+        if (!canSubmit || submitting) return;
+        setSubmitting(true);
+        const saved = await onPick(
+            personToSelect
+                ? { personId: personToSelect.id }
+                : { displayName: trimmedQuery },
+        );
+        setSubmitting(false);
+        if (saved) onClose();
+    }
 
     return (
-        <div
-            ref={containerRef}
-            className="absolute z-40 mt-1 w-72 rounded-lg border bg-popover p-2 shadow-lg"
-        >
-            <div className="mb-2 flex items-center gap-2">
-                <Input
-                    autoFocus
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    onKeyDown={(event) => {
-                        if (event.key === "Enter" && canCreate) {
-                            onPick({ displayName: query.trim() });
-                        }
-                    }}
-                    placeholder={`Who is ${label}?`}
-                    aria-label={`Who is ${label}?`}
-                    className="h-8 text-sm"
-                />
-                <Button
-                    size="sm"
-                    variant="ghost"
-                    className="size-8 shrink-0 p-0"
-                    onClick={onClose}
-                    aria-label="Close"
-                >
-                    <X className="size-4" />
-                </Button>
-            </div>
+        <Dialog open onOpenChange={(open) => !open && onClose()}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Identify {label}</DialogTitle>
+                    <DialogDescription>
+                        Select an existing person or enter a new name.
+                    </DialogDescription>
+                </DialogHeader>
 
-            {people === null ? (
-                <p className="px-2 py-3 text-xs text-muted-foreground">
-                    Loading people…
-                </p>
-            ) : (
-                <ul className="max-h-56 space-y-0.5 overflow-y-auto">
-                    {matches.map((person) => (
-                        <li key={person.id}>
-                            <button
-                                type="button"
-                                onClick={() => onPick({ personId: person.id })}
-                                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
-                            >
-                                <span className="min-w-0 flex-1 truncate">
-                                    {person.displayName}
-                                </span>
-                                {person.id === personId && (
-                                    <Check className="size-3.5 shrink-0 text-primary" />
-                                )}
-                            </button>
-                        </li>
-                    ))}
-
-                    {canCreate && (
-                        <li>
-                            <button
-                                type="button"
-                                onClick={() =>
-                                    onPick({ displayName: query.trim() })
+                <div className="space-y-2">
+                    <div className="relative">
+                        <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                            autoFocus
+                            role="combobox"
+                            aria-controls="speaker-person-options"
+                            aria-expanded={matches.length > 0}
+                            value={query}
+                            onChange={(event) => {
+                                setQuery(event.target.value);
+                                setSelectedPersonId(null);
+                            }}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter" && canSubmit) {
+                                    event.preventDefault();
+                                    void submit();
                                 }
-                                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
+                            }}
+                            placeholder="Search people or enter a name"
+                            aria-label={`Who is ${label}?`}
+                            className="pl-9"
+                        />
+                    </div>
+
+                    <div className="min-h-20 rounded-md border bg-muted/20 p-1">
+                        {people === null ? (
+                            <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                                Loading people…
+                            </p>
+                        ) : matches.length > 0 ? (
+                            <ul
+                                id="speaker-person-options"
+                                className="max-h-56 space-y-0.5 overflow-y-auto"
                             >
-                                <UserPlus className="size-3.5 shrink-0 text-muted-foreground" />
-                                <span className="min-w-0 flex-1 truncate">
-                                    Add “{query.trim()}”
-                                </span>
-                            </button>
-                        </li>
-                    )}
+                                {matches.map((person) => {
+                                    const selected =
+                                        person.id === personToSelect?.id;
+                                    return (
+                                        <li key={person.id}>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setSelectedPersonId(
+                                                        person.id,
+                                                    );
+                                                    setQuery(
+                                                        person.displayName,
+                                                    );
+                                                }}
+                                                className="flex w-full items-center gap-3 rounded px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+                                            >
+                                                <span
+                                                    aria-hidden="true"
+                                                    className="flex size-7 shrink-0 items-center justify-center rounded-full bg-background text-xs font-medium"
+                                                >
+                                                    {person.displayName
+                                                        .slice(0, 1)
+                                                        .toUpperCase()}
+                                                </span>
+                                                <span className="min-w-0 flex-1">
+                                                    <span className="block truncate font-medium">
+                                                        {person.displayName}
+                                                    </span>
+                                                    {person.primaryEmail && (
+                                                        <span className="block truncate text-xs text-muted-foreground">
+                                                            {
+                                                                person.primaryEmail
+                                                            }
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                {selected && (
+                                                    <Check className="size-4 shrink-0 text-primary" />
+                                                )}
+                                            </button>
+                                        </li>
+                                    );
+                                })}
+                            </ul>
+                        ) : (
+                            <div className="flex min-h-20 items-center justify-center gap-2 px-3 py-5 text-sm text-muted-foreground">
+                                {trimmedQuery ? (
+                                    <>
+                                        <UserPlus className="size-4" />
+                                        Create “{trimmedQuery}”
+                                    </>
+                                ) : (
+                                    "No people yet. Enter a name to create one."
+                                )}
+                            </div>
+                        )}
+                    </div>
+                </div>
 
-                    {matches.length === 0 && !canCreate && (
-                        <li className="px-2 py-3 text-xs text-muted-foreground">
-                            Nobody yet. Type a name to add one.
-                        </li>
-                    )}
-                </ul>
-            )}
-
-            {personId && (
-                <button
-                    type="button"
-                    onClick={onClear}
-                    className="mt-2 w-full rounded px-2 py-1.5 text-left text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                >
-                    Leave unknown
-                </button>
-            )}
-        </div>
+                <DialogFooter>
+                    <Button
+                        variant="outline"
+                        onClick={onClose}
+                        disabled={submitting}
+                    >
+                        Cancel
+                    </Button>
+                    <Button
+                        onClick={() => void submit()}
+                        disabled={!canSubmit || submitting}
+                    >
+                        {submitting && (
+                            <Loader2 className="mr-2 size-4 animate-spin" />
+                        )}
+                        {createsPerson ? "Create" : "Select"}
+                    </Button>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }

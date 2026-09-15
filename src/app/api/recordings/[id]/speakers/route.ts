@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { recordings, transcriptions } from "@/db/schema";
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { refreshExistingRecordingSidecars } from "@/lib/export/document-sidecars";
 import {
     getTranscriptSpeakers,
     setTranscriptSpeaker,
@@ -117,6 +118,8 @@ export const PUT = apiHandler<IdContext>(async (request, context) => {
         .where(
             and(eq(recordings.id, id), eq(recordings.userId, session.user.id)),
         );
+
+    await refreshExistingRecordingSidecars(session.user.id, id);
 
     return NextResponse.json({
         speakers: await getTranscriptSpeakers(session.user.id, transcript.id),

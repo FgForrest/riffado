@@ -1,9 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { toast } from "sonner";
-import { SpeakerPicker } from "@/components/people/speaker-picker";
-import { toastApiError } from "@/lib/api-errors";
+import { useMemo } from "react";
+import type { SpeakerAttributions } from "@/lib/knowledge/speaker-references";
 import {
     formatSpeakerLabel,
     mayBeDiarized,
@@ -25,12 +23,6 @@ const SPEAKER_STYLES = [
     { dot: "bg-sky-500", text: "text-sky-600 dark:text-sky-400" },
 ];
 
-/** Who a raw speaker label currently refers to, as the overlay reports it. */
-interface AttributedPerson {
-    personId: string;
-    name: string;
-}
-
 export interface TranscriptViewProps {
     text: string;
     /** Transcript provenance, used to decide whether to look for speakers. */
@@ -43,11 +35,8 @@ export interface TranscriptViewProps {
      * stored, which fall back to the regex.
      */
     storedTurns?: TranscriptTurn[] | null;
-    /**
-     * Enables naming. Without a recording to attribute against, labels render
-     * as plain text -- which is what the dashboard preview wants.
-     */
-    recordingId?: string;
+    /** Confirmed names projected over raw labels without changing the text. */
+    speakerAttributions?: SpeakerAttributions;
 }
 
 /**
@@ -65,80 +54,8 @@ export function TranscriptView({
     source,
     model,
     storedTurns,
-    recordingId,
+    speakerAttributions = {},
 }: TranscriptViewProps) {
-    // Confirmed names for this transcript, fetched rather than threaded
-    // through the loaders: there are two of those and an attribution changes
-    // far more often than a page load.
-    const [names, setNames] = useState<Record<string, AttributedPerson>>({});
-    const [openLabel, setOpenLabel] = useState<string | null>(null);
-    const attributable = Boolean(recordingId) && Boolean(source);
-
-    const loadNames = useCallback(async () => {
-        if (!recordingId || !source) return;
-        // Names belong to one transcript, and two transcripts of the same
-        // recording label different people `speaker_0`. Clearing first means
-        // a slow or failed read shows the raw label rather than the previous
-        // transcript's answer over somebody else's turns.
-        setNames({});
-        const response = await fetch(
-            `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
-        );
-        if (!response.ok) return;
-        const body = (await response.json()) as {
-            speakers?: {
-                label: string;
-                personId: string | null;
-                personName: string | null;
-                status: string;
-            }[];
-        };
-        const confirmed: Record<string, AttributedPerson> = {};
-        for (const speaker of body.speakers ?? []) {
-            if (speaker.status !== "confirmed") continue;
-            if (!speaker.personId || !speaker.personName) continue;
-            confirmed[speaker.label] = {
-                personId: speaker.personId,
-                name: speaker.personName,
-            };
-        }
-        setNames(confirmed);
-    }, [recordingId, source]);
-
-    useEffect(() => {
-        if (attributable) void loadNames();
-    }, [attributable, loadNames]);
-
-    async function attribute(
-        label: string,
-        choice: { personId?: string; displayName?: string } | null,
-    ) {
-        if (!recordingId || !source) return;
-        const response = await fetch(
-            `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
-            {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ label, ...(choice ?? {}) }),
-            },
-        ).catch(() => null);
-        if (!response) {
-            toast.error("Could not reach the server");
-            return;
-        }
-        if (!response.ok) {
-            // The picker stays open on a failure, so the answer the user
-            // already chose can be sent again rather than retyped.
-            await toastApiError(response, {
-                fallback: "Failed to name this speaker",
-                errorContext: "name a transcript speaker",
-            });
-            return;
-        }
-        setOpenLabel(null);
-        await loadNames();
-    }
-
     const turns = useMemo(() => {
         if (storedTurns?.length) {
             return storedTurns.map((turn) => ({
@@ -179,50 +96,12 @@ export function TranscriptView({
                                 <span
                                     className={`size-1.5 rounded-full shrink-0 ${style.dot}`}
                                 />
-                                {attributable ? (
-                                    <button
-                                        type="button"
-                                        onClick={() =>
-                                            setOpenLabel((open) =>
-                                                open === turn.speaker
-                                                    ? null
-                                                    : turn.speaker,
-                                            )
-                                        }
-                                        className={`rounded text-xs font-medium underline-offset-4 hover:underline ${style.text}`}
-                                        title={
-                                            names[turn.speaker]
-                                                ? "Change who this is"
-                                                : "Name this speaker"
-                                        }
-                                    >
-                                        {names[turn.speaker]?.name ??
-                                            turn.label}
-                                    </button>
-                                ) : (
-                                    <span
-                                        className={`text-xs font-medium ${style.text}`}
-                                    >
-                                        {names[turn.speaker]?.name ??
-                                            turn.label}
-                                    </span>
-                                )}
-                                {openLabel === turn.speaker && (
-                                    <SpeakerPicker
-                                        label={turn.label}
-                                        personId={
-                                            names[turn.speaker]?.personId ??
-                                            null
-                                        }
-                                        onPick={(choice) =>
-                                            void attribute(turn.speaker, choice)
-                                        }
-                                        onClear={() =>
-                                            void attribute(turn.speaker, null)
-                                        }
-                                        onClose={() => setOpenLabel(null)}
-                                    />
-                                )}
+                                <span
+                                    className={`text-xs font-medium ${style.text}`}
+                                >
+                                    {speakerAttributions[turn.speaker]?.name ??
+                                        turn.label}
+                                </span>
                             </div>
                         )}
                         <p className="text-sm whitespace-pre-wrap leading-relaxed pl-3.5">

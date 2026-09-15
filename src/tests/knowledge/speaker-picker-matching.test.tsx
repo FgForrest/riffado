@@ -1,8 +1,6 @@
 /**
- * Naming a speaker offers the people already known before the option to
- * create somebody. Offering "Add <name>" for a name that already exists is
- * how duplicate people get made, so the exact-match check has to see every
- * candidate, not only the ones that fit on screen.
+ * The speaker autocomplete must not create duplicate people when a matching
+ * person already exists. Selection and creation are explicit modal actions.
  */
 
 // @vitest-environment jsdom
@@ -42,22 +40,21 @@ function stubPeople(people: PickablePerson[]): void {
     );
 }
 
-async function renderAndType(query: string): Promise<void> {
+async function renderAndType(
+    query: string,
+    onPick = vi.fn().mockResolvedValue(true),
+) {
+    const onClose = vi.fn();
     render(
-        <SpeakerPicker
-            label="speaker_0"
-            personId={null}
-            onPick={vi.fn()}
-            onClear={vi.fn()}
-            onClose={vi.fn()}
-        />,
+        <SpeakerPicker label="Speaker 0" onPick={onPick} onClose={onClose} />,
     );
     await waitFor(() => {
-        expect(screen.queryByText("Loading people\u2026")).toBeNull();
+        expect(screen.queryByText("Loading people…")).toBeNull();
     });
-    fireEvent.change(screen.getByLabelText("Who is speaker_0?"), {
+    fireEvent.change(screen.getByRole("combobox"), {
         target: { value: query },
     });
+    return { onClose, onPick };
 }
 
 describe("SpeakerPicker matching", () => {
@@ -70,24 +67,47 @@ describe("SpeakerPicker matching", () => {
         vi.unstubAllGlobals();
     });
 
-    it("does not offer to create a person who already exists", async () => {
+    it("selects an exact person even when they fall below the visible results", async () => {
         stubPeople(NINE_JANS);
-        await renderAndType("Jan");
+        const { onPick } = await renderAndType("Jan");
 
-        expect(screen.queryByText(/Add/)).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Select" }));
+
+        await waitFor(() => {
+            expect(onPick).toHaveBeenCalledWith({ personId: "p-exact" });
+        });
     });
 
-    it("does not offer to create a person shown in the list", async () => {
-        stubPeople([person("p-exact", "Jan")]);
-        await renderAndType("Jan");
+    it("selects a person chosen from the autocomplete", async () => {
+        stubPeople([person("p-1", "Jan"), person("p-2", "Petra")]);
+        const { onPick } = await renderAndType("Pe");
 
-        expect(screen.queryByText("Add “Jan”")).toBeNull();
+        fireEvent.click(screen.getByRole("button", { name: "Petra" }));
+        fireEvent.click(screen.getByRole("button", { name: "Select" }));
+
+        await waitFor(() => {
+            expect(onPick).toHaveBeenCalledWith({ personId: "p-2" });
+        });
     });
 
-    it("offers to create a name that matches nobody", async () => {
+    it("changes the action to Create for an unknown name", async () => {
         stubPeople([person("p-1", "Petra")]);
-        await renderAndType("Jan");
+        const { onPick } = await renderAndType("Jan");
 
-        expect(screen.getByText("Add “Jan”")).toBeDefined();
+        fireEvent.click(screen.getByRole("button", { name: "Create" }));
+
+        await waitFor(() => {
+            expect(onPick).toHaveBeenCalledWith({ displayName: "Jan" });
+        });
+    });
+
+    it("closes without changes from Cancel", async () => {
+        stubPeople([]);
+        const { onClose, onPick } = await renderAndType("");
+
+        fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+        expect(onClose).toHaveBeenCalledOnce();
+        expect(onPick).not.toHaveBeenCalled();
     });
 });

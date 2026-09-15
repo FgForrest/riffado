@@ -21,7 +21,10 @@ import {
     transcriptions,
     userSettings,
 } from "@/db/schema";
-import { SUMMARY_MARKDOWN_DIRECTIVE } from "@/lib/ai/summary-presets";
+import {
+    SUMMARY_MARKDOWN_DIRECTIVE,
+    SUMMARY_SPEAKER_DIRECTIVE,
+} from "@/lib/ai/summary-presets";
 
 vi.mock("@/lib/posthog-server", () => ({
     captureServerException: vi.fn(),
@@ -164,6 +167,7 @@ describe("markdown formatting directive", () => {
     it("reaches the model on the single-pass path", async () => {
         await summarize();
         expect(systemMessages()[0]).toContain(SUMMARY_MARKDOWN_DIRECTIVE);
+        expect(systemMessages()[0]).toContain(SUMMARY_SPEAKER_DIRECTIVE);
     });
 
     it("no longer forbids markdown outright", async () => {
@@ -230,6 +234,15 @@ describe("markdown formatting directive", () => {
         const messages = systemMessages();
         expect(messages.length).toBeGreaterThan(2);
         expect(messages.at(-1)).toContain(SUMMARY_MARKDOWN_DIRECTIVE);
+        expect(messages.at(-1)).toContain(SUMMARY_SPEAKER_DIRECTIVE);
+    });
+
+    it("forbids guessed identities and specifies stable placeholders", async () => {
+        await summarize();
+        const system = systemMessages()[0];
+        expect(system).toContain("Never infer, guess, or invent");
+        expect(system).toContain("[Speaker N](#speaker-N)");
+        expect(system).toContain("summary, keyPoints, and actionItems");
     });
 });
 

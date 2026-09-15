@@ -11,10 +11,14 @@ import {
     Sparkles,
     Trash2,
 } from "lucide-react";
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { TranscribeInBrowserButton } from "@/components/dashboard/transcribe-in-browser-button";
 import { TranscriptView } from "@/components/dashboard/transcript-view";
 import { Markdown } from "@/components/markdown";
+import {
+    SpeakerTags,
+    type TranscriptSpeakerTag,
+} from "@/components/people/speaker-tags";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -25,8 +29,15 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useTranscriptionSummary } from "@/hooks/use-transcription-summary";
+import type { SpeakerAttributions } from "@/lib/knowledge/speaker-references";
 import { describeMultiPass } from "@/lib/summary/multi-pass";
 import { formatSummaryStatus } from "@/lib/summary/progress-stream";
+import {
+    formatSpeakerLabel,
+    mayBeDiarized,
+    parseSpeakerTurns,
+    speakerOrder,
+} from "@/lib/transcription/diarization";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
 import type { Recording } from "@/types/recording";
 
@@ -94,6 +105,27 @@ export function toTranscriptList(
     ];
 }
 
+/** Distinct speaker tags in first-appearance order for one transcript. */
+export function transcriptSpeakerTags(
+    transcript: TranscriptOption | undefined,
+): TranscriptSpeakerTag[] {
+    if (!transcript) return [];
+    const turns = transcript.turns?.length
+        ? transcript.turns.map((turn) => ({
+              speaker: turn.speaker,
+              label: formatSpeakerLabel(turn.speaker),
+              text: turn.text,
+          }))
+        : mayBeDiarized(transcript)
+          ? parseSpeakerTurns(transcript.text)
+          : null;
+    if (!turns) return [];
+    return speakerOrder(turns).map((speaker) => ({
+        speaker,
+        label: formatSpeakerLabel(speaker),
+    }));
+}
+
 export function TranscriptionPanel({
     recording,
     transcription,
@@ -110,6 +142,25 @@ export function TranscriptionPanel({
     const activeTranscript =
         transcriptList.find((t) => t.source === activeSource) ??
         transcriptList[0];
+    const speakerTags = useMemo(
+        () => transcriptSpeakerTags(activeTranscript),
+        [activeTranscript],
+    );
+    const attributionKey = activeTranscript
+        ? `${recording.id}:${activeTranscript.source}`
+        : "";
+    const [attributionState, setAttributionState] = useState<{
+        key: string;
+        values: SpeakerAttributions;
+    }>({ key: "", values: {} });
+    const speakerAttributions =
+        attributionState.key === attributionKey ? attributionState.values : {};
+    const handleAttributionsChange = useCallback(
+        (values: SpeakerAttributions) => {
+            setAttributionState({ key: attributionKey, values });
+        },
+        [attributionKey],
+    );
 
     const {
         summaryData,
@@ -205,6 +256,14 @@ export function TranscriptionPanel({
                             )}
                         </div>
                     </div>
+                    {activeTranscript && speakerTags.length > 0 && (
+                        <SpeakerTags
+                            recordingId={recording.id}
+                            source={activeTranscript.source}
+                            speakers={speakerTags}
+                            onAttributionsChange={handleAttributionsChange}
+                        />
+                    )}
                 </CardHeader>
                 <CardContent>
                     {isTranscribing ? (
@@ -243,7 +302,7 @@ export function TranscriptionPanel({
                                     source={activeTranscript.source}
                                     model={activeTranscript.model}
                                     storedTurns={activeTranscript.turns}
-                                    recordingId={recording.id}
+                                    speakerAttributions={speakerAttributions}
                                 />
                             </div>
                             <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t">
@@ -380,7 +439,11 @@ export function TranscriptionPanel({
                                     <div className="space-y-4">
                                         {/* Summary text */}
                                         <div className="bg-muted rounded-lg p-4 text-sm">
-                                            <Markdown>
+                                            <Markdown
+                                                speakerAttributions={
+                                                    speakerAttributions
+                                                }
+                                            >
                                                 {summaryData.summary}
                                             </Markdown>
                                         </div>
@@ -407,6 +470,9 @@ export function TranscriptionPanel({
                                                                         <span className="text-primary mt-1.5 size-1.5 rounded-full bg-primary shrink-0" />
                                                                         <Markdown
                                                                             inline
+                                                                            speakerAttributions={
+                                                                                speakerAttributions
+                                                                            }
                                                                         >
                                                                             {
                                                                                 point
@@ -442,6 +508,9 @@ export function TranscriptionPanel({
                                                                         <ListChecks className="size-3.5 mt-0.5 text-primary shrink-0" />
                                                                         <Markdown
                                                                             inline
+                                                                            speakerAttributions={
+                                                                                speakerAttributions
+                                                                            }
                                                                         >
                                                                             {
                                                                                 item

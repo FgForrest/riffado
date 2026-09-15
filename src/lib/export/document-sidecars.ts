@@ -9,7 +9,9 @@ import {
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { buildNameResolver } from "@/lib/knowledge/attribution";
 import { projectTranscript } from "@/lib/knowledge/project-transcript";
+import { projectSummarySpeakerReferencesForExport } from "@/lib/knowledge/speaker-references";
 import { createUserStorageProvider } from "@/lib/storage/factory";
+import type { SpeakerNameResolver } from "@/lib/transcription/turns";
 import { resolvePrimaryTranscript } from "@/lib/v1/serialize";
 
 const MARKDOWN_CONTENT_TYPE = "text/markdown; charset=utf-8";
@@ -41,6 +43,11 @@ export interface SummarySidecarInput {
     summary: string | null;
     keyPoints: string[];
     actionItems: string[];
+}
+
+interface SidecarProjectionContext {
+    primary: typeof transcriptions.$inferSelect | null;
+    resolve: SpeakerNameResolver | undefined;
 }
 
 /**
@@ -135,29 +142,10 @@ export async function exportRecordingSidecars(
     let storage: Awaited<ReturnType<typeof createUserStorageProvider>> | null =
         null;
 
+    const projection = await loadSidecarProjectionContext(userId, recordingId);
+
     if (selection.transcript) {
-        const rows = await db
-            .select()
-            .from(transcriptions)
-            .where(
-                and(
-                    eq(transcriptions.recordingId, recordingId),
-                    eq(transcriptions.userId, userId),
-                ),
-            );
-
-        const [settings] = await db
-            .select({
-                preferred: userSettings.preferredTranscriptSource,
-            })
-            .from(userSettings)
-            .where(eq(userSettings.userId, userId))
-            .limit(1);
-
-        const primary = resolvePrimaryTranscript(
-            rows,
-            settings?.preferred ?? "plaud",
-        );
+        const { primary } = projection;
 
         if (primary) {
             // The sidecar is a file the user reads, so it carries names
@@ -168,7 +156,7 @@ export async function exportRecordingSidecars(
                     text: decryptText(primary.text),
                     turns: primary.turns,
                 },
-                await buildNameResolver(userId, primary.id),
+                projection.resolve,
             );
             if (text?.trim()) {
                 storage ??= await createUserStorageProvider(userId);
@@ -207,12 +195,28 @@ export async function exportRecordingSidecars(
             .limit(1);
 
         if (enhancement) {
-            const summary = decryptText(enhancement.summary) ?? null;
+            const summaryValue = decryptText(enhancement.summary) ?? null;
+            const summary = summaryValue
+                ? projectSummarySpeakerReferencesForExport(
+                      summaryValue,
+                      projection.resolve,
+                  )
+                : null;
             const keyPoints = stringArray(
                 decryptJsonField<unknown>(enhancement.keyPoints),
+            ).map((item) =>
+                projectSummarySpeakerReferencesForExport(
+                    item,
+                    projection.resolve,
+                ),
             );
             const actionItems = stringArray(
                 decryptJsonField<unknown>(enhancement.actionItems),
+            ).map((item) =>
+                projectSummarySpeakerReferencesForExport(
+                    item,
+                    projection.resolve,
+                ),
             );
 
             if (summary?.trim() || keyPoints.length > 0 || actionItems.length) {
@@ -239,6 +243,76 @@ export async function exportRecordingSidecars(
     }
 
     return written;
+}
+
+async function loadSidecarProjectionContext(
+    userId: string,
+    recordingId: string,
+): Promise<SidecarProjectionContext> {
+    const rows = await db
+        .select()
+        .from(transcriptions)
+        .where(
+            and(
+                eq(transcriptions.recordingId, recordingId),
+                eq(transcriptions.userId, userId),
+            ),
+        );
+
+    const [settings] = await db
+        .select({ preferred: userSettings.preferredTranscriptSource })
+        .from(userSettings)
+        .where(eq(userSettings.userId, userId))
+        .limit(1);
+
+    const primary = resolvePrimaryTranscript(
+        rows,
+        settings?.preferred ?? "plaud",
+    );
+    return {
+        primary,
+        resolve: primary
+            ? await buildNameResolver(userId, primary.id)
+            : undefined,
+    };
+}
+
+/** Rewrite only sidecars that already exist for this recording. */
+export async function refreshExistingRecordingSidecars(
+    userId: string,
+    recordingId: string,
+): Promise<void> {
+    try {
+        const [recording] = await db
+            .select({ storagePath: recordings.storagePath })
+            .from(recordings)
+            .where(
+                and(
+                    eq(recordings.id, recordingId),
+                    eq(recordings.userId, userId),
+                    isNull(recordings.deletedAt),
+                ),
+            )
+            .limit(1);
+        if (!recording) return;
+
+        const storage = await createUserStorageProvider(userId);
+        const [transcript, summary] = await Promise.all([
+            storage.exists(sidecarKey(recording.storagePath, "transcript")),
+            storage.exists(sidecarKey(recording.storagePath, "summary")),
+        ]);
+        if (!transcript && !summary) return;
+
+        await exportRecordingSidecars(userId, recordingId, {
+            transcript,
+            summary,
+        });
+    } catch (error) {
+        console.error(
+            `Failed to refresh document sidecars for recording ${recordingId}:`,
+            error,
+        );
+    }
 }
 
 /**
