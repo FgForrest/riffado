@@ -7,6 +7,10 @@
  * client because summarisation is one of the kinds.
  */
 
+import {
+    storageReconciliationJobHandler,
+    storageReconciliationScanJobHandler,
+} from "@/lib/recordings/storage-reconciliation-job-handler";
 import { summaryJobHandler } from "@/lib/summary/summary-job-handler";
 import { transcriptionJobHandler } from "@/lib/transcription/transcription-job-handler";
 import { videoExtractionJobHandler } from "@/lib/uploads/video-extraction-job-handler";
@@ -17,4 +21,6 @@ export function registerJobHandlers(): void {
     registerJobHandler(summaryJobHandler);
     registerJobHandler(transcriptionJobHandler);
     registerJobHandler(videoExtractionJobHandler);
+    registerJobHandler(storageReconciliationScanJobHandler);
+    registerJobHandler(storageReconciliationJobHandler);
 }

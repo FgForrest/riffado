@@ -26,6 +26,10 @@ type JobHandlersModule = {
     registerJobHandlers: () => void;
 };
 
+type StorageReconciliationModule = {
+    startStorageReconciliationSeeder: () => void;
+};
+
 type EnvModule = {
     env: {
         IS_HOSTED: boolean;
@@ -105,6 +109,10 @@ export async function register() {
 
     const { startJobWorker } = require("./lib/jobs/worker") as JobWorkerModule;
     startJobWorker();
+
+    const { startStorageReconciliationSeeder } =
+        require("./lib/recordings/storage-reconciliation-job") as StorageReconciliationModule;
+    startStorageReconciliationSeeder();
 
     // Catch anything that escapes a background worker's own try/catch (or
     // any other unexpected process-level throw) instead of only ever

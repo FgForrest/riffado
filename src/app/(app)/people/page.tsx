@@ -1,4 +1,4 @@
-import { and, count, eq, isNull, sql } from "drizzle-orm";
+import { and, countDistinct, eq, isNull, max } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { PeopleList } from "@/components/people/people-list";
@@ -25,8 +25,8 @@ export default async function PeoplePage() {
         db
             .select({
                 personId: transcriptSpeakers.personId,
-                recordingCount: count(sql`distinct ${recordings.id}`),
-                lastSeen: sql<Date | null>`max(${recordings.startTime})`,
+                recordingCount: countDistinct(recordings.id),
+                lastSeen: max(recordings.startTime),
             })
             .from(transcriptSpeakers)
             .innerJoin(
