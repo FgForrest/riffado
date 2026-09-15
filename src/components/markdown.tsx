@@ -1,8 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import {
+    type SpeakerAttributions,
+    speakerLabelFromSummaryHref,
+} from "@/lib/knowledge/speaker-references";
 import { cn } from "@/lib/utils";
 
 const blockComponents: Components = {
@@ -110,6 +115,8 @@ export interface MarkdownProps {
     /** Render without block wrappers, for text inside an existing row. */
     inline?: boolean;
     className?: string;
+    /** Confirmed names used to project stable summary speaker placeholders. */
+    speakerAttributions?: SpeakerAttributions;
 }
 
 /**
@@ -120,14 +127,58 @@ export interface MarkdownProps {
  * markup. `react-markdown` builds React elements, so nothing here reaches
  * `dangerouslySetInnerHTML`.
  */
-export function Markdown({ children, inline, className }: MarkdownProps) {
+export function Markdown({
+    children,
+    inline,
+    className,
+    speakerAttributions,
+}: MarkdownProps) {
     const Wrapper = inline ? "span" : "div";
+    const components: Components = {
+        ...(inline ? inlineComponents : blockComponents),
+        a: ({ href, children: linkChildren }) => {
+            const speaker = speakerLabelFromSummaryHref(href);
+            const attribution = speaker
+                ? speakerAttributions?.[speaker]
+                : undefined;
+            if (attribution) {
+                return (
+                    <Link
+                        href={`/people/${attribution.personId}`}
+                        className="text-primary underline underline-offset-2 hover:no-underline"
+                    >
+                        {attribution.name}
+                    </Link>
+                );
+            }
+            if (href?.startsWith("#")) {
+                return (
+                    <a
+                        href={href}
+                        className="text-primary underline underline-offset-2 hover:no-underline"
+                    >
+                        {linkChildren}
+                    </a>
+                );
+            }
+            return (
+                <a
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline underline-offset-2 hover:no-underline break-words"
+                >
+                    {linkChildren}
+                </a>
+            );
+        },
+    };
     return (
         <Wrapper className={cn(inline && "min-w-0", className)}>
             <ReactMarkdown
                 skipHtml
                 remarkPlugins={[remarkGfm]}
-                components={inline ? inlineComponents : blockComponents}
+                components={components}
             >
                 {children}
             </ReactMarkdown>

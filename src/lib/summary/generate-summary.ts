@@ -14,6 +14,7 @@ import {
     getDefaultSummaryPromptConfig,
     getSummaryPromptById,
     SUMMARY_MARKDOWN_DIRECTIVE,
+    SUMMARY_SPEAKER_DIRECTIVE,
     type SummaryPromptConfiguration,
 } from "@/lib/ai/summary-presets";
 import { decrypt } from "@/lib/encryption";
@@ -284,6 +285,7 @@ export async function generateSummaryForRecording(
     const systemContent = [
         baseSystem,
         SUMMARY_MARKDOWN_DIRECTIVE,
+        SUMMARY_SPEAKER_DIRECTIVE,
         languageDirective,
     ]
         .filter(Boolean)
@@ -361,6 +363,7 @@ export async function generateSummaryForRecording(
                             content: [
                                 mergePrompt,
                                 SUMMARY_MARKDOWN_DIRECTIVE,
+                                SUMMARY_SPEAKER_DIRECTIVE,
                                 languageDirective,
                             ]
                                 .filter(Boolean)

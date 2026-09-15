@@ -27,6 +27,13 @@ vi.mock("@/lib/auth-server", () => ({
     requireApiSession: vi.fn().mockResolvedValue({ user: { id: "user-1" } }),
 }));
 
+const { refreshExistingRecordingSidecars } = vi.hoisted(() => ({
+    refreshExistingRecordingSidecars: vi.fn(),
+}));
+vi.mock("@/lib/export/document-sidecars", () => ({
+    refreshExistingRecordingSidecars,
+}));
+
 import {
     GET as getSpeakers,
     PUT as putSpeaker,
@@ -175,6 +182,10 @@ describe("speakers route and ownership", () => {
                 source: "user",
                 status: "confirmed",
             }),
+        );
+        expect(refreshExistingRecordingSidecars).toHaveBeenCalledWith(
+            "user-1",
+            RECORDING_ID,
         );
     });
 
