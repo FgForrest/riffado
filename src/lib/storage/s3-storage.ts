@@ -1,5 +1,6 @@
 import type { Readable } from "node:stream";
 import {
+    CopyObjectCommand,
     DeleteObjectCommand,
     GetObjectCommand,
     HeadBucketCommand,
@@ -147,6 +148,23 @@ export class S3Storage implements StorageProvider {
             )?.$metadata?.httpStatusCode;
             if (status === 404) return false;
             throw error;
+        }
+    }
+
+    async copyFile(sourceKey: string, destinationKey: string): Promise<string> {
+        try {
+            await this.client.send(
+                new CopyObjectCommand({
+                    Bucket: this.bucket,
+                    CopySource: `${this.bucket}/${sourceKey}`,
+                    Key: destinationKey,
+                }),
+            );
+            return destinationKey;
+        } catch (error) {
+            throw new Error(
+                `Failed to copy file in S3: ${error instanceof Error ? error.message : String(error)}`,
+            );
         }
     }
 

@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { db } from "@/db";
 import {
     aiEnhancements,
@@ -10,7 +10,21 @@ import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { buildNameResolver } from "@/lib/knowledge/attribution";
 import { projectTranscript } from "@/lib/knowledge/project-transcript";
 import { projectSummarySpeakerReferencesForExport } from "@/lib/knowledge/speaker-references";
+import {
+    audioExtension,
+    buildRecordingStoragePath,
+} from "@/lib/recordings/filename";
+import {
+    copyExistingRecordingFiles,
+    deleteOldRecordingFiles,
+    sidecarKey,
+} from "@/lib/recordings/storage-files";
 import { createUserStorageProvider } from "@/lib/storage/factory";
+import {
+    formatSpeakerLabel,
+    parseSpeakerTurns,
+} from "@/lib/transcription/diarization";
+import { readTranscriptTurns } from "@/lib/transcription/read-turns";
 import type { SpeakerNameResolver } from "@/lib/transcription/turns";
 import { resolvePrimaryTranscript } from "@/lib/v1/serialize";
 
@@ -33,6 +47,7 @@ export interface TranscriptSidecarInput {
     model: string;
     source: string;
     text: string;
+    participants: string[];
 }
 
 export interface SummarySidecarInput {
@@ -43,26 +58,16 @@ export interface SummarySidecarInput {
     summary: string | null;
     keyPoints: string[];
     actionItems: string[];
+    participants: string[];
 }
 
 interface SidecarProjectionContext {
     primary: typeof transcriptions.$inferSelect | null;
     resolve: SpeakerNameResolver | undefined;
+    participants: string[];
 }
 
-/**
- * Storage key for a recording's sidecar, derived from the audio key so the
- * two sit side by side: `user/Board meeting.mp3` becomes
- * `user/Board meeting.transcript.md`.
- */
-export function sidecarKey(storagePath: string, kind: SidecarKind): string {
-    const slash = storagePath.lastIndexOf("/");
-    const dir = slash === -1 ? "" : storagePath.slice(0, slash + 1);
-    const base = storagePath.slice(slash + 1);
-    const dot = base.lastIndexOf(".");
-    const stem = dot > 0 ? base.slice(0, dot) : base;
-    return `${dir}${stem}.${kind}.md`;
-}
+export { sidecarKey } from "@/lib/recordings/storage-files";
 
 /** Markdown document for a transcript, with YAML front matter. */
 export function buildTranscriptMarkdown(input: TranscriptSidecarInput): string {
@@ -70,6 +75,7 @@ export function buildTranscriptMarkdown(input: TranscriptSidecarInput): string {
         "---",
         `title: ${yamlString(input.title)}`,
         `recorded: ${input.recordedAt.toISOString()}`,
+        ...participantsFrontMatter(input.participants),
         `duration: ${formatDuration(input.durationMs)}`,
         `language: ${input.language ? yamlString(input.language) : "null"}`,
         `source: ${yamlString(input.source)}`,
@@ -87,6 +93,7 @@ export function buildSummaryMarkdown(input: SummarySidecarInput): string {
         "---",
         `title: ${yamlString(input.title)}`,
         `recorded: ${input.recordedAt.toISOString()}`,
+        ...participantsFrontMatter(input.participants),
         `provider: ${yamlString(input.provider)}`,
         `model: ${yamlString(input.model)}`,
         "---",
@@ -139,8 +146,56 @@ export async function exportRecordingSidecars(
 
     const title = decryptText(recording.filename);
     const written: SidecarKind[] = [];
+    let storagePath = recording.storagePath;
     let storage: Awaited<ReturnType<typeof createUserStorageProvider>> | null =
         null;
+
+    const expectedStoragePath = buildRecordingStoragePath(
+        userId,
+        recording.id,
+        title,
+        audioExtension(recording.storagePath),
+    );
+    if (expectedStoragePath !== recording.storagePath) {
+        const [shared] = await db
+            .select({ id: recordings.id })
+            .from(recordings)
+            .where(
+                and(
+                    eq(recordings.userId, userId),
+                    eq(recordings.storagePath, recording.storagePath),
+                    ne(recordings.id, recordingId),
+                ),
+            )
+            .limit(1);
+        storage = await createUserStorageProvider(userId);
+        const copiedSources = await copyExistingRecordingFiles(
+            storage,
+            recording.storagePath,
+            expectedStoragePath,
+        );
+        const [relocated] = await db
+            .update(recordings)
+            .set({ storagePath: expectedStoragePath, updatedAt: new Date() })
+            .where(
+                and(
+                    eq(recordings.id, recordingId),
+                    eq(recordings.userId, userId),
+                    eq(recordings.storagePath, recording.storagePath),
+                    isNull(recordings.deletedAt),
+                ),
+            )
+            .returning({ storagePath: recordings.storagePath });
+        if (!relocated) {
+            throw new Error(
+                `Recording ${recordingId} changed while its storage files were being renamed`,
+            );
+        }
+        storagePath = relocated.storagePath;
+        if (!shared) {
+            await deleteOldRecordingFiles(storage, copiedSources, recordingId);
+        }
+    }
 
     const projection = await loadSidecarProjectionContext(userId, recordingId);
 
@@ -161,7 +216,7 @@ export async function exportRecordingSidecars(
             if (text?.trim()) {
                 storage ??= await createUserStorageProvider(userId);
                 await storage.uploadFile(
-                    sidecarKey(recording.storagePath, "transcript"),
+                    sidecarKey(storagePath, "transcript"),
                     Buffer.from(
                         buildTranscriptMarkdown({
                             title,
@@ -172,6 +227,7 @@ export async function exportRecordingSidecars(
                             model: primary.model,
                             source: primary.source,
                             text,
+                            participants: projection.participants,
                         }),
                         "utf8",
                     ),
@@ -222,7 +278,7 @@ export async function exportRecordingSidecars(
             if (summary?.trim() || keyPoints.length > 0 || actionItems.length) {
                 storage ??= await createUserStorageProvider(userId);
                 await storage.uploadFile(
-                    sidecarKey(recording.storagePath, "summary"),
+                    sidecarKey(storagePath, "summary"),
                     Buffer.from(
                         buildSummaryMarkdown({
                             title,
@@ -232,6 +288,7 @@ export async function exportRecordingSidecars(
                             summary,
                             keyPoints,
                             actionItems,
+                            participants: projection.participants,
                         }),
                         "utf8",
                     ),
@@ -269,11 +326,13 @@ async function loadSidecarProjectionContext(
         rows,
         settings?.preferred ?? "plaud",
     );
+    const resolve = primary
+        ? await buildNameResolver(userId, primary.id)
+        : undefined;
     return {
         primary,
-        resolve: primary
-            ? await buildNameResolver(userId, primary.id)
-            : undefined,
+        resolve,
+        participants: primary ? participantNames(primary, resolve) : [],
     };
 }
 
@@ -364,6 +423,34 @@ function stringArray(value: unknown): string[] {
 
 function yamlString(value: string): string {
     return JSON.stringify(value);
+}
+
+function participantsFrontMatter(participants: string[]): string[] {
+    if (participants.length === 0) return ["participants: []"];
+    return [
+        "participants:",
+        ...participants.map((participant) => `  - ${yamlString(participant)}`),
+    ];
+}
+
+function participantNames(
+    transcript: typeof transcriptions.$inferSelect,
+    resolve: SpeakerNameResolver | undefined,
+): string[] {
+    const storedTurns = readTranscriptTurns(transcript);
+    const parsedTurns = storedTurns
+        ? null
+        : parseSpeakerTurns(decryptText(transcript.text));
+    const labels = storedTurns
+        ? storedTurns.map((turn) => turn.speaker)
+        : (parsedTurns?.map((turn) => turn.speaker) ?? []);
+    const names: string[] = [];
+
+    for (const label of labels) {
+        const name = resolve?.(label) ?? formatSpeakerLabel(label);
+        if (name && !names.includes(name)) names.push(name);
+    }
+    return names;
 }
 
 function formatDuration(durationMs: number): string {

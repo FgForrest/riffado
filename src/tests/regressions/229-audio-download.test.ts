@@ -4,7 +4,7 @@
  *   GET /api/recordings/[id]/audio?download=1
  *
  * Covers:
- *   1. Authenticated download sets Content-Disposition (title + storage ext)
+ *   1. Authenticated download sets Content-Disposition (id + title + storage ext)
  *   2. Playback (no download param) does not set Content-Disposition
  *   3. Download ignores Range and returns the full file
  *   4. 404 for another user's recording / missing row
@@ -102,7 +102,7 @@ describe("GET /api/recordings/[id]/audio?download=1", () => {
         });
     });
 
-    it("returns the original file as an attachment named from the title", async () => {
+    it("returns the original file as an attachment named from its id and title", async () => {
         selectRecording(recordingRow());
 
         const response = await getAudio(
@@ -118,7 +118,7 @@ describe("GET /api/recordings/[id]/audio?download=1", () => {
             "attachment",
         );
         expect(response.headers.get("Content-Disposition")).toContain(
-            "Planning Call.mp3",
+            "rec-1-Planning_Call.mp3",
         );
         expect(await response.text()).toBe("audio-bytes");
     });
@@ -136,7 +136,7 @@ describe("GET /api/recordings/[id]/audio?download=1", () => {
         expect(response.status).toBe(200);
         expect(response.headers.get("Content-Type")).toBe("audio/mp4");
         expect(response.headers.get("Content-Disposition")).toContain(
-            "Planning Call.m4a",
+            "rec-1-Planning_Call.m4a",
         );
     });
 

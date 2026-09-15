@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
     audioExtension,
     buildDownloadFilename,
+    buildRecordingStorageFilename,
+    buildRecordingStoragePath,
     contentDispositionAttachment,
     isAudioDownloadRequest,
     MAX_RECORDING_TITLE_LENGTH,
     normalizeRecordingTitle,
     recordingAudioDownloadPath,
     sanitizeDownloadBasename,
+    sanitizeStorageBasename,
 } from "@/lib/recordings/filename";
 
 describe("normalizeRecordingTitle", () => {
@@ -58,39 +61,69 @@ describe("sanitizeDownloadBasename", () => {
 });
 
 describe("buildDownloadFilename", () => {
-    it("appends the storage extension and falls back to the recording id", () => {
+    it("prefixes the safe title with the recording id", () => {
         expect(
             buildDownloadFilename("Planning Call", "u/rec.mp3", "rec-1"),
-        ).toBe("Planning Call.mp3");
+        ).toBe("rec-1-Planning_Call.mp3");
         expect(buildDownloadFilename("   ", "u/rec.wav", "rec-1")).toBe(
-            "rec-1.wav",
+            "rec-1-untitled.wav",
         );
     });
 
     it("does not double the extension when the title already has it", () => {
         expect(buildDownloadFilename("memo.m4a", "u/file.m4a", "id")).toBe(
-            "memo.m4a",
+            "id-memo.m4a",
         );
         expect(buildDownloadFilename("memo.MP3", "u/file.mp3", "id")).toBe(
-            "memo.mp3",
+            "id-memo.mp3",
         );
     });
 
     it("keeps unicode in the download name", () => {
         expect(buildDownloadFilename("会議 日本語", "u/a.mp3", "id")).toBe(
-            "会議 日本語.mp3",
+            "id-会議_日本語.mp3",
         );
     });
 
-    it("prefixes reserved basenames after stripping a matching audio extension", () => {
+    it("makes formerly reserved basenames safe through the id prefix", () => {
         expect(buildDownloadFilename("CON", "u/rec.mp3", "id")).toBe(
-            "_CON.mp3",
+            "id-CON.mp3",
         );
         expect(buildDownloadFilename("CON.mp3", "u/rec.mp3", "id")).toBe(
-            "_CON.mp3",
+            "id-CON.mp3",
         );
         expect(buildDownloadFilename("LPT1.wav", "u/rec.wav", "id")).toBe(
-            "_LPT1.wav",
+            "id-LPT1.wav",
+        );
+    });
+});
+
+describe("recording storage filenames", () => {
+    it("converts titles into stable portable names", () => {
+        expect(sanitizeStorageBasename("Můj titulek nahrávky")).toBe(
+            "Muj_titulek_nahravky",
+        );
+        expect(
+            buildRecordingStorageFilename("ID", "Můj titulek nahrávky", ".MP3"),
+        ).toBe("ID-Muj_titulek_nahravky.mp3");
+        expect(
+            buildRecordingStoragePath(
+                "user-1",
+                "ID",
+                "Můj titulek nahrávky",
+                "mp3",
+            ),
+        ).toBe("user-1/ID-Muj_titulek_nahravky.mp3");
+    });
+
+    it("bounds long unicode names by UTF-8 bytes", () => {
+        const filename = buildRecordingStorageFilename(
+            "recording-id",
+            "会".repeat(200),
+            "mp3",
+        );
+        expect(new TextEncoder().encode(filename).length).toBeLessThanOrEqual(
+            240,
         );
     });
 });

@@ -1,5 +1,12 @@
 import { createReadStream, createWriteStream } from "node:fs";
-import { access, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import {
+    access,
+    copyFile,
+    mkdir,
+    readFile,
+    unlink,
+    writeFile,
+} from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import type { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -133,6 +140,21 @@ export class LocalStorage implements StorageProvider {
             return true;
         } catch {
             return false;
+        }
+    }
+
+    async copyFile(sourceKey: string, destinationKey: string): Promise<string> {
+        try {
+            await this.ensureBaseDir();
+            const sourcePath = this.getFilePath(sourceKey);
+            const destinationPath = this.getFilePath(destinationKey);
+            await mkdir(dirname(destinationPath), { recursive: true });
+            await copyFile(sourcePath, destinationPath);
+            return destinationKey;
+        } catch (error) {
+            throw new Error(
+                `Failed to copy file in local storage: ${error instanceof Error ? error.message : String(error)}`,
+            );
         }
     }
 

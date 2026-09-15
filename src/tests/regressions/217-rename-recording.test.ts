@@ -25,6 +25,7 @@ vi.mock("@/lib/posthog-server", () => ({
 
 vi.mock("@/db", () => ({
     db: {
+        select: vi.fn(),
         update: vi.fn(),
     },
 }));
@@ -50,14 +51,30 @@ vi.mock("@/lib/storage/factory", () => ({
     createUserStorageProvider: vi.fn(),
 }));
 
+vi.mock("@/lib/export/document-sidecars", () => ({
+    refreshExistingRecordingSidecars: vi.fn().mockResolvedValue(undefined),
+    sidecarKey: vi.fn(
+        (storagePath: string, kind: "transcript" | "summary") =>
+            `${storagePath.replace(/\.[^.]+$/, "")}.${kind}.md`,
+    ),
+}));
+
 import { PATCH as patchRecording } from "@/app/api/recordings/[id]/route";
 import { db } from "@/db";
 import { recordings } from "@/db/schema";
 import { requireApiSession } from "@/lib/auth-server";
 import { encryptText } from "@/lib/encryption/fields";
 import { ErrorCode } from "@/lib/errors";
+import { refreshExistingRecordingSidecars } from "@/lib/export/document-sidecars";
 import { MAX_RECORDING_TITLE_LENGTH } from "@/lib/recordings/filename";
+import { createUserStorageProvider } from "@/lib/storage/factory";
 import { emitEvent } from "@/lib/webhooks/emit";
+
+const storage = {
+    exists: vi.fn().mockResolvedValue(false),
+    copyFile: vi.fn().mockResolvedValue("copied"),
+    deleteFile: vi.fn().mockResolvedValue(undefined),
+};
 
 function routeParams(id = "rec-1") {
     return { params: Promise.resolve({ id }) };
@@ -81,6 +98,18 @@ function mockUpdateReturning(row: unknown) {
     }));
     (db.update as Mock).mockReturnValue({ set });
     return { set, whereSpy };
+}
+
+function mockSelectReturning(result: unknown[]) {
+    const limit = vi.fn().mockResolvedValue(result);
+    const whereSpy = vi.fn().mockReturnValue({ limit });
+    const from = vi.fn().mockReturnValue({ where: whereSpy });
+    (db.select as Mock).mockReturnValueOnce({ from });
+    return { whereSpy };
+}
+
+function mockOwnedRecording(storagePath = "user-1/legacy.mp3") {
+    return mockSelectReturning([{ id: "rec-1", storagePath }]);
 }
 
 /**
@@ -122,9 +151,17 @@ describe("PATCH /api/recordings/[id]", () => {
         (requireApiSession as unknown as Mock).mockResolvedValue({
             user: { id: "user-1" },
         });
+        vi.mocked(createUserStorageProvider).mockResolvedValue(
+            storage as never,
+        );
+        storage.exists.mockResolvedValue(false);
+        storage.copyFile.mockResolvedValue("copied");
+        storage.deleteFile.mockResolvedValue(undefined);
     });
 
     it("encrypts the new title at rest and returns plaintext", async () => {
+        mockOwnedRecording();
+        mockSelectReturning([]);
         const { set } = mockUpdateReturning({
             id: "rec-1",
             filename: "encrypted:Q4 planning",
@@ -138,13 +175,20 @@ describe("PATCH /api/recordings/[id]", () => {
         expect(response.status).toBe(200);
         expect(encryptText).toHaveBeenCalledWith("Q4 planning");
         expect(set).toHaveBeenCalledWith(
-            expect.objectContaining({ filename: "encrypted:Q4 planning" }),
+            expect.objectContaining({
+                filename: "encrypted:Q4 planning",
+                storagePath: "user-1/rec-1-Q4_planning.mp3",
+            }),
         );
         await expect(response.json()).resolves.toEqual({
             filename: "Q4 planning",
         });
         expect(emitEvent).toHaveBeenCalledWith(
             "recording.updated",
+            "user-1",
+            "rec-1",
+        );
+        expect(refreshExistingRecordingSidecars).toHaveBeenCalledWith(
             "user-1",
             "rec-1",
         );
@@ -199,7 +243,7 @@ describe("PATCH /api/recordings/[id]", () => {
     });
 
     it("returns 404 when the row is missing or owned by another user", async () => {
-        const { whereSpy } = mockUpdateReturning(null);
+        const { whereSpy } = mockSelectReturning([]);
 
         const response = await patchRecording(
             patchRequest({ filename: "New name" }),
@@ -219,5 +263,74 @@ describe("PATCH /api/recordings/[id]", () => {
         expect(exprReferencesColumn(whereExpr, recordings.deletedAt)).toBe(
             true,
         );
+    });
+
+    it("renames existing audio and document sidecars", async () => {
+        mockOwnedRecording();
+        mockSelectReturning([]);
+        mockUpdateReturning({
+            id: "rec-1",
+            filename: "encrypted:New title",
+        });
+        storage.exists.mockResolvedValue(true);
+
+        const response = await patchRecording(
+            patchRequest({ filename: "New title" }),
+            routeParams(),
+        );
+
+        expect(response.status).toBe(200);
+        expect(storage.copyFile).toHaveBeenCalledTimes(3);
+        expect(storage.copyFile).toHaveBeenCalledWith(
+            "user-1/legacy.mp3",
+            "user-1/rec-1-New_title.mp3",
+        );
+        expect(storage.copyFile).toHaveBeenCalledWith(
+            "user-1/legacy.transcript.md",
+            "user-1/rec-1-New_title.transcript.md",
+        );
+        expect(storage.copyFile).toHaveBeenCalledWith(
+            "user-1/legacy.summary.md",
+            "user-1/rec-1-New_title.summary.md",
+        );
+        expect(storage.deleteFile).toHaveBeenCalledTimes(3);
+    });
+
+    it("does not remove a legacy source shared by another recording", async () => {
+        mockOwnedRecording();
+        mockSelectReturning([{ id: "rec-2" }]);
+        mockUpdateReturning({
+            id: "rec-1",
+            filename: "encrypted:New title",
+        });
+        storage.exists.mockResolvedValue(true);
+
+        const response = await patchRecording(
+            patchRequest({ filename: "New title" }),
+            routeParams(),
+        );
+
+        expect(response.status).toBe(200);
+        expect(storage.copyFile).toHaveBeenCalledTimes(3);
+        expect(storage.deleteFile).not.toHaveBeenCalled();
+    });
+
+    it("keeps the database unchanged when storage copying fails", async () => {
+        mockOwnedRecording();
+        mockSelectReturning([]);
+        storage.exists.mockResolvedValue(true);
+        storage.copyFile.mockRejectedValueOnce(new Error("disk full"));
+
+        const response = await patchRecording(
+            patchRequest({ filename: "New title" }),
+            routeParams(),
+        );
+
+        expect(response.status).toBe(500);
+        await expect(response.json()).resolves.toMatchObject({
+            code: ErrorCode.STORAGE_ERROR,
+        });
+        expect(db.update).not.toHaveBeenCalled();
+        expect(emitEvent).not.toHaveBeenCalled();
     });
 });
