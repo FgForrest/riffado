@@ -2,6 +2,27 @@
 export const MAX_RECORDING_TITLE_LENGTH = 200;
 
 const DOWNLOAD_PARAM_TRUE = new Set(["1", "true", "yes"]);
+const MAX_STORAGE_BASENAME_BYTES = 240;
+const MEDIA_FILENAME_EXTENSIONS = new Set([
+    "3gp",
+    "aac",
+    "avi",
+    "flac",
+    "m4a",
+    "m4v",
+    "mkv",
+    "mov",
+    "mp3",
+    "mp4",
+    "mpeg",
+    "mpg",
+    "ogg",
+    "ogv",
+    "opus",
+    "wav",
+    "webm",
+    "wmv",
+]);
 
 function stripControlChars(value: string): string {
     let out = "";
@@ -56,27 +77,80 @@ export function sanitizeDownloadBasename(title: string): string {
     return escapeWindowsReservedBasename(truncated);
 }
 
+function utf8Length(value: string): number {
+    return new TextEncoder().encode(value).length;
+}
+
+function truncateUtf8(value: string, maxBytes: number): string {
+    let result = "";
+    for (const char of value) {
+        if (utf8Length(result + char) > maxBytes) break;
+        result += char;
+    }
+    return result;
+}
+
+/** Portable storage filename component derived from a user-facing title. */
+export function sanitizeStorageBasename(title: string): string {
+    return stripControlChars(title)
+        .normalize("NFKD")
+        .replace(/\p{Mark}+/gu, "")
+        .replace(/[^\p{Letter}\p{Number}._-]+/gu, "_")
+        .replace(/_+/g, "_")
+        .replace(/^[._-]+|[._-]+$/g, "");
+}
+
+/** Stable, filesystem-safe filename shared by audio and document sidecars. */
+export function buildRecordingStorageFilename(
+    recordingId: string,
+    title: string,
+    extension: string,
+): string {
+    const ext = extension.replace(/^\.+/, "").toLowerCase();
+    const safeExtension = /^[a-z0-9]+$/.test(ext) ? ext : "mp3";
+    const safeId = sanitizeStorageBasename(recordingId) || "recording";
+    const titleExtension = /\.([a-z0-9]+)$/i.exec(title)?.[1].toLowerCase();
+    const titleWithoutExtension =
+        titleExtension && MEDIA_FILENAME_EXTENSIONS.has(titleExtension)
+            ? title.slice(0, -(titleExtension.length + 1))
+            : title;
+    const safeTitle = sanitizeStorageBasename(titleWithoutExtension);
+    const fixed = `${safeId}-${safeTitle ? "" : "untitled"}.${safeExtension}`;
+    const availableTitleBytes = Math.max(
+        1,
+        MAX_STORAGE_BASENAME_BYTES - utf8Length(fixed),
+    );
+    const boundedTitle = safeTitle
+        ? truncateUtf8(safeTitle, availableTitleBytes).replace(/[._-]+$/g, "")
+        : "untitled";
+    return `${safeId}-${boundedTitle || "untitled"}.${safeExtension}`;
+}
+
+/** User-scoped storage key for a recording's audio file. */
+export function buildRecordingStoragePath(
+    userId: string,
+    recordingId: string,
+    title: string,
+    extension: string,
+): string {
+    return `${userId}/${buildRecordingStorageFilename(recordingId, title, extension)}`;
+}
+
 /**
- * Filesystem-safe download name from the recording title, with the
- * extension taken from `storagePath` (mp3/wav/m4a/…). Falls back to
- * `fallbackId` when the title sanitizes to empty.
+ * Stable ID-prefixed download name from the recording title, with the
+ * extension taken from `storagePath` (mp3/wav/m4a/…). Empty titles use
+ * `untitled` while retaining the recording ID.
  */
 export function buildDownloadFilename(
     title: string,
     storagePath: string,
     fallbackId: string,
 ): string {
-    const ext = audioExtension(storagePath);
-    const extSuffix = `.${ext}`;
-    let base =
-        sanitizeDownloadBasename(title) ||
-        sanitizeDownloadBasename(fallbackId) ||
-        "recording";
-    if (base.toLowerCase().endsWith(extSuffix)) {
-        base = base.slice(0, -extSuffix.length);
-    }
-    base = escapeWindowsReservedBasename(base);
-    return `${base}${extSuffix}`;
+    return buildRecordingStorageFilename(
+        fallbackId,
+        title,
+        audioExtension(storagePath),
+    );
 }
 
 /**

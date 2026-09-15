@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/db", () => ({
-    db: { select: vi.fn() },
+    db: { select: vi.fn(), update: vi.fn() },
 }));
 
 vi.mock("@/lib/encryption/fields", () => ({
@@ -11,11 +11,15 @@ vi.mock("@/lib/encryption/fields", () => ({
 
 const uploadFile = vi.fn().mockResolvedValue("stored");
 const exists = vi.fn().mockResolvedValue(false);
+const copyFile = vi.fn().mockResolvedValue("copied");
+const deleteFile = vi.fn().mockResolvedValue(undefined);
 
 vi.mock("@/lib/storage/factory", () => ({
     createUserStorageProvider: vi.fn().mockResolvedValue({
         uploadFile: (...args: unknown[]) => uploadFile(...args),
         exists: (...args: unknown[]) => exists(...args),
+        copyFile: (...args: unknown[]) => copyFile(...args),
+        deleteFile: (...args: unknown[]) => deleteFile(...args),
     }),
 }));
 
@@ -91,6 +95,7 @@ describe("buildTranscriptMarkdown", () => {
             model: "scribe_v2",
             source: "riffado",
             text: "  Dobry den.  ",
+            participants: ["Jana Novak", "Speaker 1"],
         });
 
         expect(md).toBe(
@@ -98,6 +103,9 @@ describe("buildTranscriptMarkdown", () => {
                 "---",
                 'title: "Board meeting"',
                 "recorded: 2026-09-11T18:42:00.000Z",
+                "participants:",
+                '  - "Jana Novak"',
+                '  - "Speaker 1"',
                 "duration: 01:02:03",
                 'language: "cs"',
                 'source: "riffado"',
@@ -123,11 +131,13 @@ describe("buildTranscriptMarkdown", () => {
             model: "whisper-1",
             source: "riffado",
             text: "x",
+            participants: [],
         });
 
         expect(md).toContain('title: "Q4: \\"budget\\" review"');
         expect(md).toContain("language: null");
         expect(md).toContain("duration: 00:00:00");
+        expect(md).toContain("participants: []");
     });
 });
 
@@ -141,6 +151,7 @@ describe("buildSummaryMarkdown", () => {
             summary: "We agreed the budget.",
             keyPoints: ["Budget approved", "Hiring paused"],
             actionItems: ["Send the deck"],
+            participants: ["Jana Novak", "Speaker 1"],
         });
 
         expect(md).toContain("## Summary\n\nWe agreed the budget.");
@@ -148,6 +159,9 @@ describe("buildSummaryMarkdown", () => {
             "## Key points\n\n- Budget approved\n- Hiring paused",
         );
         expect(md).toContain("## Action items\n\n- Send the deck");
+        expect(md).toContain(
+            'participants:\n  - "Jana Novak"\n  - "Speaker 1"',
+        );
     });
 
     it("omits empty sections", () => {
@@ -159,11 +173,13 @@ describe("buildSummaryMarkdown", () => {
             summary: "Short sync.",
             keyPoints: [],
             actionItems: [],
+            participants: [],
         });
 
         expect(md).toContain("## Summary");
         expect(md).not.toContain("## Key points");
         expect(md).not.toContain("## Action items");
+        expect(md).toContain("participants: []");
     });
 });
 
@@ -183,7 +199,7 @@ function stubTranscriptSidecar(opts: {
                     id: "rec-1",
                     userId: "user-1",
                     filename: "Board meeting",
-                    storagePath: "user-1/Board meeting.mp3",
+                    storagePath: "user-1/rec-1-Board_meeting.mp3",
                     startTime: RECORDED_AT,
                     duration: 60_000,
                     deletedAt: null,
@@ -212,6 +228,8 @@ describe("exportRecordingSidecars", () => {
         vi.clearAllMocks();
         uploadFile.mockResolvedValue("stored");
         exists.mockResolvedValue(false);
+        copyFile.mockResolvedValue("copied");
+        deleteFile.mockResolvedValue(undefined);
     });
 
     it("writes the transcript next to the audio file", async () => {
@@ -223,7 +241,7 @@ describe("exportRecordingSidecars", () => {
                         id: "rec-1",
                         userId: "user-1",
                         filename: "Board meeting",
-                        storagePath: "user-1/Board meeting.mp3",
+                        storagePath: "user-1/rec-1-Board_meeting.mp3",
                         startTime: RECORDED_AT,
                         duration: 60_000,
                         deletedAt: null,
@@ -260,7 +278,7 @@ describe("exportRecordingSidecars", () => {
             Buffer,
             string,
         ];
-        expect(key).toBe("user-1/Board meeting.transcript.md");
+        expect(key).toBe("user-1/rec-1-Board_meeting.transcript.md");
         expect(contentType).toBe("text/markdown; charset=utf-8");
         expect(buffer.toString("utf8")).toContain("Hello there.");
     });
@@ -297,6 +315,7 @@ describe("exportRecordingSidecars", () => {
         expect(body).not.toContain("speaker_0:");
         // The label with nobody behind it stays a label.
         expect(body).toContain("speaker_1: Zdravim.");
+        expect(body).toContain('participants:\n  - "Jan"\n  - "Speaker 1"');
     });
 
     it("leaves the stored transcript untouched when nobody is named", async () => {
@@ -335,7 +354,7 @@ describe("exportRecordingSidecars", () => {
                         id: "rec-1",
                         userId: "user-1",
                         filename: "Board meeting",
-                        storagePath: "user-1/Board meeting.mp3",
+                        storagePath: "user-1/rec-1-Board_meeting.mp3",
                         startTime: RECORDED_AT,
                         duration: 60_000,
                         deletedAt: null,
@@ -382,6 +401,7 @@ describe("exportRecordingSidecars", () => {
         expect(body).toContain("Decision by Jane Doe");
         expect(body).toContain("Follow up with Speaker 1");
         expect(body).not.toContain("](#speaker-");
+        expect(body).toContain('participants:\n  - "Jane Doe"');
     });
 
     it("refreshes only sidecars already present in storage", async () => {
@@ -393,7 +413,7 @@ describe("exportRecordingSidecars", () => {
             .mockReturnValueOnce(
                 rows([
                     {
-                        storagePath: "user-1/Board meeting.mp3",
+                        storagePath: "user-1/rec-1-Board_meeting.mp3",
                     },
                 ]) as never,
             )
@@ -404,7 +424,7 @@ describe("exportRecordingSidecars", () => {
                         id: "rec-1",
                         userId: "user-1",
                         filename: "Board meeting",
-                        storagePath: "user-1/Board meeting.mp3",
+                        storagePath: "user-1/rec-1-Board_meeting.mp3",
                         startTime: RECORDED_AT,
                         duration: 60_000,
                         deletedAt: null,
@@ -431,7 +451,81 @@ describe("exportRecordingSidecars", () => {
         expect(exists).toHaveBeenCalledTimes(2);
         expect(uploadFile).toHaveBeenCalledTimes(1);
         expect(uploadFile.mock.calls[0]?.[0]).toBe(
-            "user-1/Board meeting.transcript.md",
+            "user-1/rec-1-Board_meeting.transcript.md",
+        );
+    });
+
+    it("moves legacy audio and sidecars to the canonical title-based name", async () => {
+        exists.mockResolvedValue(true);
+        vi.mocked(db.select)
+            .mockReturnValueOnce(
+                rows([
+                    {
+                        id: "rec-1",
+                        userId: "user-1",
+                        filename: "Board meeting",
+                        storagePath: "user-1/legacy.mp3",
+                        startTime: RECORDED_AT,
+                        duration: 60_000,
+                        deletedAt: null,
+                    },
+                ]) as never,
+            )
+            .mockReturnValueOnce(rows([]) as never)
+            .mockReturnValueOnce(
+                rows([
+                    {
+                        id: "tr-1",
+                        source: "riffado",
+                        text: "speaker_0: Hello.",
+                        turns: [
+                            {
+                                speaker: "speaker_0",
+                                startMs: 0,
+                                endMs: 1000,
+                                text: "Hello.",
+                            },
+                        ],
+                        provider: "OpenAI",
+                        model: "gpt-4o-transcribe-diarize",
+                        detectedLanguage: "en",
+                    },
+                ]) as never,
+            )
+            .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never)
+            .mockReturnValueOnce(rows([]) as never);
+        vi.mocked(db.update).mockReturnValue({
+            set: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({
+                    returning: vi.fn().mockResolvedValue([
+                        {
+                            storagePath: "user-1/rec-1-Board_meeting.mp3",
+                        },
+                    ]),
+                }),
+            }),
+        } as never);
+
+        await exportRecordingSidecars("user-1", "rec-1", {
+            transcript: true,
+            summary: false,
+        });
+
+        expect(copyFile).toHaveBeenCalledWith(
+            "user-1/legacy.mp3",
+            "user-1/rec-1-Board_meeting.mp3",
+        );
+        expect(copyFile).toHaveBeenCalledWith(
+            "user-1/legacy.transcript.md",
+            "user-1/rec-1-Board_meeting.transcript.md",
+        );
+        expect(copyFile).toHaveBeenCalledWith(
+            "user-1/legacy.summary.md",
+            "user-1/rec-1-Board_meeting.summary.md",
+        );
+        expect(deleteFile).toHaveBeenCalledTimes(3);
+        expect(uploadFile.mock.calls[0]?.[0]).toBe(
+            "user-1/rec-1-Board_meeting.transcript.md",
         );
     });
 
@@ -443,7 +537,7 @@ describe("exportRecordingSidecars", () => {
                         id: "rec-1",
                         userId: "user-1",
                         filename: "Board meeting",
-                        storagePath: "user-1/Board meeting.mp3",
+                        storagePath: "user-1/rec-1-Board_meeting.mp3",
                         startTime: RECORDED_AT,
                         duration: 60_000,
                         deletedAt: null,

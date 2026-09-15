@@ -25,6 +25,8 @@ vi.mock("@/lib/env", () => ({
     },
 }));
 
+vi.mock("nanoid", () => ({ nanoid: () => "new-rec" }));
+
 vi.mock("@/db", () => ({
     db: {
         select: vi.fn(),
@@ -202,7 +204,7 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
             expect(result.errors).toEqual([]);
             expect(storage.uploadFile).toHaveBeenCalledTimes(1);
             const [key, body, contentType] = storage.uploadFile.mock.calls[0];
-            expect(key).toBe("user-160/plaud-160.ogg");
+            expect(key).toBe("user-160/new-rec-2026-05-19_18-06-54.ogg");
             expect(body).toBe(oggBuffer);
             expect(contentType).toBe("audio/ogg");
             expect(storage.deleteFile).not.toHaveBeenCalled();
@@ -343,7 +345,7 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
             expect(result.errors).toEqual([]);
             expect(storage.uploadFile).toHaveBeenCalledTimes(1);
             const [key, body, contentType] = storage.uploadFile.mock.calls[0];
-            expect(key).toBe("user-160/plaud-160.ogg");
+            expect(key).toBe("user-160/local-rec-160-2026-05-19_18-06-54.ogg");
             expect(key).not.toBe(sharedPath);
             expect(body).toBe(oggBuffer);
             expect(contentType).toBe("audio/ogg");

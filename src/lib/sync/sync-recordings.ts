@@ -1,4 +1,5 @@
 import { and, eq, isNull, ne, notInArray, or } from "drizzle-orm";
+import { nanoid } from "nanoid";
 import { db } from "@/db";
 import {
     aiEnhancements,
@@ -29,6 +30,7 @@ import {
     captureServerEvent,
     captureServerException,
 } from "@/lib/posthog-server";
+import { buildRecordingStoragePath } from "@/lib/recordings/filename";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import {
     claimAutoTranscribeIds,
@@ -122,11 +124,17 @@ async function storagePathHeldByOtherRecording(
 
 async function allocateStorageKey(
     userId: string,
-    plaudFileId: string,
+    recordingId: string,
+    title: string,
     ext: string,
 ): Promise<string> {
     const candidate = (suffix: string) =>
-        `${userId}/${plaudFileId}${suffix}.${ext}`;
+        buildRecordingStoragePath(
+            userId,
+            recordingId,
+            `${title}${suffix}`,
+            ext,
+        );
 
     for (let i = 0; i < 100; i++) {
         const suffix = i === 0 ? "" : ` (${i + 1})`;
@@ -138,7 +146,7 @@ async function allocateStorageKey(
                 and(
                     eq(recordings.userId, userId),
                     eq(recordings.storagePath, key),
-                    ne(recordings.plaudFileId, plaudFileId),
+                    ne(recordings.id, recordingId),
                 ),
             )
             .limit(1);
@@ -153,7 +161,8 @@ async function resolveStorageKey(
     userId: string,
     existingRecording: { id: string; storagePath: string | null } | undefined,
     fileExtension: string,
-    plaudFileId: string,
+    recordingId: string,
+    title: string,
 ): Promise<string> {
     if (existingRecording?.storagePath) {
         const shared = await storagePathHeldByOtherRecording(
@@ -163,7 +172,7 @@ async function resolveStorageKey(
         );
         if (!shared) return existingRecording.storagePath;
     }
-    return allocateStorageKey(userId, plaudFileId, fileExtension);
+    return allocateStorageKey(userId, recordingId, title, fileExtension);
 }
 
 /**
@@ -309,6 +318,7 @@ async function processRecording(
             .limit(1);
 
         if (existingRecording) seenRecordingIds.add(existingRecording.id);
+        const recordingId = existingRecording?.id ?? nanoid();
 
         const versionKey = plaudRecording.version_ms.toString();
 
@@ -375,7 +385,8 @@ async function processRecording(
             context.userId,
             existingRecording,
             fileExtension,
-            plaudRecording.id,
+            recordingId,
+            plaudRecording.filename,
         );
         const contentType = sniffed.contentType;
         await storage.uploadFile(storageKey, audioBuffer, contentType);
@@ -467,7 +478,7 @@ async function processRecording(
 
         const [newRecording] = await db
             .insert(recordings)
-            .values(recordingData)
+            .values({ id: recordingId, ...recordingData })
             .returning({ id: recordings.id });
 
         seenRecordingIds.add(newRecording.id);

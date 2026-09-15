@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import {
@@ -10,11 +10,19 @@ import {
 import { requireApiSession } from "@/lib/auth-server";
 import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { refreshExistingRecordingSidecars } from "@/lib/export/document-sidecars";
 import {
+    audioExtension,
+    buildRecordingStoragePath,
     MAX_RECORDING_TITLE_LENGTH,
     normalizeRecordingTitle,
 } from "@/lib/recordings/filename";
+import {
+    copyExistingRecordingFiles,
+    deleteOldRecordingFiles,
+} from "@/lib/recordings/storage-files";
 import { createUserStorageProvider } from "@/lib/storage/factory";
+import type { StorageProvider } from "@/lib/storage/types";
 import { emitEvent } from "@/lib/webhooks/emit";
 import { createRedactedWebhookPayload } from "@/lib/webhooks/payload";
 
@@ -112,16 +120,85 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
         );
     }
 
+    const userId = session.user.id;
+    const [recording] = await db
+        .select({
+            id: recordings.id,
+            storagePath: recordings.storagePath,
+        })
+        .from(recordings)
+        .where(
+            and(
+                eq(recordings.id, id),
+                eq(recordings.userId, userId),
+                isNull(recordings.deletedAt),
+            ),
+        )
+        .limit(1);
+
+    if (!recording) {
+        throw new AppError(
+            ErrorCode.RECORDING_NOT_FOUND,
+            "Recording not found",
+            404,
+        );
+    }
+
+    const newStoragePath = buildRecordingStoragePath(
+        userId,
+        recording.id,
+        filename,
+        audioExtension(recording.storagePath),
+    );
+    let storage: StorageProvider | null = null;
+    let copiedSources: string[] = [];
+    let storagePathIsShared = false;
+
+    if (newStoragePath !== recording.storagePath) {
+        const [shared] = await db
+            .select({ id: recordings.id })
+            .from(recordings)
+            .where(
+                and(
+                    eq(recordings.userId, userId),
+                    eq(recordings.storagePath, recording.storagePath),
+                    ne(recordings.id, id),
+                ),
+            )
+            .limit(1);
+        storagePathIsShared = Boolean(shared);
+        storage = await createUserStorageProvider(userId);
+        try {
+            copiedSources = await copyExistingRecordingFiles(
+                storage,
+                recording.storagePath,
+                newStoragePath,
+            );
+        } catch (error) {
+            console.error(
+                `Failed to rename storage files for recording ${id}:`,
+                error,
+            );
+            throw new AppError(
+                ErrorCode.STORAGE_ERROR,
+                "Failed to rename recording files. Please retry.",
+                500,
+            );
+        }
+    }
+
     const [updated] = await db
         .update(recordings)
         .set({
             filename: encryptText(filename),
+            storagePath: newStoragePath,
             updatedAt: new Date(),
         })
         .where(
             and(
                 eq(recordings.id, id),
-                eq(recordings.userId, session.user.id),
+                eq(recordings.userId, userId),
+                eq(recordings.storagePath, recording.storagePath),
                 isNull(recordings.deletedAt),
             ),
         )
@@ -138,7 +215,13 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
         );
     }
 
-    await emitEvent("recording.updated", session.user.id, updated.id);
+    if (storage && !storagePathIsShared) {
+        await deleteOldRecordingFiles(storage, copiedSources, id);
+    }
+
+    await refreshExistingRecordingSidecars(userId, id);
+
+    await emitEvent("recording.updated", userId, updated.id);
 
     return NextResponse.json({
         filename: decryptText(updated.filename),

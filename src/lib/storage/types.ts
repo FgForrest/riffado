@@ -25,6 +25,8 @@ export interface StorageProvider {
         stream: Readable,
         contentType: string,
     ): Promise<string>;
+    /** Efficient server-side copy when the backend supports it. */
+    copyFile?(sourceKey: string, destinationKey: string): Promise<string>;
     /** Cheap existence check, used to fail fast with a placeholder instead of starting a stream that will error partway through. */
     exists(key: string): Promise<boolean>;
     getSignedUrl(key: string, expiresIn: number): Promise<string>;

@@ -1,11 +1,13 @@
 import { createHash } from "node:crypto";
 import { parseBuffer } from "music-metadata";
+import { nanoid } from "nanoid";
 import { db } from "@/db";
 import { recordings } from "@/db/schema";
 import { encryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { captureServerEvent } from "@/lib/posthog-server";
+import { buildRecordingStoragePath } from "@/lib/recordings/filename";
 import type { StorageProvider } from "@/lib/storage/types";
 import { autoTranscribeNewRecording } from "@/lib/transcription/auto-transcribe-new-recording";
 import { getAudioMimeType } from "@/lib/utils";
@@ -50,7 +52,13 @@ async function getAudioDurationMs(
 export async function saveUploadedAudio(
     input: SaveUploadedAudioInput,
 ): Promise<SavedUploadedAudio> {
-    const storageKey = `${input.userId}/${input.fileId}${input.extension}`;
+    const recordingId = nanoid();
+    const storageKey = buildRecordingStoragePath(
+        input.userId,
+        recordingId,
+        input.basename,
+        input.extension,
+    );
     const contentType = getAudioMimeType(storageKey);
     const durationMs = await getAudioDurationMs(input.buffer, contentType);
 
@@ -67,11 +75,11 @@ export async function saveUploadedAudio(
 
     await input.storage.uploadFile(storageKey, input.buffer, contentType);
 
-    let recordingId: string;
     try {
         const [recording] = await db
             .insert(recordings)
             .values({
+                id: recordingId,
                 userId: input.userId,
                 deviceSn: "local",
                 plaudFileId: input.fileId,
@@ -92,7 +100,9 @@ export async function saveUploadedAudio(
         if (!recording) {
             throw new Error("Recording insert did not return a row");
         }
-        recordingId = recording.id;
+        if (recording.id !== recordingId) {
+            throw new Error("Recording insert returned an unexpected id");
+        }
     } catch (dbError) {
         try {
             await input.storage.deleteFile(storageKey);
