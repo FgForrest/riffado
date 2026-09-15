@@ -69,7 +69,7 @@ export function WorkstationHeader({
 }: Props) {
     return (
         <AppHeader>
-            <div className="flex min-w-0 items-baseline gap-3">
+            <div className="flex min-w-0 items-center gap-3">
                 {/*
                   The section nav doubles as the page title: "Recordings" is
                   the current section and reads exactly as the heading it
