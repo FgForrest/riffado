@@ -92,6 +92,41 @@ function transcriptSourceLabel(source: string): string {
     return "Custom";
 }
 
+function SourceSwitcher({
+    ariaLabel,
+    sources,
+    value,
+    onSelect,
+}: {
+    ariaLabel: string;
+    sources: readonly string[];
+    value: string;
+    onSelect: (source: string) => void;
+}) {
+    return (
+        <fieldset
+            className="inline-flex shrink-0 rounded-lg bg-muted/70 p-1"
+            aria-label={ariaLabel}
+        >
+            {sources.map((source) => (
+                <button
+                    key={source}
+                    type="button"
+                    onClick={() => onSelect(source)}
+                    aria-pressed={source === value}
+                    className={`rounded-md px-3 py-1.5 text-sm font-medium transition-all ${
+                        source === value
+                            ? "bg-primary text-primary-foreground shadow-sm"
+                            : "text-muted-foreground hover:bg-background/50 hover:text-foreground"
+                    }`}
+                >
+                    {transcriptSourceLabel(source)}
+                </button>
+            ))}
+        </fieldset>
+    );
+}
+
 /**
  * Normalise the two transcript-shaped props into one list.
  *
@@ -273,12 +308,22 @@ export function TranscriptionPanel({
             {/* Transcription Card */}
             <Card>
                 <CardHeader>
-                    <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
                         <CardTitle className="flex items-center gap-2">
                             <FileText className="size-5" />
                             Transcription
                         </CardTitle>
                         <div className="flex flex-wrap items-center gap-2">
+                            {transcriptList.length > 1 && activeTranscript && (
+                                <SourceSwitcher
+                                    ariaLabel="Transcript source"
+                                    sources={transcriptList.map(
+                                        (candidate) => candidate.source,
+                                    )}
+                                    value={activeTranscript.source}
+                                    onSelect={setActiveSource}
+                                />
+                            )}
                             {activeTranscript?.text && (
                                 <MarkdownActions
                                     recordingId={recording.id}
@@ -388,31 +433,6 @@ export function TranscriptionPanel({
                             </button>
                             {transcriptExpanded && (
                                 <div className="space-y-4">
-                                    {transcriptList.length > 1 && (
-                                        <div className="flex items-center gap-2 border-b pb-2">
-                                            {transcriptList.map((t) => (
-                                                <button
-                                                    key={t.source}
-                                                    type="button"
-                                                    onClick={() =>
-                                                        setActiveSource(
-                                                            t.source,
-                                                        )
-                                                    }
-                                                    className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                                                        t.source ===
-                                                        activeTranscript.source
-                                                            ? "bg-primary text-neutral-950"
-                                                            : "bg-muted text-muted-foreground hover:text-foreground"
-                                                    }`}
-                                                >
-                                                    {transcriptSourceLabel(
-                                                        t.source,
-                                                    )}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    )}
                                     <section
                                         aria-label="Transcript content"
                                         className="max-h-96 overflow-y-auto rounded-lg bg-muted p-4"
@@ -485,39 +505,26 @@ export function TranscriptionPanel({
             {activeTranscript?.text && (
                 <Card>
                     <CardHeader>
-                        <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
                             <CardTitle className="flex items-center gap-2">
                                 <ListChecks className="size-5" />
                                 Summary
                             </CardTitle>
                             <div className="flex flex-wrap items-center gap-2">
-                                <fieldset
-                                    className="flex rounded-md bg-muted p-0.5"
-                                    aria-label="Summary source"
-                                >
-                                    {(["plaud", "riffado"] as const).map(
-                                        (source) => (
-                                            <button
-                                                key={source}
-                                                type="button"
-                                                onClick={() =>
-                                                    setSummarySelection({
-                                                        recordingId:
-                                                            recording.id,
-                                                        source,
-                                                    })
-                                                }
-                                                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                                                    source === summarySource
-                                                        ? "bg-background text-foreground shadow-sm"
-                                                        : "text-muted-foreground hover:text-foreground"
-                                                }`}
-                                            >
-                                                {transcriptSourceLabel(source)}
-                                            </button>
-                                        ),
-                                    )}
-                                </fieldset>
+                                <SourceSwitcher
+                                    ariaLabel="Summary source"
+                                    sources={["plaud", "riffado"]}
+                                    value={summarySource}
+                                    onSelect={(source) =>
+                                        setSummarySelection({
+                                            recordingId: recording.id,
+                                            source:
+                                                source === "plaud"
+                                                    ? "plaud"
+                                                    : "riffado",
+                                        })
+                                    }
+                                />
                                 {summaryData?.summary && (
                                     <MarkdownActions
                                         recordingId={recording.id}
@@ -567,7 +574,7 @@ export function TranscriptionPanel({
                                         ) : summaryData ? (
                                             <>
                                                 <RefreshCw className="size-4 mr-2" />
-                                                Re-generate
+                                                Re-summarize
                                             </>
                                         ) : (
                                             <>

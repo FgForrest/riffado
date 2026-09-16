@@ -3,7 +3,8 @@
 import type * as React from "react";
 import { useImperativeHandle } from "react";
 import { RecordingPlayerControls } from "@/components/dashboard/recording-player-controls";
-import { RecordingPlayerHeader } from "@/components/dashboard/recording-player-header";
+import { RecordingWaveformStatus } from "@/components/dashboard/recording-player-header";
+import { DownloadAudioButton } from "@/components/recordings/download-audio-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { usePlaybackEngine } from "@/hooks/use-playback-engine";
 import { usePlaybackKeyboard } from "@/hooks/use-playback-keyboard";
@@ -13,7 +14,6 @@ import type { Recording } from "@/types/recording";
 interface RecordingPlayerProps {
     recording: Recording;
     onEnded?: () => void;
-    onRenamed?: (filename: string) => void;
     initialPlaybackSpeed?: number;
     initialVolume?: number;
     initialAutoPlayNext?: boolean;
@@ -40,7 +40,6 @@ export interface RecordingPlayerHandle {
 export function RecordingPlayer({
     recording,
     onEnded,
-    onRenamed,
     initialPlaybackSpeed = 1.0,
     initialVolume = 75,
     initialAutoPlayNext = false,
@@ -71,12 +70,6 @@ export function RecordingPlayer({
 
     useImperativeHandle(ref, () => ({ seekTo: seekToTime }), [seekToTime]);
 
-    // With the audio gone there is nothing to decode and nothing to
-    // scrub. The header keys every waveform affordance off this value,
-    // so collapsing it here is what removes the "Generate waveform"
-    // button that would otherwise sit there fetching a 410.
-    const effectiveScrubber = recording.audioReaped ? "slider" : scrubberStyle;
-
     usePlaybackKeyboard({
         onToggle: togglePlayPause,
         onSeekRelative: seekRelative,
@@ -101,57 +94,44 @@ export function RecordingPlayer({
         // waveform UI -- there's no point spending CPU on peaks the
         // player will never display -- or when retention has removed the
         // audio, where the decode could only ever fetch a 410.
-        autoStart: effectiveScrubber === "waveform",
+        autoStart: scrubberStyle === "waveform",
     });
 
     return (
-        <Card>
-            <RecordingPlayerHeader
-                recording={recording}
-                duration={duration}
-                scrubberStyle={effectiveScrubber}
-                waveformStatus={waveformStatus}
-                onDecodeWaveform={triggerWaveformDecode}
-                onRenamed={onRenamed}
-            />
-            <CardContent>
-                {recording.audioReaped ? (
-                    // Retention deleted the blob but kept the recording.
-                    // Rendering the transport here would offer a play
-                    // button that can only ever produce an error, so say
-                    // what happened instead. The transcript and summary
-                    // panes are unaffected and still render below.
-                    <p className="text-sm text-muted-foreground">
-                        Audio was removed from local storage. The transcript and
-                        summary below are unaffected.
-                    </p>
-                ) : (
-                    <>
-                        <RecordingPlayerControls
-                            isPlaying={isPlaying}
-                            onTogglePlay={togglePlayPause}
-                            currentTime={currentTime}
-                            duration={duration}
-                            onSeekRatio={seekToRatio}
-                            playbackSpeed={playbackSpeed}
-                            onCycleSpeed={cycleSpeed}
-                            volume={volume}
-                            onVolumeChange={setVolume}
-                            onToggleMute={toggleMute}
-                            scrubberStyle={scrubberStyle}
-                            waveformPeaks={waveformPeaks}
-                        />
+        <Card className="gap-3 py-5 sm:py-6">
+            <CardContent className="space-y-2">
+                <RecordingPlayerControls
+                    isPlaying={isPlaying}
+                    onTogglePlay={togglePlayPause}
+                    currentTime={currentTime}
+                    duration={duration}
+                    onSeekRatio={seekToRatio}
+                    playbackSpeed={playbackSpeed}
+                    onCycleSpeed={cycleSpeed}
+                    volume={volume}
+                    onVolumeChange={setVolume}
+                    onToggleMute={toggleMute}
+                    scrubberStyle={scrubberStyle}
+                    waveformPeaks={waveformPeaks}
+                    trailingAction={
+                        <DownloadAudioButton recordingId={recording.id} />
+                    }
+                />
 
-                        <audio
-                            ref={audioRef}
-                            src={`/api/recordings/${recording.id}/audio`}
-                            preload="metadata"
-                            className="hidden"
-                        >
-                            <track kind="captions" />
-                        </audio>
-                    </>
-                )}
+                <RecordingWaveformStatus
+                    scrubberStyle={scrubberStyle}
+                    waveformStatus={waveformStatus}
+                    onDecodeWaveform={triggerWaveformDecode}
+                />
+
+                <audio
+                    ref={audioRef}
+                    src={`/api/recordings/${recording.id}/audio`}
+                    preload="metadata"
+                    className="hidden"
+                >
+                    <track kind="captions" />
+                </audio>
             </CardContent>
         </Card>
     );
