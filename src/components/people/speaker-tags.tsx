@@ -29,6 +29,7 @@ interface SpeakerTagsProps {
     recordingId: string;
     source: string;
     speakers: TranscriptSpeakerTag[];
+    attributions: SpeakerAttributions;
     onAttributionsChange: (attributions: SpeakerAttributions) => void;
 }
 
@@ -59,24 +60,17 @@ export function SpeakerTags({
     recordingId,
     source,
     speakers,
+    attributions,
     onAttributionsChange,
 }: SpeakerTagsProps) {
-    const attributionKey = `${recordingId}:${source}`;
-    const [attributionState, setAttributionState] = useState<{
-        key: string;
-        values: SpeakerAttributions;
-    }>({ key: "", values: {} });
-    const attributions =
-        attributionState.key === attributionKey ? attributionState.values : {};
     const [openLabel, setOpenLabel] = useState<string | null>(null);
     const [savingLabel, setSavingLabel] = useState<string | null>(null);
 
     const applyAttributions = useCallback(
         (next: SpeakerAttributions) => {
-            setAttributionState({ key: attributionKey, values: next });
             onAttributionsChange(next);
         },
-        [attributionKey, onAttributionsChange],
+        [onAttributionsChange],
     );
 
     useEffect(() => {

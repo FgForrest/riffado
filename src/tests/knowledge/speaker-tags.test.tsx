@@ -7,8 +7,11 @@ import {
     screen,
     waitFor,
 } from "@testing-library/react";
+import { useCallback, useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Markdown } from "@/components/markdown";
 import { SpeakerTags } from "@/components/people/speaker-tags";
+import type { SpeakerAttributions } from "@/lib/knowledge/speaker-references";
 
 interface FetchScenario {
     initialSpeakers?: unknown[];
@@ -34,14 +37,53 @@ function stubFetch(scenario: FetchScenario) {
     return fetchMock;
 }
 
-function renderTags(onAttributionsChange = vi.fn()) {
-    return render(
+function SpeakerTagsHarness({
+    onAttributionsChange,
+}: {
+    onAttributionsChange: (attributions: SpeakerAttributions) => void;
+}) {
+    const [attributions, setAttributions] = useState<SpeakerAttributions>({});
+    const handleAttributionsChange = useCallback(
+        (next: SpeakerAttributions) => {
+            setAttributions(next);
+            onAttributionsChange(next);
+        },
+        [onAttributionsChange],
+    );
+
+    return (
         <SpeakerTags
             recordingId="rec-1"
             source="riffado"
             speakers={[{ speaker: "speaker_0", label: "Speaker 0" }]}
-            onAttributionsChange={onAttributionsChange}
-        />,
+            attributions={attributions}
+            onAttributionsChange={handleAttributionsChange}
+        />
+    );
+}
+
+function renderTags(onAttributionsChange = vi.fn()) {
+    return render(
+        <SpeakerTagsHarness onAttributionsChange={onAttributionsChange} />,
+    );
+}
+
+function SpeakerSummaryHarness() {
+    const [attributions, setAttributions] = useState<SpeakerAttributions>({});
+
+    return (
+        <>
+            <SpeakerTags
+                recordingId="rec-1"
+                source="plaud"
+                speakers={[{ speaker: "Speaker 0", label: "Speaker 0" }]}
+                attributions={attributions}
+                onAttributionsChange={setAttributions}
+            />
+            <Markdown speakerAttributions={attributions}>
+                {"### Attendees\n\n- Speaker 0 — leads the meeting"}
+            </Markdown>
+        </>
     );
 }
 
@@ -184,17 +226,32 @@ describe("SpeakerTags", () => {
         const { rerender } = renderTags(initialChange);
         await screen.findByRole("link", { name: "Jan" });
 
-        rerender(
-            <SpeakerTags
-                recordingId="rec-1"
-                source="riffado"
-                speakers={[{ speaker: "speaker_0", label: "Speaker 0" }]}
-                onAttributionsChange={refreshedChange}
-            />,
-        );
+        rerender(<SpeakerTagsHarness onAttributionsChange={refreshedChange} />);
 
         await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
         expect(screen.getByRole("link", { name: "Jan" })).toBeDefined();
         expect(refreshedChange).not.toHaveBeenCalledWith({});
+    });
+
+    it("projects loaded speaker attributions into summary references", async () => {
+        stubFetch({
+            initialSpeakers: [
+                {
+                    label: "Speaker 0",
+                    personId: "person-1",
+                    personName: "Jakub Kosař",
+                    status: "confirmed",
+                },
+            ],
+        });
+
+        render(<SpeakerSummaryHarness />);
+
+        await waitFor(() => {
+            expect(
+                screen.getAllByRole("link", { name: "Jakub Kosař" }),
+            ).toHaveLength(2);
+        });
+        expect(screen.queryByRole("link", { name: "Speaker 0" })).toBeNull();
     });
 });
