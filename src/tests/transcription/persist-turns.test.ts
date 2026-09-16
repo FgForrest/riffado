@@ -29,12 +29,15 @@ interface Harness {
     updated: Record<string, unknown>[];
 }
 
-function stubTransaction(existing: { id: string } | null): Harness {
+function stubTransaction(
+    existing: { id: string } | null,
+    recordingState: {
+        deletedAt: Date | null;
+        transcriptReapedAt?: Date | null;
+    } = { deletedAt: null },
+): Harness {
     const harness: Harness = { inserted: [], updated: [] };
-    const answers: unknown[][] = [
-        [{ deletedAt: null }],
-        existing ? [existing] : [],
-    ];
+    const answers: unknown[][] = [[recordingState], existing ? [existing] : []];
     let call = 0;
 
     const tx = {
@@ -68,7 +71,7 @@ function stubTransaction(existing: { id: string } | null): Harness {
     return harness;
 }
 
-function upsert(turns?: TranscriptTurn[]) {
+function upsert(turns?: TranscriptTurn[], allowReaped = false) {
     return upsertTranscription({
         userId: "user-1",
         recordingId: "rec-1",
@@ -78,6 +81,7 @@ function upsert(turns?: TranscriptTurn[]) {
         provider: "speechmatics",
         model: "enhanced+diarize",
         turns,
+        allowReaped,
     });
 }
 
@@ -143,5 +147,29 @@ describe("upsertTranscription and turns", () => {
         );
 
         expect(await upsert(TURNS)).toEqual({ committed: false });
+    });
+
+    it("does not recreate an explicitly erased transcript automatically", async () => {
+        const harness = stubTransaction(null, {
+            deletedAt: null,
+            transcriptReapedAt: new Date(),
+        });
+
+        expect(await upsert(TURNS)).toEqual({ committed: false });
+        expect(harness.inserted).toHaveLength(0);
+        expect(harness.updated).toHaveLength(0);
+    });
+
+    it("lets a manual run replace an erased transcript and clears suppression", async () => {
+        const harness = stubTransaction(null, {
+            deletedAt: null,
+            transcriptReapedAt: new Date(),
+        });
+
+        expect(await upsert(TURNS, true)).toEqual({ committed: true });
+        expect(harness.inserted).toHaveLength(1);
+        expect(harness.updated.at(-1)).toMatchObject({
+            transcriptReapedAt: null,
+        });
     });
 });

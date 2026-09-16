@@ -18,6 +18,12 @@ export interface PlaudUpdateFilenameResponse {
     data_file?: unknown;
 }
 
+export interface PlaudMoveToTrashResponse {
+    status: number;
+    msg: string;
+    data_file?: unknown;
+}
+
 export const DEFAULT_PLAUD_API_BASE = PLAUD_SERVERS[DEFAULT_SERVER_KEY].apiBase;
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000;
@@ -335,6 +341,14 @@ export class PlaudClient {
         return this.request<PlaudUpdateFilenameResponse>(`/file/${fileId}`, {
             method: "PATCH",
             body: JSON.stringify({ filename }),
+        });
+    }
+
+    /** Move a Plaud recording to Trash. Plaud requires a separate action to permanently empty Trash. */
+    async moveFileToTrash(fileId: string): Promise<PlaudMoveToTrashResponse> {
+        return this.request<PlaudMoveToTrashResponse>(`/file/${fileId}`, {
+            method: "PATCH",
+            body: JSON.stringify({ is_trash: true }),
         });
     }
 }

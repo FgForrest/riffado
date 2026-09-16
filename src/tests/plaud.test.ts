@@ -183,6 +183,27 @@ describe("PlaudClient", () => {
         });
     });
 
+    describe("moveFileToTrash", () => {
+        it("patches the Plaud recording without permanently deleting it", async () => {
+            const mockResponse = { status: 0, msg: "success" };
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(mockResponse),
+            });
+
+            const result = await client.moveFileToTrash("file-123");
+
+            expect(fetch).toHaveBeenCalledWith(
+                `${DEFAULT_PLAUD_API_BASE}/file/file-123`,
+                expect.objectContaining({
+                    method: "PATCH",
+                    body: JSON.stringify({ is_trash: true }),
+                }),
+            );
+            expect(result).toEqual(mockResponse);
+        });
+    });
+
     describe("getTempUrl", () => {
         it("should get temp URL for OPUS format by default", async () => {
             const mockResponse = {

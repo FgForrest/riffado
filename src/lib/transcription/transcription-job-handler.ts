@@ -1,6 +1,7 @@
 import { AppError, ErrorCode } from "@/lib/errors";
 import { isRetryableError } from "@/lib/jobs/retryable";
 import type { JobHandler, JobResult } from "@/lib/jobs/types";
+import { allowManualArtifactGeneration } from "@/lib/recordings/erase";
 import {
     type TranscribeErrorCode,
     transcribeRecording,
@@ -71,6 +72,19 @@ export const transcriptionJobHandler: JobHandler<TranscriptionJobPayload> = {
             : isRetryableError(error),
 
     async run({ payload, userId }): Promise<JobResult> {
+        const allowed = await allowManualArtifactGeneration(
+            userId,
+            payload.recordingId,
+            "transcript",
+            payload.trigger === "manual",
+        );
+        if (!allowed) {
+            throw new CompletedTranscriptionFailure(
+                ErrorCode.RECORDING_DATA_REAPED,
+                "Transcript was erased and can only be recreated manually",
+                410,
+            );
+        }
         const result = await transcribeRecording(userId, payload.recordingId, {
             trigger: payload.trigger,
             providerId: payload.providerId,

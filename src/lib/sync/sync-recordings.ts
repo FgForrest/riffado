@@ -102,6 +102,8 @@ interface ImportCandidate {
     isSummary: boolean;
     /** Recording length in milliseconds, per `PlaudRecording.duration`. */
     durationMs: number;
+    transcriptSuppressed: boolean;
+    summarySuppressed: boolean;
 }
 
 async function storagePathHeldByOtherRecording(
@@ -162,6 +164,10 @@ async function queueStorageReconciliation(
 function buildImportCandidate(
     recordingId: string,
     plaudRecording: PlaudRecording,
+    suppression?: {
+        transcriptReapedAt: Date | null;
+        summaryReapedAt: Date | null;
+    },
 ): ImportCandidate | undefined {
     if (plaudRecording.is_trash) return undefined;
     if (!plaudRecording.is_trans && !plaudRecording.is_summary) {
@@ -173,13 +179,20 @@ function buildImportCandidate(
         isTrans: plaudRecording.is_trans,
         isSummary: plaudRecording.is_summary,
         durationMs: plaudRecording.duration,
+        transcriptSuppressed: suppression?.transcriptReapedAt != null,
+        summarySuppressed: suppression?.summaryReapedAt != null,
     };
 }
 
 async function loadPlaudContentGaps(
     userId: string,
     recordingId: string,
-    flags: { isTrans: boolean; isSummary: boolean },
+    flags: {
+        isTrans: boolean;
+        isSummary: boolean;
+        transcriptSuppressed?: boolean;
+        summarySuppressed?: boolean;
+    },
 ): Promise<{
     needsTranscript: boolean;
     needsSummary: boolean;
@@ -187,7 +200,7 @@ async function loadPlaudContentGaps(
 }> {
     let needsTranscript = false;
     let hasPlaudTranscript = false;
-    if (flags.isTrans) {
+    if (flags.isTrans && !flags.transcriptSuppressed) {
         const [existing] = await db
             .select({ id: transcriptions.id })
             .from(transcriptions)
@@ -204,7 +217,7 @@ async function loadPlaudContentGaps(
     }
 
     let needsSummary = false;
-    if (flags.isSummary) {
+    if (flags.isSummary && !flags.summarySuppressed) {
         const [existing] = await db
             .select({ id: aiEnhancements.id })
             .from(aiEnhancements)
@@ -230,7 +243,13 @@ async function hasUnseenPlaudContentGaps(
         eq(recordings.userId, userId),
         isNull(recordings.deletedAt),
         ne(recordings.deviceSn, "local"),
-        or(isNull(transcriptions.id), isNull(aiEnhancements.id)),
+        or(
+            and(
+                isNull(transcriptions.id),
+                isNull(recordings.transcriptReapedAt),
+            ),
+            and(isNull(aiEnhancements.id), isNull(recordings.summaryReapedAt)),
+        ),
     ];
     if (seenRecordingIds.size > 0) {
         conditions.push(notInArray(recordings.id, [...seenRecordingIds]));
@@ -303,14 +322,15 @@ async function processRecording(
 
         const versionKey = plaudRecording.version_ms.toString();
 
-        if (
-            existingRecording &&
-            existingRecording.plaudVersion === versionKey
-        ) {
+        // An explicitly erased audio blob stays erased even when Plaud's
+        // metadata version changes. The user can restore it from the erase
+        // menu; background sync must never silently recreate deleted data.
+        if (existingRecording?.audioReapedAt) {
             if (context.importPlaudContent && !existingRecording.deletedAt) {
                 const importCandidate = buildImportCandidate(
                     existingRecording.id,
                     plaudRecording,
+                    existingRecording,
                 );
                 if (importCandidate) {
                     const gaps = await loadPlaudContentGaps(
@@ -319,6 +339,45 @@ async function processRecording(
                         {
                             isTrans: importCandidate.isTrans,
                             isSummary: importCandidate.isSummary,
+                            transcriptSuppressed:
+                                importCandidate.transcriptSuppressed,
+                            summarySuppressed:
+                                importCandidate.summarySuppressed,
+                        },
+                    );
+                    if (gaps.needsTranscript || gaps.needsSummary) {
+                        return {
+                            status: "skipped",
+                            recordingId: existingRecording.id,
+                            importCandidate,
+                        };
+                    }
+                }
+            }
+            return { status: "skipped" };
+        }
+
+        if (
+            existingRecording &&
+            existingRecording.plaudVersion === versionKey
+        ) {
+            if (context.importPlaudContent && !existingRecording.deletedAt) {
+                const importCandidate = buildImportCandidate(
+                    existingRecording.id,
+                    plaudRecording,
+                    existingRecording,
+                );
+                if (importCandidate) {
+                    const gaps = await loadPlaudContentGaps(
+                        context.userId,
+                        existingRecording.id,
+                        {
+                            isTrans: importCandidate.isTrans,
+                            isSummary: importCandidate.isSummary,
+                            transcriptSuppressed:
+                                importCandidate.transcriptSuppressed,
+                            summarySuppressed:
+                                importCandidate.summarySuppressed,
                         },
                     );
                     if (gaps.needsTranscript || gaps.needsSummary) {
@@ -457,6 +516,7 @@ async function processRecording(
                 importCandidate: buildImportCandidate(
                     existingRecording.id,
                     plaudRecording,
+                    existingRecording,
                 ),
             };
         }
@@ -989,6 +1049,8 @@ async function importPlaudContent(
                 {
                     isTrans: candidate.isTrans,
                     isSummary: candidate.isSummary,
+                    transcriptSuppressed: candidate.transcriptSuppressed,
+                    summarySuppressed: candidate.summarySuppressed,
                 },
             );
             if (gaps.hasPlaudTranscript) {

@@ -54,7 +54,9 @@ export function RecordingPlayerHeader({
                 />
             </CardTitle>
             <CardAction>
-                <DownloadAudioButton recordingId={recording.id} />
+                {!recording.audioReaped && (
+                    <DownloadAudioButton recordingId={recording.id} />
+                )}
             </CardAction>
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                 {metaParts.map((part, i) => (

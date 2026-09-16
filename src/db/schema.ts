@@ -533,7 +533,7 @@ export const aiEnhancements = pgTable(
             .references(() => users.id, { onDelete: "cascade" }),
         transcriptionId: text("transcription_id").references(
             () => transcriptions.id,
-            { onDelete: "cascade" },
+            { onDelete: "set null" },
         ),
         summary: text("summary"),
         actionItems: jsonb("action_items"), // Array of action items

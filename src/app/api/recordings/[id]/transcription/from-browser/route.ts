@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { allowManualArtifactGeneration } from "@/lib/recordings/erase";
 import { storeBrowserTranscription } from "@/lib/transcription/transcribe-recording";
 
 type IdContext = { params: Promise<{ id: string }> };
@@ -39,6 +40,20 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
             "Invalid request body",
             400,
             { issues: parsed.error.flatten() },
+        );
+    }
+
+    const allowed = await allowManualArtifactGeneration(
+        session.user.id,
+        id,
+        "transcript",
+        true,
+    );
+    if (!allowed) {
+        throw new AppError(
+            ErrorCode.RECORDING_NOT_FOUND,
+            "Recording not found",
+            404,
         );
     }
 

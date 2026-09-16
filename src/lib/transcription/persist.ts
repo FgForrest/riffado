@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { aiEnhancements, recordings, transcriptions } from "@/db/schema";
 import { encryptJsonField, encryptText } from "@/lib/encryption/fields";
@@ -34,6 +34,8 @@ export interface UpsertTranscriptionArgs {
      * instead of leaving them beside text they no longer describe.
      */
     turns?: TranscriptTurn[];
+    /** Permit an explicit user action to replace a deliberately erased transcript. */
+    allowReaped?: boolean;
 }
 
 export interface UpsertEnhancementArgs {
@@ -61,6 +63,8 @@ export interface UpsertEnhancementArgs {
         passesUsed: number;
         merged: boolean;
     };
+    /** Permit an explicit user action to replace a deliberately erased summary. */
+    allowReaped?: boolean;
 }
 
 /**
@@ -72,7 +76,7 @@ export interface UpsertResult {
     committed: boolean;
 }
 
-const RECORDING_TOMBSTONED = Symbol("recording-tombstoned");
+const RECORDING_WRITE_BLOCKED = Symbol("recording-write-blocked");
 
 // Both upserts run inside a transaction that takes a row-level write lock
 // (`FOR UPDATE`) on the recording and re-checks the soft-delete tombstone, so
@@ -99,12 +103,16 @@ export async function upsertTranscription(
         model,
         transcriptionType = "server",
         turns,
+        allowReaped = false,
     } = args;
 
     try {
         await db.transaction(async (tx) => {
             const [stillActive] = await tx
-                .select({ deletedAt: recordings.deletedAt })
+                .select({
+                    deletedAt: recordings.deletedAt,
+                    transcriptReapedAt: recordings.transcriptReapedAt,
+                })
                 .from(recordings)
                 .where(
                     and(
@@ -115,8 +123,12 @@ export async function upsertTranscription(
                 .for("update")
                 .limit(1);
 
-            if (!stillActive || stillActive.deletedAt) {
-                throw RECORDING_TOMBSTONED;
+            if (
+                !stillActive ||
+                stillActive.deletedAt ||
+                (stillActive.transcriptReapedAt && !allowReaped)
+            ) {
+                throw RECORDING_WRITE_BLOCKED;
             }
 
             const [current] = await tx
@@ -172,26 +184,17 @@ export async function upsertTranscription(
                 .update(recordings)
                 .set({
                     updatedAt: new Date(),
-                    // There is a transcript again, so a retention marker
-                    // left over from an earlier sweep no longer describes
-                    // reality. Clearing it here -- the one place every
-                    // transcript write passes through, server, browser and
-                    // Plaud import alike -- stops the marker telling the UI
-                    // the transcript is gone, and stops auto-transcribe's
-                    // "already reaped, leave it alone" skip from applying
-                    // to a recording that now has one.
                     transcriptReapedAt: null,
                 })
                 .where(
                     and(
                         eq(recordings.id, recordingId),
                         eq(recordings.userId, userId),
-                        isNull(recordings.deletedAt),
                     ),
                 );
         });
     } catch (txError) {
-        if (txError === RECORDING_TOMBSTONED) {
+        if (txError === RECORDING_WRITE_BLOCKED) {
             return { committed: false };
         }
         throw txError;
@@ -218,12 +221,16 @@ export async function upsertEnhancement(
         provider,
         model,
         multiPass,
+        allowReaped = false,
     } = args;
 
     try {
         await db.transaction(async (tx) => {
             const [stillActive] = await tx
-                .select({ deletedAt: recordings.deletedAt })
+                .select({
+                    deletedAt: recordings.deletedAt,
+                    summaryReapedAt: recordings.summaryReapedAt,
+                })
                 .from(recordings)
                 .where(
                     and(
@@ -234,8 +241,12 @@ export async function upsertEnhancement(
                 .for("update")
                 .limit(1);
 
-            if (!stillActive || stillActive.deletedAt) {
-                throw RECORDING_TOMBSTONED;
+            if (
+                !stillActive ||
+                stillActive.deletedAt ||
+                (stillActive.summaryReapedAt && !allowReaped)
+            ) {
+                throw RECORDING_WRITE_BLOCKED;
             }
 
             const [existing] = await tx
@@ -299,21 +310,17 @@ export async function upsertEnhancement(
                 .update(recordings)
                 .set({
                     updatedAt: new Date(),
-                    // Mirrors the transcript case above: a summary exists
-                    // again, so the retention marker that said otherwise
-                    // has to go.
                     summaryReapedAt: null,
                 })
                 .where(
                     and(
                         eq(recordings.id, recordingId),
                         eq(recordings.userId, userId),
-                        isNull(recordings.deletedAt),
                     ),
                 );
         });
     } catch (txError) {
-        if (txError === RECORDING_TOMBSTONED) {
+        if (txError === RECORDING_WRITE_BLOCKED) {
             return { committed: false };
         }
         throw txError;

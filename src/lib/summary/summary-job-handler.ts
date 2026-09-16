@@ -17,8 +17,10 @@
  * an OpenAI client and the webhook emitter into the API route.
  */
 
+import { AppError, ErrorCode } from "@/lib/errors";
 import { describeJobError, isRetryableError } from "@/lib/jobs/retryable";
 import type { JobHandler, JobResult } from "@/lib/jobs/types";
+import { allowManualArtifactGeneration } from "@/lib/recordings/erase";
 import { emitEvent } from "@/lib/webhooks/emit";
 import { generateSummaryForRecording } from "./generate-summary";
 import {
@@ -52,6 +54,19 @@ export const summaryJobHandler: JobHandler<SummaryJobPayload> = {
         reportProgress,
     }): Promise<JobResult> {
         try {
+            const allowed = await allowManualArtifactGeneration(
+                userId,
+                payload.recordingId,
+                "summary",
+                payload.trigger === "manual",
+            );
+            if (!allowed) {
+                throw new AppError(
+                    ErrorCode.RECORDING_DATA_REAPED,
+                    "Summary was erased and can only be recreated manually",
+                    410,
+                );
+            }
             const result = await generateSummaryForRecording(
                 userId,
                 payload.recordingId,

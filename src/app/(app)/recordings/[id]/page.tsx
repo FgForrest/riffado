@@ -103,6 +103,8 @@ export default async function RecordingDetailPage({
                 filename: decryptText(recording.filename),
                 startTime: recording.startTime.toISOString(),
                 waveformPeaks,
+                audioReaped: recording.audioReapedAt !== null,
+                hasTranscript: transcriptRows.length > 0,
             }}
             initialPlaybackSpeed={settingsRow?.defaultPlaybackSpeed ?? 1.0}
             initialVolume={settingsRow?.defaultVolume ?? 75}

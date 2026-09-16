@@ -122,8 +122,8 @@ export function RecordingPlayer({
                     // what happened instead. The transcript and summary
                     // panes are unaffected and still render below.
                     <p className="text-sm text-muted-foreground">
-                        Audio was removed by your retention policy. The
-                        transcript and summary below are unaffected.
+                        Audio was removed from local storage. The transcript and
+                        summary below are unaffected.
                     </p>
                 ) : (
                     <>
