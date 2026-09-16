@@ -79,6 +79,12 @@ export function WorkstationDetailPane({
     scrubberStyle,
 }: Props) {
     const playerRef = useRef<RecordingPlayerHandle>(null);
+    const hasTranscript =
+        currentRecording?.hasTranscript ??
+        Boolean(
+            currentTranscription?.text ||
+                transcripts?.some((transcript) => transcript.text),
+        );
 
     return (
         <div
@@ -139,20 +145,25 @@ export function WorkstationDetailPane({
                             }}
                         />
                     )}
-                    <TranscriptionPanel
-                        recording={currentRecording}
-                        transcription={currentTranscription}
-                        transcripts={transcripts}
-                        isTranscribing={isCurrentTranscribing}
-                        onTranscribe={onTranscribe}
-                        onTranscribeComplete={onTranscribeComplete}
-                        onSeekToTurn={
-                            currentRecording.audioReaped
-                                ? undefined
-                                : (startMs) =>
-                                      playerRef.current?.seekTo(startMs / 1000)
-                        }
-                    />
+                    {(!currentRecording.audioReaped || hasTranscript) && (
+                        <TranscriptionPanel
+                            key={`${currentRecording.id}:${currentRecording.audioReaped ? 1 : 0}:${hasTranscript ? 1 : 0}:${currentRecording.hasSummary ? 1 : 0}`}
+                            recording={currentRecording}
+                            transcription={currentTranscription}
+                            transcripts={transcripts}
+                            isTranscribing={isCurrentTranscribing}
+                            onTranscribe={onTranscribe}
+                            onTranscribeComplete={onTranscribeComplete}
+                            onSeekToTurn={
+                                currentRecording.audioReaped
+                                    ? undefined
+                                    : (startMs) =>
+                                          playerRef.current?.seekTo(
+                                              startMs / 1000,
+                                          )
+                            }
+                        />
+                    )}
                 </>
             ) : (
                 <Card>

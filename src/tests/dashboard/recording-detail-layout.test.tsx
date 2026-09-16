@@ -69,7 +69,11 @@ describe("recording detail layout", () => {
         rerender(
             <WorkstationDetailPane
                 {...sharedProps}
-                currentRecording={{ ...recording, audioReaped: true }}
+                currentRecording={{
+                    ...recording,
+                    audioReaped: true,
+                    hasTranscript: true,
+                }}
             />,
         );
 
@@ -78,5 +82,47 @@ describe("recording detail layout", () => {
         ).toBeTruthy();
         expect(screen.queryByTestId("recording-player")).toBeNull();
         expect(screen.getByTestId("transcription-panel")).toBeTruthy();
+
+        rerender(
+            <WorkstationDetailPane
+                {...sharedProps}
+                currentRecording={{
+                    ...recording,
+                    audioReaped: true,
+                    hasTranscript: false,
+                }}
+            />,
+        );
+
+        expect(screen.queryByTestId("transcription-panel")).toBeNull();
+    });
+
+    it("remounts artifact panels after transcript or summary availability changes", () => {
+        const { rerender } = render(
+            <WorkstationDetailPane
+                {...sharedProps}
+                currentRecording={{
+                    ...recording,
+                    hasTranscript: true,
+                    hasSummary: true,
+                }}
+            />,
+        );
+        const panelBeforeErase = screen.getByTestId("transcription-panel");
+
+        rerender(
+            <WorkstationDetailPane
+                {...sharedProps}
+                currentRecording={{
+                    ...recording,
+                    hasTranscript: true,
+                    hasSummary: false,
+                }}
+            />,
+        );
+
+        expect(screen.getByTestId("transcription-panel")).not.toBe(
+            panelBeforeErase,
+        );
     });
 });

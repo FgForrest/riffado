@@ -53,44 +53,44 @@ const OPERATION_COPY: Record<
     { title: string; description: string; action: string; success: string }
 > = {
     audio: {
-        title: "Erase local audio?",
+        title: "Erase local audio for this recording?",
         description:
-            "The transcript and summaries stay available. Riffado will not download the audio again automatically.",
+            "Only the locally stored audio for the selected recording will be removed. Its transcripts and summaries stay available, and all other recordings remain unchanged. Riffado will not download this audio again automatically.",
         action: "Erase audio",
         success: "Local audio erased",
     },
     transcript: {
-        title: "Erase all transcripts?",
+        title: "Erase all transcripts for this recording?",
         description:
-            "Plaud and custom transcripts, speaker assignments, and exported transcript files will be removed. Existing summaries stay available.",
+            "All Plaud and custom transcripts, speaker assignments, and exported transcript files for the selected recording will be removed. Its existing summaries and all other recordings remain unchanged.",
         action: "Erase transcripts",
         success: "Transcripts erased",
     },
     summary: {
-        title: "Erase all summaries?",
+        title: "Erase all summaries for this recording?",
         description:
-            "Plaud and custom summaries and their exported Markdown files will be removed. Transcripts stay available.",
+            "All Plaud and custom summaries and exported summary files for the selected recording will be removed. Its transcripts and all other recordings remain unchanged.",
         action: "Erase summaries",
         success: "Summaries erased",
     },
     local: {
-        title: "Delete all local data?",
+        title: "Delete all local data for this recording?",
         description:
-            "Audio, transcripts, summaries, metadata, speaker assignments, and exported files will be removed from Riffado. The Plaud original stays in your account and will not be synced back automatically.",
+            "All data stored by Riffado for the selected recording will be removed: audio, transcripts, summaries, metadata, speaker assignments, and exported files. All other recordings remain unchanged. The Plaud original stays in your account and will not be synced back automatically.",
         action: "Delete all local data",
         success: "All local data deleted",
     },
     plaud: {
-        title: "Move the Plaud original to Trash?",
+        title: "Move this recording's Plaud original to Trash?",
         description:
-            "The local Riffado copy stays available. Plaud requires a separate action in its Trash to delete the recording permanently.",
+            "Only the Plaud original for the selected recording will be moved to Trash. Its local Riffado data and all other recordings remain unchanged. Plaud requires a separate action in its Trash to delete the recording permanently.",
         action: "Move Plaud original to Trash",
         success: "Moved Plaud original to Trash",
     },
     everywhere: {
-        title: "Delete everywhere?",
+        title: "Delete this recording everywhere?",
         description:
-            "The Plaud original will be moved to Trash, then every local artifact and exported file will be removed from Riffado. This cannot be undone from Riffado.",
+            "Only the selected recording will be affected. Its Plaud original will be moved to Trash, then all of its local data and exported files will be removed from Riffado. All other recordings remain unchanged. This cannot be undone from Riffado.",
         action: "Delete everywhere",
         success: "Recording deleted everywhere",
     },
