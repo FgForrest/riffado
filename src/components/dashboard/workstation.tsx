@@ -11,6 +11,7 @@ import {
     type RecordingListHandle,
 } from "@/components/dashboard/recording-list";
 import { ShortcutsDialog } from "@/components/dashboard/shortcuts-dialog";
+import type { TranscriptOption } from "@/components/dashboard/transcription-panel";
 import { TrialBanner } from "@/components/dashboard/trial-banner";
 import { WorkstationDetailPane } from "@/components/dashboard/workstation-detail-pane";
 import { WorkstationEmptyState } from "@/components/dashboard/workstation-empty-state";
@@ -40,7 +41,9 @@ interface TranscriptionData {
     text?: string;
     language?: string;
     source?: string;
+    provider?: string;
     model?: string;
+    turns?: TranscriptOption["turns"];
 }
 
 interface Provider {
@@ -58,6 +61,7 @@ const EMPTY_PROVIDERS: Provider[] = [];
 interface WorkstationProps {
     recordings: Recording[];
     transcriptions: Map<string, TranscriptionData>;
+    transcriptVariants?: Map<string, TranscriptOption[]>;
     /**
      * When true, an admin shortcut appears in the avatar menu. Set by
      * the server-rendered page based on env.ADMIN_EMAILS membership;
@@ -107,6 +111,7 @@ interface WorkstationProps {
 export function Workstation({
     recordings,
     transcriptions,
+    transcriptVariants,
     isAdmin = false,
     userEmail = null,
     initialSettings,
@@ -152,6 +157,9 @@ export function Workstation({
 
     const currentTranscription = currentRecording
         ? transcriptions.get(currentRecording.id)
+        : undefined;
+    const currentTranscriptVariants = currentRecording
+        ? transcriptVariants?.get(currentRecording.id)
         : undefined;
 
     const selectedRecording = currentRecording
@@ -297,10 +305,13 @@ export function Workstation({
         inFlightActions.get(currentRecording.id) === "transcribing";
     const isProcessing = anyTranscribing || isUploading;
 
-    const handleTranscribe = useCallback(async () => {
-        if (!currentRecording) return;
-        await transcribeById(currentRecording.id);
-    }, [currentRecording, transcribeById]);
+    const handleTranscribe = useCallback(
+        async (attributionSource?: string) => {
+            if (!currentRecording) return;
+            await transcribeById(currentRecording.id, attributionSource);
+        },
+        [currentRecording, transcribeById],
+    );
 
     const handleDelete = useCallback(
         async (recording: Recording) => {
@@ -449,6 +460,7 @@ export function Workstation({
                             <WorkstationDetailPane
                                 currentRecording={selectedRecording}
                                 currentTranscription={currentTranscription}
+                                transcripts={currentTranscriptVariants}
                                 isCurrentTranscribing={isCurrentTranscribing}
                                 visibleRecordings={visibleRecordings}
                                 onTranscribe={handleTranscribe}

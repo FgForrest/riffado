@@ -34,13 +34,19 @@ describe("MarkdownActions", () => {
     });
 
     it("offers the rendered transcript Markdown as a download", () => {
-        render(<MarkdownActions recordingId="rec-1" kind="transcript" />);
+        render(
+            <MarkdownActions
+                recordingId="rec-1"
+                kind="transcript"
+                source="plaud"
+            />,
+        );
 
         expect(
             screen
                 .getByRole("link", { name: "Download transcript Markdown" })
                 .getAttribute("href"),
-        ).toBe("/api/recordings/rec-1/markdown/transcript");
+        ).toBe("/api/recordings/rec-1/markdown/transcript?source=plaud");
     });
 
     it("copies the same summary Markdown returned by the download route", async () => {
@@ -53,7 +59,13 @@ describe("MarkdownActions", () => {
                 }),
             ),
         );
-        render(<MarkdownActions recordingId="rec-1" kind="summary" />);
+        render(
+            <MarkdownActions
+                recordingId="rec-1"
+                kind="summary"
+                source="riffado"
+            />,
+        );
 
         fireEvent.click(
             screen.getByRole("button", { name: "Copy summary Markdown" }),
@@ -61,7 +73,7 @@ describe("MarkdownActions", () => {
 
         await waitFor(() => expect(writeText).toHaveBeenCalledWith(markdown));
         expect(fetch).toHaveBeenCalledWith(
-            "/api/recordings/rec-1/markdown/summary",
+            "/api/recordings/rec-1/markdown/summary?source=riffado",
             { cache: "no-store" },
         );
         expect(toastSuccess).toHaveBeenCalledWith("Summary Markdown copied");

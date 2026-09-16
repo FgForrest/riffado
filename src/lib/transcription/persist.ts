@@ -14,7 +14,7 @@ import type { TranscriptTurn } from "@/lib/transcription/turns";
  */
 export type TranscriptSource = "riffado" | "plaud" | "mixed";
 
-/** Summaries stay single per recording; `source` records who produced it. */
+/** Summary pipeline provenance. One row per source can coexist. */
 export type EnhancementSource = "riffado" | "plaud";
 
 export interface UpsertTranscriptionArgs {
@@ -39,6 +39,8 @@ export interface UpsertTranscriptionArgs {
 export interface UpsertEnhancementArgs {
     userId: string;
     recordingId: string;
+    /** Transcript row this summary was generated from. */
+    transcriptionId: string;
     /** Plaintext summary; this helper encrypts it at rest. */
     summary: string;
     keyPoints: string[];
@@ -208,6 +210,7 @@ export async function upsertEnhancement(
     const {
         userId,
         recordingId,
+        transcriptionId,
         summary,
         keyPoints,
         actionItems,
@@ -242,6 +245,7 @@ export async function upsertEnhancement(
                     and(
                         eq(aiEnhancements.recordingId, recordingId),
                         eq(aiEnhancements.userId, userId),
+                        eq(aiEnhancements.source, source),
                     ),
                 )
                 .limit(1);
@@ -264,6 +268,7 @@ export async function upsertEnhancement(
                         summary: encryptedSummary,
                         keyPoints: encryptedKeyPoints,
                         actionItems: encryptedActionItems,
+                        transcriptionId,
                         provider,
                         model,
                         source,
@@ -279,6 +284,7 @@ export async function upsertEnhancement(
                 await tx.insert(aiEnhancements).values({
                     recordingId,
                     userId,
+                    transcriptionId,
                     summary: encryptedSummary,
                     keyPoints: encryptedKeyPoints,
                     actionItems: encryptedActionItems,

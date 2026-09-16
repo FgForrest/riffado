@@ -44,7 +44,13 @@ vi.mock("@/lib/summary/summary-job", async (importOriginal) => {
 });
 
 vi.mock("@/lib/jobs/watch", () => ({ watchJob: vi.fn() }));
-vi.mock("@/lib/summary/read-summary", () => ({ readStoredSummary: vi.fn() }));
+vi.mock("@/lib/export/document-sidecars", () => ({
+    removeRecordingSidecar: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@/lib/summary/read-summary", () => ({
+    readStoredSummary: vi.fn(),
+    readStoredSummaries: vi.fn(),
+}));
 vi.mock("@/db/queries/async-jobs", () => ({ getActiveJob: vi.fn() }));
 
 const { selectMock } = vi.hoisted(() => ({ selectMock: vi.fn() }));
@@ -122,6 +128,8 @@ describe("POST /api/recordings/[id]/summary — streaming", () => {
             summary: "s",
             keyPoints: ["k"],
             actionItems: [],
+            source: "riffado",
+            transcriptionId: "tr-custom",
             provider: "openai",
             model: "gpt-4o-mini",
             multiPass: undefined,

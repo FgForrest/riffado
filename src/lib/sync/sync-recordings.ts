@@ -14,6 +14,7 @@ import { encryptText } from "@/lib/encryption/fields";
 import { isHostedLockedOut } from "@/lib/entitlements";
 import { env } from "@/lib/env";
 import { AppError, ErrorCode } from "@/lib/errors";
+import { exportRecordingSidecarsIfEnabled } from "@/lib/export/document-sidecars";
 import { enforceStorageCap } from "@/lib/hosted/billing/storage-cap";
 import { sendNewRecordingBarkNotification } from "@/lib/notifications/bark";
 import { sendNewRecordingEmail } from "@/lib/notifications/email";
@@ -211,6 +212,7 @@ async function loadPlaudContentGaps(
                 and(
                     eq(aiEnhancements.recordingId, recordingId),
                     eq(aiEnhancements.userId, userId),
+                    eq(aiEnhancements.source, "plaud"),
                 ),
             )
             .limit(1);
@@ -250,6 +252,7 @@ async function hasUnseenPlaudContentGaps(
             and(
                 eq(aiEnhancements.recordingId, recordings.id),
                 eq(aiEnhancements.userId, userId),
+                eq(aiEnhancements.source, "plaud"),
             ),
         )
         .where(and(...conditions))
@@ -1023,6 +1026,12 @@ async function importPlaudContent(
                     });
                     if (committed) {
                         transcriptImported.add(candidate.recordingId);
+                        await exportRecordingSidecarsIfEnabled(
+                            context.userId,
+                            candidate.recordingId,
+                            "transcript",
+                            "plaud",
+                        );
                         await emitEvent(
                             "transcription.completed",
                             context.userId,
@@ -1032,26 +1041,55 @@ async function importPlaudContent(
                 }
             }
 
-            // --- Summary (single per recording; gap-fill only) ---
             const summaryLink = summary?.data_link;
-            if (gaps.needsSummary && isReady(summary) && summaryLink) {
-                // Prefer the inline copy (no S3 round-trip, no presign
-                // expiry, #203); fall back to the presigned link.
-                const inline = findInlineContent(detail, summary?.data_id);
+            const inline = findInlineContent(detail, summary?.data_id);
+            if (
+                gaps.needsSummary &&
+                isReady(summary) &&
+                (inline || summaryLink)
+            ) {
                 const parsed = parseSummary(
-                    inline ?? (await plaudClient.fetchContentLink(summaryLink)),
+                    inline ??
+                        (await plaudClient.fetchContentLink(
+                            summaryLink as string,
+                        )),
                 );
                 if (parsed.summary.trim()) {
-                    await upsertEnhancement({
-                        userId: context.userId,
-                        recordingId: candidate.recordingId,
-                        summary: parsed.summary,
-                        keyPoints: parsed.keyPoints,
-                        actionItems: parsed.actionItems,
-                        source: "plaud",
-                        provider: "plaud",
-                        model: "plaud-native",
-                    });
+                    const [plaudTranscript] = await db
+                        .select({ id: transcriptions.id })
+                        .from(transcriptions)
+                        .where(
+                            and(
+                                eq(
+                                    transcriptions.recordingId,
+                                    candidate.recordingId,
+                                ),
+                                eq(transcriptions.userId, context.userId),
+                                eq(transcriptions.source, "plaud"),
+                            ),
+                        )
+                        .limit(1);
+                    if (plaudTranscript) {
+                        const { committed } = await upsertEnhancement({
+                            userId: context.userId,
+                            recordingId: candidate.recordingId,
+                            transcriptionId: plaudTranscript.id,
+                            summary: parsed.summary,
+                            keyPoints: parsed.keyPoints,
+                            actionItems: parsed.actionItems,
+                            source: "plaud",
+                            provider: "plaud",
+                            model: "plaud-native",
+                        });
+                        if (committed) {
+                            await exportRecordingSidecarsIfEnabled(
+                                context.userId,
+                                candidate.recordingId,
+                                "summary",
+                                "plaud",
+                            );
+                        }
+                    }
                 }
             }
         } catch (error) {

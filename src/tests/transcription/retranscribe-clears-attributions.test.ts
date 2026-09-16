@@ -40,8 +40,20 @@ vi.mock("openai", () => ({
             audio: {
                 transcriptions: {
                     create: vi.fn().mockResolvedValue({
-                        text: "Fresh run",
-                        language: "cs",
+                        segments: [
+                            {
+                                speaker: "speaker_0",
+                                start: 0,
+                                end: 1,
+                                text: "Fresh",
+                            },
+                            {
+                                speaker: "speaker_1",
+                                start: 1,
+                                end: 2,
+                                text: "run",
+                            },
+                        ],
                     }),
                 },
             },
@@ -72,6 +84,7 @@ vi.mock("@/lib/summary/summary-job", () => ({
 
 vi.mock("@/lib/export/document-sidecars", () => ({
     exportRecordingSidecarsIfEnabled: vi.fn().mockResolvedValue(undefined),
+    removeRecordingSidecar: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("@/lib/transcription/persist", () => ({
@@ -126,7 +139,7 @@ function stubLookups(existingTranscript: Record<string, unknown> | null) {
                     id: "creds-1",
                     provider: "openai",
                     apiKey: "key",
-                    defaultModel: "whisper-1",
+                    defaultModel: "gpt-4o-transcribe-diarize",
                     baseUrl: null,
                 },
             ]),
@@ -159,7 +172,7 @@ describe("forced re-transcribe and speaker attributions", () => {
     });
 
     it("drops the attributions of the transcript it overwrites", async () => {
-        stubLookups({ id: transcriptionId, text: "Previous run" });
+        stubLookups({ id: transcriptionId, text: "speaker_0: Previous run" });
         const deletes = captureDeletes();
 
         const result = await transcribeRecording(userId, recordingId, {
@@ -200,8 +213,28 @@ describe("forced re-transcribe and speaker attributions", () => {
         expect(deletes).toHaveLength(0);
     });
 
+    it("keeps attributions when the speaker count is unchanged", async () => {
+        stubLookups({
+            id: transcriptionId,
+            text: "speaker_0: Previous\nspeaker_1: run",
+        });
+        const deletes = captureDeletes();
+
+        const result = await transcribeRecording(userId, recordingId, {
+            force: true,
+        });
+
+        expect(result.success).toBe(true);
+        expect(deletes.some((call) => call.table === transcriptSpeakers)).toBe(
+            false,
+        );
+        expect(deletes.some((call) => call.table === aiEnhancements)).toBe(
+            true,
+        );
+    });
+
     it("drops the attributions before writing the transcript sidecar", async () => {
-        stubLookups({ id: transcriptionId, text: "Previous run" });
+        stubLookups({ id: transcriptionId, text: "speaker_0: Previous run" });
         const order: string[] = [];
         (db.delete as Mock).mockImplementation((table: unknown) => ({
             where: vi.fn(async () => {

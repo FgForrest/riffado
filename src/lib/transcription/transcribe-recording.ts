@@ -19,11 +19,15 @@ import { decrypt } from "@/lib/encryption";
 import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { isHostedLockedOut } from "@/lib/entitlements";
 import { env } from "@/lib/env";
-import { exportRecordingSidecarsIfEnabled } from "@/lib/export/document-sidecars";
+import {
+    exportRecordingSidecarsIfEnabled,
+    removeRecordingSidecar,
+} from "@/lib/export/document-sidecars";
 import {
     isMynahConfigured,
     transcribeViaMynah,
 } from "@/lib/hosted/transcription/mynah";
+import { copyMatchingSpeakerAttributions } from "@/lib/knowledge/attribution";
 import { createPlaudClient } from "@/lib/plaud/client-factory";
 import {
     captureServerEvent,
@@ -35,6 +39,10 @@ import { enqueueSummaryJob } from "@/lib/summary/summary-job";
 import { buildAudioFile } from "@/lib/transcription/audio-file";
 import { chatTranscribe } from "@/lib/transcription/chat-transcribe";
 import { maybeCompressForWhisper } from "@/lib/transcription/compress-audio";
+import {
+    parseSpeakerTurns,
+    speakerOrder,
+} from "@/lib/transcription/diarization";
 import { elevenLabsTranscribe } from "@/lib/transcription/elevenlabs-transcribe";
 import {
     buildTranscriptionParams,
@@ -146,6 +154,7 @@ export async function storeBrowserTranscription(
                     and(
                         eq(transcriptions.recordingId, recordingId),
                         eq(transcriptions.userId, userId),
+                        eq(transcriptions.source, "riffado"),
                     ),
                 )
                 .limit(1);
@@ -160,6 +169,7 @@ export async function storeBrowserTranscription(
                         transcriptionType: "browser",
                         provider: "browser",
                         model,
+                        source: "riffado",
                         turns: null,
                     })
                     .where(
@@ -177,6 +187,7 @@ export async function storeBrowserTranscription(
                     transcriptionType: "browser",
                     provider: "browser",
                     model,
+                    source: "riffado",
                     turns: null,
                 });
             }
@@ -203,7 +214,23 @@ export async function storeBrowserTranscription(
         throw txError;
     }
 
-    await exportRecordingSidecarsIfEnabled(userId, recordingId, "transcript");
+    await db
+        .delete(aiEnhancements)
+        .where(
+            and(
+                eq(aiEnhancements.recordingId, recordingId),
+                eq(aiEnhancements.userId, userId),
+                eq(aiEnhancements.source, "riffado"),
+            ),
+        );
+    await removeRecordingSidecar(userId, recordingId, "summary", "riffado");
+
+    await exportRecordingSidecarsIfEnabled(
+        userId,
+        recordingId,
+        "transcript",
+        "riffado",
+    );
 
     await emitEvent("transcription.completed", userId, recordingId);
     await captureServerEvent({
@@ -219,6 +246,8 @@ export interface TranscribeOptions {
     providerId?: string;
     /** Override the provider's default model for this single call. */
     model?: string;
+    /** Transcript source whose confirmed speaker assignments may be carried forward. */
+    attributionSource?: "riffado" | "plaud" | "mixed";
     /**
      * Re-run the provider call even when a transcript already exists.
      * Used by the manual "Re-transcribe" button so a user clicking it
@@ -240,6 +269,11 @@ export interface TranscribeResult {
     text?: string;
     /** Present on success when the provider returned a language. */
     detectedLanguage?: string | null;
+}
+
+function recognizedSpeakerCount(text: string): number {
+    const parsed = parseSpeakerTurns(text);
+    return parsed ? speakerOrder(parsed).length : 0;
 }
 
 // Per-recording in-flight dedup within one process. Force and non-force
@@ -612,15 +646,18 @@ async function transcribeRecordingInner(
             };
         }
 
-        // Re-transcribe path: speaker attributions need an explicit delete
-        // rather than a cascade, because `upsertTranscription` updates the
-        // existing row in place, so the transcription id survives and the FK
-        // never fires. A fresh diarization run renumbers the labels, so an
-        // attribution kept across it names the wrong turns -- silently, since
-        // `speaker_0` still exists, it is just somebody else now. It runs
-        // before the sidecar export below, or that file -- one the user keeps
-        // -- would be written with the previous run's names on the new labels.
-        if (existingTranscription?.text && opts.force) {
+        const previousSpeakerCount = existingTranscription?.text
+            ? recognizedSpeakerCount(decryptText(existingTranscription.text))
+            : 0;
+        const nextSpeakerCount = recognizedSpeakerCount(transcriptionText);
+        const canPreserveSpeakerAttributions =
+            previousSpeakerCount > 0 &&
+            previousSpeakerCount === nextSpeakerCount;
+        if (
+            existingTranscription?.text &&
+            opts.force &&
+            !canPreserveSpeakerAttributions
+        ) {
             await db
                 .delete(transcriptSpeakers)
                 .where(
@@ -634,10 +671,27 @@ async function transcribeRecordingInner(
                 );
         }
 
+        if (
+            !existingTranscription &&
+            opts.force &&
+            opts.attributionSource &&
+            opts.attributionSource !== "riffado" &&
+            nextSpeakerCount > 0
+        ) {
+            await copyMatchingSpeakerAttributions({
+                userId,
+                recordingId,
+                sourceSource: opts.attributionSource,
+                targetSource: "riffado",
+                targetText: transcriptionText,
+            });
+        }
+
         await exportRecordingSidecarsIfEnabled(
             userId,
             recordingId,
             "transcript",
+            "riffado",
         );
 
         // The previous transcript is being overwritten, so any existing
@@ -652,8 +706,15 @@ async function transcribeRecordingInner(
                     and(
                         eq(aiEnhancements.recordingId, recordingId),
                         eq(aiEnhancements.userId, userId),
+                        eq(aiEnhancements.source, "riffado"),
                     ),
                 );
+            await removeRecordingSidecar(
+                userId,
+                recordingId,
+                "summary",
+                "riffado",
+            );
         }
 
         if (autoGenerateTitle && transcriptionText.trim()) {

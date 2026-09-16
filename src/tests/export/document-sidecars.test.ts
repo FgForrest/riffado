@@ -82,6 +82,15 @@ describe("sidecarKey", () => {
             "user-1/2026-09-11.take.2.transcript.md",
         );
     });
+
+    it("uses readable source segments for parallel variants", () => {
+        expect(
+            sidecarKey("user-1/Board meeting.mp3", "transcript", "riffado"),
+        ).toBe("user-1/Board meeting.custom.transcript.md");
+        expect(sidecarKey("user-1/Board meeting.mp3", "summary", "plaud")).toBe(
+            "user-1/Board meeting.plaud.summary.md",
+        );
+    });
 });
 
 describe("buildTranscriptMarkdown", () => {
@@ -148,6 +157,8 @@ describe("buildSummaryMarkdown", () => {
             recordedAt: RECORDED_AT,
             provider: "OpenAI",
             model: "gpt-4o-mini",
+            source: "riffado",
+            transcriptSource: "riffado",
             summary: "We agreed the budget.",
             keyPoints: ["Budget approved", "Hiring paused"],
             actionItems: ["Send the deck"],
@@ -170,6 +181,8 @@ describe("buildSummaryMarkdown", () => {
             recordedAt: RECORDED_AT,
             provider: "OpenAI",
             model: "gpt-4o-mini",
+            source: "riffado",
+            transcriptSource: "riffado",
             summary: "Short sync.",
             keyPoints: [],
             actionItems: [],
@@ -268,10 +281,15 @@ describe("exportRecordingSidecars", () => {
             // confirmed speaker attributions, for the name projection
             .mockReturnValueOnce(rows([]) as never);
 
-        const written = await exportRecordingSidecars("user-1", "rec-1", {
-            transcript: true,
-            summary: false,
-        });
+        const written = await exportRecordingSidecars(
+            "user-1",
+            "rec-1",
+            {
+                transcript: true,
+                summary: false,
+            },
+            "riffado",
+        );
 
         expect(written).toEqual(["transcript"]);
         expect(uploadFile).toHaveBeenCalledTimes(1);
@@ -280,7 +298,7 @@ describe("exportRecordingSidecars", () => {
             Buffer,
             string,
         ];
-        expect(key).toBe("user-1/Board_meeting.transcript.md");
+        expect(key).toBe("user-1/Board_meeting.custom.transcript.md");
         expect(contentType).toBe("text/markdown; charset=utf-8");
         expect(buffer.toString("utf8")).toContain("Hello there.");
     });
@@ -305,10 +323,15 @@ describe("exportRecordingSidecars", () => {
             attributions: [{ label: "speaker_0", displayName: "Jan" }],
         });
 
-        await exportRecordingSidecars("user-1", "rec-1", {
-            transcript: true,
-            summary: false,
-        });
+        await exportRecordingSidecars(
+            "user-1",
+            "rec-1",
+            {
+                transcript: true,
+                summary: false,
+            },
+            "riffado",
+        );
 
         const body = (uploadFile.mock.calls[0] as [string, Buffer])[1].toString(
             "utf8",
@@ -337,10 +360,15 @@ describe("exportRecordingSidecars", () => {
             attributions: [],
         });
 
-        await exportRecordingSidecars("user-1", "rec-1", {
-            transcript: true,
-            summary: false,
-        });
+        await exportRecordingSidecars(
+            "user-1",
+            "rec-1",
+            {
+                transcript: true,
+                summary: false,
+            },
+            "riffado",
+        );
 
         const body = (uploadFile.mock.calls[0] as [string, Buffer])[1].toString(
             "utf8",
@@ -367,6 +395,19 @@ describe("exportRecordingSidecars", () => {
             .mockReturnValueOnce(
                 rows([
                     {
+                        source: "riffado",
+                        transcriptionId: "tr-1",
+                        summary: "Speaker 0 approved Speaker 1.",
+                        keyPoints: ["Decision by Speaker 0"],
+                        actionItems: ["Follow up with Speaker 1"],
+                        provider: "OpenAI",
+                        model: "gpt-4o-mini",
+                    },
+                ]) as never,
+            )
+            .mockReturnValueOnce(
+                rows([
+                    {
                         id: "tr-1",
                         source: "riffado",
                         text: "Speaker 0: Hello.",
@@ -378,23 +419,17 @@ describe("exportRecordingSidecars", () => {
                 rows([
                     { label: "Speaker 0", displayName: "Jane Doe" },
                 ]) as never,
-            )
-            .mockReturnValueOnce(
-                rows([
-                    {
-                        summary: "Speaker 0 approved Speaker 1.",
-                        keyPoints: ["Decision by Speaker 0"],
-                        actionItems: ["Follow up with Speaker 1"],
-                        provider: "OpenAI",
-                        model: "gpt-4o-mini",
-                    },
-                ]) as never,
             );
 
-        await exportRecordingSidecars("user-1", "rec-1", {
-            transcript: false,
-            summary: true,
-        });
+        await exportRecordingSidecars(
+            "user-1",
+            "rec-1",
+            {
+                transcript: false,
+                summary: true,
+            },
+            "riffado",
+        );
 
         const body = (uploadFile.mock.calls[0] as [string, Buffer])[1].toString(
             "utf8",
@@ -420,6 +455,8 @@ describe("exportRecordingSidecars", () => {
                     },
                 ]) as never,
             )
+            .mockReturnValueOnce(rows([{ source: "riffado" }]) as never)
+            .mockReturnValueOnce(rows([]) as never)
             // export recording lookup
             .mockReturnValueOnce(
                 rows([
@@ -455,7 +492,7 @@ describe("exportRecordingSidecars", () => {
         expect(exists).toHaveBeenCalledTimes(2);
         expect(uploadFile).toHaveBeenCalledTimes(1);
         expect(uploadFile.mock.calls[0]?.[0]).toBe(
-            "user-1/Board_meeting.transcript.md",
+            "user-1/Board_meeting.custom.transcript.md",
         );
     });
 
@@ -516,10 +553,15 @@ describe("exportRecordingSidecars", () => {
             })),
         } as never);
 
-        await exportRecordingSidecars("user-1", "rec-1", {
-            transcript: true,
-            summary: false,
-        });
+        await exportRecordingSidecars(
+            "user-1",
+            "rec-1",
+            {
+                transcript: true,
+                summary: false,
+            },
+            "riffado",
+        );
 
         expect(copyFile).toHaveBeenCalledWith(
             "user-1/legacy.mp3",
@@ -533,9 +575,9 @@ describe("exportRecordingSidecars", () => {
             "user-1/legacy.summary.md",
             "user-1/Board_meeting.summary.md",
         );
-        expect(deleteFile).toHaveBeenCalledTimes(3);
+        expect(deleteFile).toHaveBeenCalledTimes(9);
         expect(uploadFile.mock.calls[0]?.[0]).toBe(
-            "user-1/Board_meeting.transcript.md",
+            "user-1/Board_meeting.custom.transcript.md",
         );
     });
 
@@ -558,10 +600,15 @@ describe("exportRecordingSidecars", () => {
             .mockReturnValueOnce(rows([]) as never)
             .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never);
 
-        const written = await exportRecordingSidecars("user-1", "rec-1", {
-            transcript: true,
-            summary: false,
-        });
+        const written = await exportRecordingSidecars(
+            "user-1",
+            "rec-1",
+            {
+                transcript: true,
+                summary: false,
+            },
+            "riffado",
+        );
 
         expect(written).toEqual([]);
         expect(uploadFile).not.toHaveBeenCalled();

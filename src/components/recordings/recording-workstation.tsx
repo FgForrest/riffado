@@ -94,9 +94,12 @@ export function RecordingWorkstation({
         [refresh],
     );
 
-    const handleTranscribe = useCallback(async () => {
-        await transcribeById(recording.id);
-    }, [recording.id, transcribeById]);
+    const handleTranscribe = useCallback(
+        async (attributionSource?: string) => {
+            await transcribeById(recording.id, attributionSource);
+        },
+        [recording.id, transcribeById],
+    );
 
     const handleDelete = useCallback(async () => {
         setIsDeleting(true);

@@ -11,13 +11,20 @@ interface StorageCopy {
 export function sidecarKey(
     audioPath: string,
     kind: "transcript" | "summary",
+    source?: string,
 ): string {
     const slash = audioPath.lastIndexOf("/");
     const dir = slash === -1 ? "" : audioPath.slice(0, slash + 1);
     const base = audioPath.slice(slash + 1);
     const dot = base.lastIndexOf(".");
     const stem = dot > 0 ? base.slice(0, dot) : base;
-    return `${dir}${stem}.${kind}.md`;
+    const sourceSegment = source ? `.${sidecarSourceSegment(source)}` : "";
+    return `${dir}${stem}${sourceSegment}.${kind}.md`;
+}
+
+function sidecarSourceSegment(source: string): string {
+    if (source === "riffado") return "custom";
+    return source.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "unknown";
 }
 
 /** Copy every present audio/sidecar file to a recording's new storage stem. */
@@ -26,17 +33,20 @@ export async function copyExistingRecordingFiles(
     oldAudioPath: string,
     newAudioPath: string,
 ): Promise<string[]> {
+    const sidecarCopies: StorageCopy[] = [
+        undefined,
+        "plaud",
+        "riffado",
+        "mixed",
+    ].flatMap((source) =>
+        (["transcript", "summary"] as const).map((kind) => ({
+            source: sidecarKey(oldAudioPath, kind, source),
+            destination: sidecarKey(newAudioPath, kind, source),
+            contentType: "text/markdown; charset=utf-8",
+        })),
+    );
     const copies: StorageCopy[] = [
-        {
-            source: sidecarKey(oldAudioPath, "transcript"),
-            destination: sidecarKey(newAudioPath, "transcript"),
-            contentType: "text/markdown; charset=utf-8",
-        },
-        {
-            source: sidecarKey(oldAudioPath, "summary"),
-            destination: sidecarKey(newAudioPath, "summary"),
-            contentType: "text/markdown; charset=utf-8",
-        },
+        ...sidecarCopies,
         {
             source: oldAudioPath,
             destination: newAudioPath,

@@ -382,10 +382,11 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                             Write markdown files next to each recording in
                             storage, named after the audio file (
                             <code className="font-mono text-xs">
-                                ID-Board_meeting.transcript.md
+                                Board_meeting.custom.transcript.md
                             </code>
                             ). With local storage on a mounted folder, they
-                            appear straight on disk.
+                            appear straight on disk. Plaud and custom variants
+                            are written as separate files.
                         </p>
                     </div>
 

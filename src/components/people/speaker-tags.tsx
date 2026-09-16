@@ -33,14 +33,14 @@ interface SpeakerTagsProps {
     onAttributionsChange: (attributions: SpeakerAttributions) => void;
 }
 
-interface SpeakerResponseRow {
+export interface SpeakerResponseRow {
     label: string;
     personId: string | null;
     personName: string | null;
     status: string;
 }
 
-function confirmedAttributions(
+export function confirmedAttributions(
     speakers: SpeakerResponseRow[] | undefined,
 ): SpeakerAttributions {
     const confirmed: Record<string, { personId: string; name: string }> = {};

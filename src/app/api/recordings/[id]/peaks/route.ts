@@ -2,8 +2,11 @@ import { and, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { recordings } from "@/db/schema";
+import { generateServerWaveform } from "@/lib/audio/server-waveform";
+import { DEFAULT_BUCKETS } from "@/lib/audio/waveform";
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { createUserStorageProvider } from "@/lib/storage/factory";
 
 type IdContext = { params: Promise<{ id: string }> };
 
@@ -97,4 +100,62 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
     void result;
 
     return NextResponse.json({ stored: true });
+});
+
+export const PUT = apiHandler<IdContext>(async (request, context) => {
+    const session = await requireApiSession(request);
+    const { id } = await (context as IdContext).params;
+
+    const [recording] = await db
+        .select({
+            id: recordings.id,
+            storagePath: recordings.storagePath,
+            waveformPeaks: recordings.waveformPeaks,
+            audioReapedAt: recordings.audioReapedAt,
+        })
+        .from(recordings)
+        .where(
+            and(
+                eq(recordings.id, id),
+                eq(recordings.userId, session.user.id),
+                isNull(recordings.deletedAt),
+            ),
+        )
+        .limit(1);
+
+    if (!recording) {
+        throw new AppError(
+            ErrorCode.RECORDING_NOT_FOUND,
+            "Recording not found",
+            404,
+        );
+    }
+    if (recording.waveformPeaks) {
+        return NextResponse.json({ peaks: recording.waveformPeaks });
+    }
+    if (recording.audioReapedAt) {
+        throw new AppError(
+            ErrorCode.RECORDING_DATA_REAPED,
+            "Audio was removed by your retention policy",
+            410,
+        );
+    }
+
+    const storage = await createUserStorageProvider(session.user.id);
+    const audio = await storage.downloadFile(recording.storagePath);
+    const peaks = await generateServerWaveform(audio, DEFAULT_BUCKETS);
+
+    await db
+        .update(recordings)
+        .set({ waveformPeaks: peaks, updatedAt: new Date() })
+        .where(
+            and(
+                eq(recordings.id, id),
+                eq(recordings.userId, session.user.id),
+                isNull(recordings.deletedAt),
+                isNull(recordings.waveformPeaks),
+            ),
+        );
+
+    return NextResponse.json({ peaks });
 });

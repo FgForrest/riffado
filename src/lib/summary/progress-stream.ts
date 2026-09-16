@@ -14,6 +14,8 @@ export interface SummaryStreamResult {
     summary: string;
     keyPoints: string[];
     actionItems: string[];
+    source?: "plaud" | "riffado";
+    transcriptionId?: string | null;
     provider?: string;
     model?: string;
     promptId?: string;

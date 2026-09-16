@@ -18,6 +18,7 @@ export const GET = apiHandler<MarkdownContext>(async (request, context) => {
     const session = await requireApiSession(request);
     const { id, kind: rawKind } = await (context as MarkdownContext).params;
     const kind = sidecarKind(rawKind);
+    const source = new URL(request.url).searchParams.get("source") ?? undefined;
     if (!kind) {
         throw new AppError(
             ErrorCode.NOT_FOUND,
@@ -26,11 +27,9 @@ export const GET = apiHandler<MarkdownContext>(async (request, context) => {
         );
     }
 
-    const document = await getRecordingMarkdownDocument(
-        session.user.id,
-        id,
-        kind,
-    );
+    const document = source
+        ? await getRecordingMarkdownDocument(session.user.id, id, kind, source)
+        : await getRecordingMarkdownDocument(session.user.id, id, kind);
     if (!document) {
         throw new AppError(
             ErrorCode.NOT_FOUND,

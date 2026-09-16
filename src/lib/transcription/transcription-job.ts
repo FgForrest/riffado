@@ -13,6 +13,7 @@ export interface TranscriptionJobPayload {
     trigger: "manual" | "sync" | "upload";
     providerId?: string;
     model?: string;
+    attributionSource?: "riffado" | "plaud" | "mixed";
     force: boolean;
 }
 
@@ -48,6 +49,17 @@ export function parseTranscriptionJobPayload(
             "model must be a string when present",
         );
     }
+    if (
+        raw.attributionSource !== undefined &&
+        raw.attributionSource !== "riffado" &&
+        raw.attributionSource !== "plaud" &&
+        raw.attributionSource !== "mixed"
+    ) {
+        throw new InvalidJobPayloadError(
+            TRANSCRIPTION_JOB_KIND,
+            'attributionSource must be "riffado", "plaud", or "mixed" when present',
+        );
+    }
     if (raw.force !== undefined && typeof raw.force !== "boolean") {
         throw new InvalidJobPayloadError(
             TRANSCRIPTION_JOB_KIND,
@@ -59,6 +71,7 @@ export function parseTranscriptionJobPayload(
         trigger: raw.trigger,
         providerId: raw.providerId,
         model: raw.model,
+        attributionSource: raw.attributionSource,
         force: raw.force ?? raw.trigger === "manual",
     };
 }
@@ -70,6 +83,7 @@ export async function enqueueTranscriptionJob(input: {
     trigger: "manual" | "sync" | "upload";
     providerId?: string;
     model?: string;
+    attributionSource?: "riffado" | "plaud" | "mixed";
     force?: boolean;
 }): Promise<EnqueueJobResult> {
     const enqueued = await enqueueJob({
@@ -86,6 +100,9 @@ export async function enqueueTranscriptionJob(input: {
             trigger: input.trigger,
             ...(input.providerId ? { providerId: input.providerId } : {}),
             ...(input.model ? { model: input.model } : {}),
+            ...(input.attributionSource
+                ? { attributionSource: input.attributionSource }
+                : {}),
             force: input.force ?? input.trigger === "manual",
         },
     });

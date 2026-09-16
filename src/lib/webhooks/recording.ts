@@ -110,7 +110,7 @@ async function getDeletedWebhookRecordingDetailForUser(
     if (!row?.recording.deletedAt) return null;
 
     return serializeWebhookRecording(
-        serializeRecordingDetail(row.recording, row.device, [], null),
+        serializeRecordingDetail(row.recording, row.device, [], []),
         row.recording.deletedAt,
     );
 }

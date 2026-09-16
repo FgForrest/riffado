@@ -140,9 +140,6 @@ export async function generateSummaryForRecording(
         );
     }
 
-    // NOTE: when both a Plaud-imported and the user's own transcript coexist,
-    // this currently summarizes whichever the DB returns first. Selecting the
-    // user's *active* transcript is handled in the Phase 5 UI work (#204).
     const [transcription] = await db
         .select()
         .from(transcriptions)
@@ -150,6 +147,7 @@ export async function generateSummaryForRecording(
             and(
                 eq(transcriptions.recordingId, recordingId),
                 eq(transcriptions.userId, userId),
+                eq(transcriptions.source, "riffado"),
             ),
         )
         .limit(1);
@@ -157,7 +155,7 @@ export async function generateSummaryForRecording(
     if (!transcription) {
         throw new AppError(
             ErrorCode.INVALID_INPUT,
-            "No transcription available. Transcribe the recording first.",
+            "No custom transcription available. Transcribe the recording with your provider first.",
             400,
         );
     }
@@ -428,11 +426,10 @@ export async function generateSummaryForRecording(
 
     const { summary, keyPoints, actionItems } = payload;
 
-    // Persist the riffado-generated summary via the shared, tombstone-aware
-    // upsert. Summaries stay single per recording; `source` records the origin.
     const { committed } = await upsertEnhancement({
         userId,
         recordingId,
+        transcriptionId: transcription.id,
         summary,
         keyPoints,
         actionItems,
@@ -446,7 +443,12 @@ export async function generateSummaryForRecording(
         throw new AppError(ErrorCode.NOT_FOUND, "Recording was deleted", 410);
     }
 
-    await exportRecordingSidecarsIfEnabled(userId, recordingId, "summary");
+    await exportRecordingSidecarsIfEnabled(
+        userId,
+        recordingId,
+        "summary",
+        "riffado",
+    );
 
     await captureServerEvent({
         distinctId: userId,

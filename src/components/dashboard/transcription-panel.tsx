@@ -11,12 +11,14 @@ import {
     Sparkles,
     Trash2,
 } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { MarkdownActions } from "@/components/dashboard/markdown-actions";
 import { TranscribeInBrowserButton } from "@/components/dashboard/transcribe-in-browser-button";
 import { TranscriptView } from "@/components/dashboard/transcript-view";
 import { Markdown } from "@/components/markdown";
 import {
+    confirmedAttributions,
+    type SpeakerResponseRow,
     SpeakerTags,
     type TranscriptSpeakerTag,
 } from "@/components/people/speaker-tags";
@@ -29,8 +31,14 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { useTranscriptionSummary } from "@/hooks/use-transcription-summary";
-import type { SpeakerAttributions } from "@/lib/knowledge/speaker-references";
+import {
+    type SummarySource,
+    useTranscriptionSummary,
+} from "@/hooks/use-transcription-summary";
+import {
+    inferSummarySpeakerNumberOffset,
+    type SpeakerAttributions,
+} from "@/lib/knowledge/speaker-references";
 import { describeMultiPass } from "@/lib/summary/multi-pass";
 import { formatSummaryStatus } from "@/lib/summary/progress-stream";
 import {
@@ -46,6 +54,7 @@ export interface Transcription {
     text?: string;
     language?: string;
     source?: string;
+    provider?: string;
     model?: string;
     /** Provider-reported turns, when the transcript was stored with them. */
     turns?: TranscriptTurn[] | null;
@@ -70,7 +79,7 @@ interface TranscriptionPanelProps {
      * more than one is present a source switcher is shown. */
     transcripts?: TranscriptOption[];
     isTranscribing: boolean;
-    onTranscribe: () => void;
+    onTranscribe: (attributionSource?: string) => void;
     /** Refresh handler called after a browser-side transcription completes. */
     onTranscribeComplete?: () => void;
     /** Seek the recording audio to a provider-reported transcript turn. */
@@ -80,7 +89,7 @@ interface TranscriptionPanelProps {
 function transcriptSourceLabel(source: string): string {
     if (source === "plaud") return "Plaud";
     if (source === "mixed") return "Mix";
-    return "Your provider";
+    return "Custom";
 }
 
 /**
@@ -102,6 +111,7 @@ export function toTranscriptList(
             source: transcription.source ?? "riffado",
             text: transcription.text,
             language: transcription.language,
+            provider: transcription.provider,
             model: transcription.model,
             turns: transcription.turns,
         },
@@ -154,18 +164,75 @@ export function TranscriptionPanel({
     const attributionKey = activeTranscript
         ? `${recording.id}:${activeTranscript.source}`
         : "";
-    const [attributionState, setAttributionState] = useState<{
-        key: string;
-        values: SpeakerAttributions;
-    }>({ key: "", values: {} });
-    const speakerAttributions =
-        attributionState.key === attributionKey ? attributionState.values : {};
+    const [attributionsByKey, setAttributionsByKey] = useState<
+        Record<string, SpeakerAttributions>
+    >({});
+    const speakerAttributions = attributionsByKey[attributionKey] ?? {};
     const handleAttributionsChange = useCallback(
         (values: SpeakerAttributions) => {
-            setAttributionState({ key: attributionKey, values });
+            setAttributionsByKey((current) => ({
+                ...current,
+                [attributionKey]: values,
+            }));
         },
         [attributionKey],
     );
+
+    const defaultSummarySource: SummarySource =
+        activeTranscript?.source === "plaud" ? "plaud" : "riffado";
+    const [summarySelection, setSummarySelection] = useState<{
+        recordingId: string;
+        source: SummarySource;
+    }>({ recordingId: "", source: "riffado" });
+    const summarySource =
+        summarySelection.recordingId === recording.id
+            ? summarySelection.source
+            : defaultSummarySource;
+    const summaryTranscript = transcriptList.find(
+        (candidate) => candidate.source === summarySource,
+    );
+    const summarySpeakerTags = useMemo(
+        () => transcriptSpeakerTags(summaryTranscript),
+        [summaryTranscript],
+    );
+    const summaryAttributionKey = summaryTranscript
+        ? `${recording.id}:${summaryTranscript.source}`
+        : "";
+    const summarySpeakerAttributions =
+        attributionsByKey[summaryAttributionKey] ?? {};
+
+    useEffect(() => {
+        if (!summaryTranscript || summaryAttributionKey === attributionKey) {
+            return;
+        }
+        const controller = new AbortController();
+        void fetch(
+            `/api/recordings/${recording.id}/speakers?source=${encodeURIComponent(summaryTranscript.source)}`,
+            { signal: controller.signal },
+        )
+            .then(async (response) => {
+                if (!response.ok) return null;
+                return (await response.json()) as {
+                    speakers?: SpeakerResponseRow[];
+                };
+            })
+            .then((body) => {
+                if (!body) return;
+                setAttributionsByKey((current) => ({
+                    ...current,
+                    [summaryAttributionKey]: confirmedAttributions(
+                        body.speakers,
+                    ),
+                }));
+            })
+            .catch(() => {});
+        return () => controller.abort();
+    }, [
+        attributionKey,
+        recording.id,
+        summaryAttributionKey,
+        summaryTranscript,
+    ]);
 
     const {
         summaryData,
@@ -181,13 +248,25 @@ export function TranscriptionPanel({
         handleDeleteSummary,
     } = useTranscriptionSummary({
         recordingId: recording?.id,
-        transcriptionText: activeTranscript?.text,
+        summarySource,
+        transcriptionText: summaryTranscript?.text,
     });
 
     // Null for a single-pass summary, so the badge simply does not
     // render. Derived rather than stored on the client: the shape comes
     // from POST and GET alike, so a reload shows the same badge.
     const multiPassBadge = describeMultiPass(summaryData?.multiPass);
+    const summarySpeakerNumberOffset = useMemo(() => {
+        if (!summaryData) return 0;
+        return inferSummarySpeakerNumberOffset(
+            [
+                summaryData.summary,
+                ...(summaryData.keyPoints ?? []),
+                ...(summaryData.actionItems ?? []),
+            ].join("\n"),
+            summarySpeakerTags.map((speaker) => speaker.speaker),
+        );
+    }, [summaryData, summarySpeakerTags]);
 
     return (
         <div className="space-y-4">
@@ -204,11 +283,14 @@ export function TranscriptionPanel({
                                 <MarkdownActions
                                     recordingId={recording.id}
                                     kind="transcript"
+                                    source={activeTranscript.source}
                                 />
                             )}
                             {activeTranscript?.text && (
                                 <Button
-                                    onClick={onTranscribe}
+                                    onClick={() =>
+                                        onTranscribe(activeTranscript.source)
+                                    }
                                     size="sm"
                                     variant="outline"
                                     // No audio, nothing to re-transcribe
@@ -230,7 +312,7 @@ export function TranscriptionPanel({
                             {!activeTranscript?.text && !isTranscribing && (
                                 <>
                                     <Button
-                                        onClick={onTranscribe}
+                                        onClick={() => onTranscribe()}
                                         size="sm"
                                         disabled={
                                             isTranscribing ||
@@ -320,7 +402,7 @@ export function TranscriptionPanel({
                                                     className={`px-3 py-1 text-xs rounded-md transition-colors ${
                                                         t.source ===
                                                         activeTranscript.source
-                                                            ? "bg-primary text-primary-foreground"
+                                                            ? "bg-primary text-neutral-950"
                                                             : "bg-muted text-muted-foreground hover:text-foreground"
                                                     }`}
                                                 >
@@ -352,6 +434,16 @@ export function TranscriptionPanel({
                                                 activeTranscript.source,
                                             )}
                                         </span>
+                                        {activeTranscript.provider && (
+                                            <span className="rounded bg-muted px-2 py-0.5">
+                                                {activeTranscript.provider}
+                                            </span>
+                                        )}
+                                        {activeTranscript.model && (
+                                            <span className="rounded bg-muted px-2 py-0.5 font-mono">
+                                                {activeTranscript.model}
+                                            </span>
+                                        )}
                                         {activeTranscript.language && (
                                             <div className="flex items-center gap-1">
                                                 <Languages className="size-3" />
@@ -399,59 +491,92 @@ export function TranscriptionPanel({
                                 Summary
                             </CardTitle>
                             <div className="flex flex-wrap items-center gap-2">
+                                <fieldset
+                                    className="flex rounded-md bg-muted p-0.5"
+                                    aria-label="Summary source"
+                                >
+                                    {(["plaud", "riffado"] as const).map(
+                                        (source) => (
+                                            <button
+                                                key={source}
+                                                type="button"
+                                                onClick={() =>
+                                                    setSummarySelection({
+                                                        recordingId:
+                                                            recording.id,
+                                                        source,
+                                                    })
+                                                }
+                                                className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                                                    source === summarySource
+                                                        ? "bg-background text-foreground shadow-sm"
+                                                        : "text-muted-foreground hover:text-foreground"
+                                                }`}
+                                            >
+                                                {transcriptSourceLabel(source)}
+                                            </button>
+                                        ),
+                                    )}
+                                </fieldset>
                                 {summaryData?.summary && (
                                     <MarkdownActions
                                         recordingId={recording.id}
                                         kind="summary"
+                                        source={summarySource}
                                     />
                                 )}
-                                {!isSummarizing && (
-                                    <Select
-                                        value={summaryPreset}
-                                        onValueChange={setSummaryPreset}
-                                    >
-                                        <SelectTrigger className="w-[160px] h-8 text-xs">
-                                            <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {summaryPromptOptions.map(
-                                                (preset) => (
-                                                    <SelectItem
-                                                        key={preset.id}
-                                                        value={preset.id}
-                                                    >
-                                                        {preset.name}
-                                                    </SelectItem>
-                                                ),
-                                            )}
-                                        </SelectContent>
-                                    </Select>
-                                )}
-                                <Button
-                                    onClick={handleSummarize}
-                                    size="sm"
-                                    variant={
-                                        summaryData ? "outline" : "default"
-                                    }
-                                    disabled={isSummarizing}
-                                >
-                                    {isSummarizing ? (
-                                        <>
-                                            <Loader2 className="size-4 mr-2 animate-spin" />
-                                            Generating…
-                                        </>
-                                    ) : summaryData ? (
-                                        <>
-                                            <RefreshCw className="size-4 mr-2" />
-                                            Re-generate
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Sparkles className="size-4 mr-2" />
-                                            Summarize
-                                        </>
+                                {summarySource === "riffado" &&
+                                    !isSummarizing && (
+                                        <Select
+                                            value={summaryPreset}
+                                            onValueChange={setSummaryPreset}
+                                        >
+                                            <SelectTrigger className="w-[160px] h-8 text-xs">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {summaryPromptOptions.map(
+                                                    (preset) => (
+                                                        <SelectItem
+                                                            key={preset.id}
+                                                            value={preset.id}
+                                                        >
+                                                            {preset.name}
+                                                        </SelectItem>
+                                                    ),
+                                                )}
+                                            </SelectContent>
+                                        </Select>
                                     )}
-                                </Button>
+                                {summarySource === "riffado" && (
+                                    <Button
+                                        onClick={handleSummarize}
+                                        size="sm"
+                                        variant={
+                                            summaryData ? "outline" : "default"
+                                        }
+                                        disabled={
+                                            isSummarizing || !summaryTranscript
+                                        }
+                                    >
+                                        {isSummarizing ? (
+                                            <>
+                                                <Loader2 className="size-4 mr-2 animate-spin" />
+                                                Generating…
+                                            </>
+                                        ) : summaryData ? (
+                                            <>
+                                                <RefreshCw className="size-4 mr-2" />
+                                                Re-generate
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles className="size-4 mr-2" />
+                                                Summarize
+                                            </>
+                                        )}
+                                    </Button>
+                                )}
                             </div>
                         </div>
                     </CardHeader>
@@ -495,7 +620,10 @@ export function TranscriptionPanel({
                                         <div className="bg-muted rounded-lg p-4 text-sm">
                                             <Markdown
                                                 speakerAttributions={
-                                                    speakerAttributions
+                                                    summarySpeakerAttributions
+                                                }
+                                                speakerNumberOffset={
+                                                    summarySpeakerNumberOffset
                                                 }
                                             >
                                                 {summaryData.summary}
@@ -525,7 +653,10 @@ export function TranscriptionPanel({
                                                                         <Markdown
                                                                             inline
                                                                             speakerAttributions={
-                                                                                speakerAttributions
+                                                                                summarySpeakerAttributions
+                                                                            }
+                                                                            speakerNumberOffset={
+                                                                                summarySpeakerNumberOffset
                                                                             }
                                                                         >
                                                                             {
@@ -563,7 +694,10 @@ export function TranscriptionPanel({
                                                                         <Markdown
                                                                             inline
                                                                             speakerAttributions={
-                                                                                speakerAttributions
+                                                                                summarySpeakerAttributions
+                                                                            }
+                                                                            speakerNumberOffset={
+                                                                                summarySpeakerNumberOffset
                                                                             }
                                                                         >
                                                                             {
@@ -581,6 +715,11 @@ export function TranscriptionPanel({
                                         {/* Meta + Delete */}
                                         <div className="flex items-center justify-between pt-2 border-t">
                                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                                <span className="px-2 py-0.5 rounded bg-muted font-medium">
+                                                    {transcriptSourceLabel(
+                                                        summarySource,
+                                                    )}
+                                                </span>
                                                 {summaryData.provider && (
                                                     <span className="px-2 py-0.5 rounded bg-muted">
                                                         {summaryData.provider}
@@ -606,15 +745,19 @@ export function TranscriptionPanel({
                                                     </span>
                                                 )}
                                             </div>
-                                            <Button
-                                                onClick={handleDeleteSummary}
-                                                size="sm"
-                                                variant="ghost"
-                                                className="text-destructive hover:text-destructive"
-                                            >
-                                                <Trash2 className="size-4 mr-1" />
-                                                Delete
-                                            </Button>
+                                            {summarySource === "riffado" && (
+                                                <Button
+                                                    onClick={
+                                                        handleDeleteSummary
+                                                    }
+                                                    size="sm"
+                                                    variant="ghost"
+                                                    className="text-destructive hover:text-destructive"
+                                                >
+                                                    <Trash2 className="size-4 mr-1" />
+                                                    Delete
+                                                </Button>
+                                            )}
                                         </div>
                                     </section>
                                 )}
@@ -623,8 +766,11 @@ export function TranscriptionPanel({
                             <div className="flex flex-col items-center justify-center py-8 text-center">
                                 <ListChecks className="size-10 text-muted-foreground mb-3" />
                                 <p className="text-sm text-muted-foreground">
-                                    No summary yet. Click "Summarize" to
-                                    generate one.
+                                    {summarySource === "plaud"
+                                        ? "No Plaud summary has been imported. It will appear after Plaud sync when available."
+                                        : summaryTranscript
+                                          ? 'No custom summary yet. Click "Summarize" to generate one.'
+                                          : "A custom transcript is required before generating a custom summary."}
                                 </p>
                             </div>
                         )}
