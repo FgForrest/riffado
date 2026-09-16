@@ -74,23 +74,23 @@ const OPERATION_COPY: Record<
         success: "Summaries erased",
     },
     local: {
-        title: "Delete the local copy?",
+        title: "Delete all local data?",
         description:
-            "Audio, transcripts, summaries, and exported files will be removed from Riffado. The Plaud copy stays in your account and will not be synced back automatically.",
-        action: "Delete local copy",
-        success: "Local copy deleted",
+            "Audio, transcripts, summaries, metadata, speaker assignments, and exported files will be removed from Riffado. The Plaud original stays in your account and will not be synced back automatically.",
+        action: "Delete all local data",
+        success: "All local data deleted",
     },
     plaud: {
-        title: "Move the Plaud copy to Trash?",
+        title: "Move the Plaud original to Trash?",
         description:
             "The local Riffado copy stays available. Plaud requires a separate action in its Trash to delete the recording permanently.",
-        action: "Move to Plaud Trash",
-        success: "Moved Plaud copy to Trash",
+        action: "Move Plaud original to Trash",
+        success: "Moved Plaud original to Trash",
     },
     everywhere: {
         title: "Delete everywhere?",
         description:
-            "The Plaud copy will be moved to Trash, then every local artifact and exported file will be removed from Riffado. This cannot be undone from Riffado.",
+            "The Plaud original will be moved to Trash, then every local artifact and exported file will be removed from Riffado. This cannot be undone from Riffado.",
         action: "Delete everywhere",
         success: "Recording deleted everywhere",
     },
@@ -228,7 +228,7 @@ export function EraseRecordingMenu({
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => selectOperation("local")}>
                         <FolderX className="size-4" />
-                        Delete local copy
+                        Delete all local data
                     </DropdownMenuItem>
                     {isPlaudRecording && (
                         <>
@@ -236,7 +236,7 @@ export function EraseRecordingMenu({
                                 onSelect={() => selectOperation("plaud")}
                             >
                                 <CloudOff className="size-4" />
-                                Move Plaud copy to Trash
+                                Move Plaud original to Trash
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
