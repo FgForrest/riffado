@@ -194,7 +194,7 @@ export async function storeBrowserTranscription(
 
             await tx
                 .update(recordings)
-                .set({ updatedAt: new Date() })
+                .set({ transcriptReapedAt: null, updatedAt: new Date() })
                 .where(
                     and(
                         eq(recordings.id, recordingId),
@@ -636,6 +636,7 @@ async function transcribeRecordingInner(
             provider: persistProvider,
             model: persistModel,
             turns,
+            allowReaped: (opts.trigger ?? "manual") === "manual",
         });
 
         if (!committed) {

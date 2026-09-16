@@ -437,6 +437,7 @@ export async function generateSummaryForRecording(
         provider: credentials.provider,
         model,
         multiPass,
+        allowReaped: (opts.trigger ?? "manual") === "manual",
     });
 
     if (!committed) {

@@ -467,6 +467,8 @@ export function Workstation({
                                 onTranscribeComplete={refresh}
                                 onSelectRecording={setCurrentRecording}
                                 onRenamed={handleRenamed}
+                                onDelete={handleDelete}
+                                onArtifactsChanged={refresh}
                                 onBackToList={() => setMobileView("list")}
                                 hiddenOnMobile={mobileView === "list"}
                                 initialPlaybackSpeed={

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -14,17 +14,10 @@ import {
 } from "@/components/dashboard/transcription-panel";
 import { LocalTime } from "@/components/local-time";
 import { DownloadAudioButton } from "@/components/recordings/download-audio-button";
+import { EraseRecordingMenu } from "@/components/recordings/erase-recording-menu";
 import { RecordingTitle } from "@/components/recordings/recording-title";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-    Dialog,
-    DialogContent,
-    DialogDescription,
-    DialogFooter,
-    DialogHeader,
-    DialogTitle,
-} from "@/components/ui/dialog";
 import { useTranscribeQueue } from "@/hooks/use-transcribe-queue";
 import type { Recording } from "@/types/recording";
 
@@ -62,8 +55,6 @@ export function RecordingWorkstation({
     scrubberStyle,
 }: RecordingWorkstationProps) {
     const { push, refresh } = useRouter();
-    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-    const [isDeleting, setIsDeleting] = useState(false);
     const [filename, setFilename] = useState(recording.filename);
     const playerRef = useRef<RecordingPlayerHandle>(null);
     const { inFlightActions, observeTranscriptionById, transcribeById } =
@@ -102,26 +93,18 @@ export function RecordingWorkstation({
     );
 
     const handleDelete = useCallback(async () => {
-        setIsDeleting(true);
-        try {
-            const response = await fetch(`/api/recordings/${recording.id}`, {
-                method: "DELETE",
-            });
-
-            if (response.ok) {
-                toast.success("Recording deleted");
-                setDeleteDialogOpen(false);
-                push("/dashboard");
-                refresh();
-            } else {
-                const error = await response.json().catch(() => ({}));
-                toast.error(error.error || "Failed to delete recording");
-                setIsDeleting(false);
-            }
-        } catch {
-            toast.error("Failed to delete recording");
-            setIsDeleting(false);
+        const response = await fetch(`/api/recordings/${recording.id}`, {
+            method: "DELETE",
+        });
+        if (!response.ok) {
+            const error = (await response.json().catch(() => null)) as {
+                error?: string;
+            } | null;
+            throw new Error(error?.error || "Failed to delete recording");
         }
+        toast.success("Recording deleted");
+        push("/dashboard");
+        refresh();
     }, [recording.id, refresh, push]);
 
     return (
@@ -149,16 +132,14 @@ export function RecordingWorkstation({
                             <LocalTime value={recording.startTime} />
                         </p>
                     </div>
-                    <DownloadAudioButton recordingId={recording.id} />
-                    <Button
-                        onClick={() => setDeleteDialogOpen(true)}
-                        variant="outline"
-                        size="icon"
-                        aria-label="Delete recording"
-                        title="Delete recording"
-                    >
-                        <Trash2 className="size-4" />
-                    </Button>
+                    {!recording.audioReaped && (
+                        <DownloadAudioButton recordingId={recording.id} />
+                    )}
+                    <EraseRecordingMenu
+                        recording={displayRecording}
+                        onDeleteLocal={handleDelete}
+                        onChanged={refresh}
+                    />
                 </div>
 
                 {/* Content */}
@@ -242,48 +223,6 @@ export function RecordingWorkstation({
                     </Card>
                 </div>
             </div>
-
-            <Dialog
-                open={deleteDialogOpen}
-                onOpenChange={(open) => {
-                    if (!isDeleting) setDeleteDialogOpen(open);
-                }}
-            >
-                <DialogContent>
-                    <DialogHeader>
-                        <DialogTitle>Delete this recording?</DialogTitle>
-                        <DialogDescription>
-                            This permanently removes the audio file,
-                            transcription, and AI summary from Riffado. The
-                            recording on your Plaud account is not affected, but
-                            it will not be re-synced to Riffado.
-                        </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter>
-                        <Button
-                            variant="outline"
-                            onClick={() => setDeleteDialogOpen(false)}
-                            disabled={isDeleting}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            variant="destructive"
-                            onClick={handleDelete}
-                            disabled={isDeleting}
-                        >
-                            {isDeleting ? (
-                                <>
-                                    <Loader2 className="size-4 mr-2 animate-spin" />
-                                    Deleting…
-                                </>
-                            ) : (
-                                "Delete recording"
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
         </div>
     );
 }

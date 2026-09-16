@@ -11,6 +11,7 @@ import { requireApiSession } from "@/lib/auth-server";
 import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { refreshExistingRecordingSidecars } from "@/lib/export/document-sidecars";
+import { deleteRecordingStorageArtifacts } from "@/lib/recordings/erase";
 import {
     MAX_RECORDING_TITLE_LENGTH,
     normalizeRecordingTitle,
@@ -198,43 +199,6 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
 });
 
 /**
- * Storage providers throw on any deleteFile error including "object not
- * present". Detect the not-found case so retries after a half-failed delete
- * still tombstone cleanly.
- *
- * Prefer typed signals over message matching:
- *   - Node fs: `error.code === "ENOENT"`
- *   - AWS SDK v3: `error.name` is `"NoSuchKey"` or `"NotFound"`, or
- *     `error.$metadata?.httpStatusCode === 404`
- *
- * Fall back to a narrow substring match for adapters that wrap their
- * underlying error (rare, but the local-fs adapter has done it before).
- * The fallback is anchored to known not-found phrases rather than the
- * raw `\b404\b` regex, which previously could match `request_id=...404abc`
- * style strings inside otherwise-unrelated 5xx errors.
- */
-function isStorageNotFoundError(error: unknown): boolean {
-    if (!error || typeof error !== "object") return false;
-    const e = error as {
-        code?: unknown;
-        name?: unknown;
-        message?: unknown;
-        $metadata?: { httpStatusCode?: unknown };
-    };
-    if (e.code === "ENOENT") return true;
-    if (e.name === "NoSuchKey" || e.name === "NotFound") return true;
-    if (e.$metadata?.httpStatusCode === 404) return true;
-    if (typeof e.message === "string") {
-        // Narrow substring fallback only — anchored to phrases adapters
-        // actually emit, not bare 404 anywhere in the string.
-        return /(ENOENT|NoSuchKey|NotFound|no such file or directory)/i.test(
-            e.message,
-        );
-    }
-    return false;
-}
-
-/**
  * Soft-delete a recording.
  *
  * Order of operations is important:
@@ -284,20 +248,21 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
     //    every other error so the user can retry.
     try {
         const storage = await createUserStorageProvider(userId);
-        await storage.deleteFile(recording.storagePath);
+        await deleteRecordingStorageArtifacts(
+            storage,
+            recording.storagePath,
+            "all",
+        );
     } catch (storageError) {
-        if (!isStorageNotFoundError(storageError)) {
-            console.error(
-                `Failed to delete storage file for recording ${id}:`,
-                storageError,
-            );
-            throw new AppError(
-                ErrorCode.STORAGE_ERROR,
-                "Failed to delete recording audio. Please retry.",
-                500,
-            );
-        }
-        // Object already absent — continue with tombstone.
+        console.error(
+            `Failed to delete storage files for recording ${id}:`,
+            storageError,
+        );
+        throw new AppError(
+            ErrorCode.STORAGE_ERROR,
+            "Failed to delete all recording files. Please retry.",
+            500,
+        );
     }
 
     // 2. Atomic DB writes: child rows, webhook delivery payload redaction,

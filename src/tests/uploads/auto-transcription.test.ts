@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
     nudge: vi.fn(),
     select: vi.fn(),
     transcribeRecording: vi.fn(),
+    allowManualArtifactGeneration: vi.fn(),
 }));
 
 vi.mock("@/db", () => ({
@@ -23,6 +24,9 @@ vi.mock("@/lib/posthog-server", () => ({
 }));
 vi.mock("@/lib/transcription/transcribe-recording", () => ({
     transcribeRecording: mocks.transcribeRecording,
+}));
+vi.mock("@/lib/recordings/erase", () => ({
+    allowManualArtifactGeneration: mocks.allowManualArtifactGeneration,
 }));
 
 import { ErrorCode } from "@/lib/errors";
@@ -64,6 +68,7 @@ describe("automatic upload transcription", () => {
             job: { id: "job-1" },
             created: true,
         });
+        mocks.allowManualArtifactGeneration.mockResolvedValue(true);
     });
 
     it("does not queue when the recording owner's setting is disabled", async () => {
@@ -188,5 +193,16 @@ describe("automatic upload transcription", () => {
             message: "No transcription provider is configured",
         });
         expect(transcriptionJobHandler.isRetryable?.(failure)).toBe(false);
+    });
+
+    it("does not recreate an erased transcript from an upload job", async () => {
+        mocks.allowManualArtifactGeneration.mockResolvedValueOnce(false);
+
+        await expect(
+            transcriptionJobHandler.run(handlerContext()),
+        ).rejects.toMatchObject({
+            code: ErrorCode.RECORDING_DATA_REAPED,
+        });
+        expect(mocks.transcribeRecording).not.toHaveBeenCalled();
     });
 });

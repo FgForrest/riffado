@@ -10,6 +10,7 @@ import {
     TranscriptionPanel,
     type TranscriptOption,
 } from "@/components/dashboard/transcription-panel";
+import { EraseRecordingMenu } from "@/components/recordings/erase-recording-menu";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
@@ -36,6 +37,8 @@ interface Props {
     onTranscribeComplete?: () => void;
     onSelectRecording: (r: Recording) => void;
     onRenamed?: (filename: string) => void;
+    onDelete: (recording: Recording) => Promise<void>;
+    onArtifactsChanged: () => void;
     onBackToList: () => void;
     /** When true, the pane is hidden (mobile list view active). */
     hiddenOnMobile: boolean;
@@ -65,6 +68,8 @@ export function WorkstationDetailPane({
     onTranscribeComplete,
     onSelectRecording,
     onRenamed,
+    onDelete,
+    onArtifactsChanged,
     onBackToList,
     hiddenOnMobile,
     initialPlaybackSpeed,
@@ -98,28 +103,38 @@ export function WorkstationDetailPane({
             </Button>
             {currentRecording ? (
                 <>
-                    <RecordingPlayer
-                        ref={playerRef}
-                        recording={currentRecording}
-                        initialPlaybackSpeed={initialPlaybackSpeed}
-                        initialVolume={initialVolume}
-                        initialAutoPlayNext={initialAutoPlayNext}
-                        scrubberStyle={scrubberStyle}
-                        onRenamed={onRenamed}
-                        onEnded={() => {
-                            const currentIndex = visibleRecordings.findIndex(
-                                (r) => r.id === currentRecording.id,
-                            );
-                            if (
-                                currentIndex >= 0 &&
-                                currentIndex < visibleRecordings.length - 1
-                            ) {
-                                onSelectRecording(
-                                    visibleRecordings[currentIndex + 1],
-                                );
-                            }
-                        }}
-                    />
+                    <div className="relative">
+                        <div className="absolute right-12 top-4 z-10">
+                            <EraseRecordingMenu
+                                recording={currentRecording}
+                                onDeleteLocal={onDelete}
+                                onChanged={onArtifactsChanged}
+                            />
+                        </div>
+                        <RecordingPlayer
+                            ref={playerRef}
+                            recording={currentRecording}
+                            initialPlaybackSpeed={initialPlaybackSpeed}
+                            initialVolume={initialVolume}
+                            initialAutoPlayNext={initialAutoPlayNext}
+                            scrubberStyle={scrubberStyle}
+                            onRenamed={onRenamed}
+                            onEnded={() => {
+                                const currentIndex =
+                                    visibleRecordings.findIndex(
+                                        (r) => r.id === currentRecording.id,
+                                    );
+                                if (
+                                    currentIndex >= 0 &&
+                                    currentIndex < visibleRecordings.length - 1
+                                ) {
+                                    onSelectRecording(
+                                        visibleRecordings[currentIndex + 1],
+                                    );
+                                }
+                            }}
+                        />
+                    </div>
                     <TranscriptionPanel
                         recording={currentRecording}
                         transcription={currentTranscription}

@@ -22,6 +22,9 @@ vi.mock("@/db", () => ({ db: {} }));
 vi.mock("@/lib/summary/generate-summary", () => ({
     generateSummaryForRecording: vi.fn(),
 }));
+vi.mock("@/lib/recordings/erase", () => ({
+    allowManualArtifactGeneration: vi.fn().mockResolvedValue(true),
+}));
 vi.mock("@/lib/webhooks/emit", () => ({
     emitEvent: vi.fn().mockResolvedValue(undefined),
 }));
@@ -31,6 +34,7 @@ vi.mock("@/lib/posthog-server", () => ({
 }));
 
 import { AppError, ErrorCode } from "@/lib/errors";
+import { allowManualArtifactGeneration } from "@/lib/recordings/erase";
 import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
 import { summaryJobHandler } from "@/lib/summary/summary-job-handler";
 import { emitEvent } from "@/lib/webhooks/emit";
@@ -137,6 +141,21 @@ describe("summaryJobHandler", () => {
                 trigger: "auto",
             }),
         );
+    });
+
+    it("does not regenerate an erased summary from an automatic job", async () => {
+        (allowManualArtifactGeneration as Mock).mockResolvedValueOnce(false);
+
+        await expect(
+            summaryJobHandler.run(
+                context({
+                    payload: { recordingId: "rec-1", trigger: "auto" },
+                }),
+            ),
+        ).rejects.toMatchObject({
+            code: ErrorCode.RECORDING_DATA_REAPED,
+        });
+        expect(generateSummaryForRecording).not.toHaveBeenCalled();
     });
 
     it("passes progress straight through to the job row", async () => {

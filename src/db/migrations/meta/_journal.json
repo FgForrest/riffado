@@ -330,6 +330,13 @@
       "when": 1789561901321,
       "tag": "0046_misty_forgotten_one",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1789581880095,
+      "tag": "0047_mixed_speedball",
+      "breakpoints": true
     }
   ]
 }
