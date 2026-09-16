@@ -61,11 +61,11 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
     const downloadHeaders: Record<string, string> = wantsDownload
         ? {
               "Content-Disposition": contentDispositionAttachment(
-                  buildDownloadFilename(
-                      decryptText(recording.filename),
-                      recording.storagePath,
-                      recording.id,
-                  ),
+                  recording.storageFilename ??
+                      buildDownloadFilename(
+                          decryptText(recording.filename),
+                          recording.storagePath,
+                      ),
               ),
               "Cache-Control": "private, no-store",
           }

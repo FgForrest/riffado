@@ -227,8 +227,6 @@ describe("Issue #56 — delete recording tombstone", () => {
             [{ id: "settings-1" }],
             [{ email: "test@example.com" }],
             [existing],
-            // uniqueStorageKey lookup — empty so the candidate name is unique.
-            [],
         ]);
 
         // Sync now performs the update inside a tombstone-rechecking

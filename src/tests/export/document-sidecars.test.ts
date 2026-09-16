@@ -199,7 +199,8 @@ function stubTranscriptSidecar(opts: {
                     id: "rec-1",
                     userId: "user-1",
                     filename: "Board meeting",
-                    storagePath: "user-1/rec-1-Board_meeting.mp3",
+                    storagePath: "user-1/Board_meeting.mp3",
+                    storageFilename: "Board_meeting.mp3",
                     startTime: RECORDED_AT,
                     duration: 60_000,
                     deletedAt: null,
@@ -241,7 +242,8 @@ describe("exportRecordingSidecars", () => {
                         id: "rec-1",
                         userId: "user-1",
                         filename: "Board meeting",
-                        storagePath: "user-1/rec-1-Board_meeting.mp3",
+                        storagePath: "user-1/Board_meeting.mp3",
+                        storageFilename: "Board_meeting.mp3",
                         startTime: RECORDED_AT,
                         duration: 60_000,
                         deletedAt: null,
@@ -278,7 +280,7 @@ describe("exportRecordingSidecars", () => {
             Buffer,
             string,
         ];
-        expect(key).toBe("user-1/rec-1-Board_meeting.transcript.md");
+        expect(key).toBe("user-1/Board_meeting.transcript.md");
         expect(contentType).toBe("text/markdown; charset=utf-8");
         expect(buffer.toString("utf8")).toContain("Hello there.");
     });
@@ -354,7 +356,8 @@ describe("exportRecordingSidecars", () => {
                         id: "rec-1",
                         userId: "user-1",
                         filename: "Board meeting",
-                        storagePath: "user-1/rec-1-Board_meeting.mp3",
+                        storagePath: "user-1/Board_meeting.mp3",
+                        storageFilename: "Board_meeting.mp3",
                         startTime: RECORDED_AT,
                         duration: 60_000,
                         deletedAt: null,
@@ -413,7 +416,8 @@ describe("exportRecordingSidecars", () => {
             .mockReturnValueOnce(
                 rows([
                     {
-                        storagePath: "user-1/rec-1-Board_meeting.mp3",
+                        storagePath: "user-1/Board_meeting.mp3",
+                        storageFilename: "Board_meeting.mp3",
                     },
                 ]) as never,
             )
@@ -424,7 +428,8 @@ describe("exportRecordingSidecars", () => {
                         id: "rec-1",
                         userId: "user-1",
                         filename: "Board meeting",
-                        storagePath: "user-1/rec-1-Board_meeting.mp3",
+                        storagePath: "user-1/Board_meeting.mp3",
+                        storageFilename: "Board_meeting.mp3",
                         startTime: RECORDED_AT,
                         duration: 60_000,
                         deletedAt: null,
@@ -451,12 +456,14 @@ describe("exportRecordingSidecars", () => {
         expect(exists).toHaveBeenCalledTimes(2);
         expect(uploadFile).toHaveBeenCalledTimes(1);
         expect(uploadFile.mock.calls[0]?.[0]).toBe(
-            "user-1/rec-1-Board_meeting.transcript.md",
+            "user-1/Board_meeting.transcript.md",
         );
     });
 
     it("moves legacy audio and sidecars to the canonical title-based name", async () => {
-        exists.mockResolvedValue(true);
+        exists.mockImplementation(async (key: string) =>
+            key.includes("legacy"),
+        );
         vi.mocked(db.select)
             .mockReturnValueOnce(
                 rows([
@@ -465,12 +472,14 @@ describe("exportRecordingSidecars", () => {
                         userId: "user-1",
                         filename: "Board meeting",
                         storagePath: "user-1/legacy.mp3",
+                        storageFilename: null,
                         startTime: RECORDED_AT,
                         duration: 60_000,
                         deletedAt: null,
                     },
                 ]) as never,
             )
+            .mockReturnValueOnce(rows([]) as never)
             .mockReturnValueOnce(rows([]) as never)
             .mockReturnValueOnce(
                 rows([
@@ -495,15 +504,17 @@ describe("exportRecordingSidecars", () => {
             .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never)
             .mockReturnValueOnce(rows([]) as never);
         vi.mocked(db.update).mockReturnValue({
-            set: vi.fn().mockReturnValue({
+            set: vi.fn().mockImplementation((values) => ({
                 where: vi.fn().mockReturnValue({
-                    returning: vi.fn().mockResolvedValue([
-                        {
-                            storagePath: "user-1/rec-1-Board_meeting.mp3",
-                        },
-                    ]),
+                    returning: vi
+                        .fn()
+                        .mockResolvedValue([
+                            "storageFilename" in values
+                                ? { storageFilename: "Board_meeting.mp3" }
+                                : { storagePath: "user-1/Board_meeting.mp3" },
+                        ]),
                 }),
-            }),
+            })),
         } as never);
 
         await exportRecordingSidecars("user-1", "rec-1", {
@@ -513,19 +524,19 @@ describe("exportRecordingSidecars", () => {
 
         expect(copyFile).toHaveBeenCalledWith(
             "user-1/legacy.mp3",
-            "user-1/rec-1-Board_meeting.mp3",
+            "user-1/Board_meeting.mp3",
         );
         expect(copyFile).toHaveBeenCalledWith(
             "user-1/legacy.transcript.md",
-            "user-1/rec-1-Board_meeting.transcript.md",
+            "user-1/Board_meeting.transcript.md",
         );
         expect(copyFile).toHaveBeenCalledWith(
             "user-1/legacy.summary.md",
-            "user-1/rec-1-Board_meeting.summary.md",
+            "user-1/Board_meeting.summary.md",
         );
         expect(deleteFile).toHaveBeenCalledTimes(3);
         expect(uploadFile.mock.calls[0]?.[0]).toBe(
-            "user-1/rec-1-Board_meeting.transcript.md",
+            "user-1/Board_meeting.transcript.md",
         );
     });
 
@@ -537,7 +548,8 @@ describe("exportRecordingSidecars", () => {
                         id: "rec-1",
                         userId: "user-1",
                         filename: "Board meeting",
-                        storagePath: "user-1/rec-1-Board_meeting.mp3",
+                        storagePath: "user-1/Board_meeting.mp3",
+                        storageFilename: "Board_meeting.mp3",
                         startTime: RECORDED_AT,
                         duration: 60_000,
                         deletedAt: null,

@@ -89,15 +89,22 @@ function patchRequest(body: unknown) {
 }
 
 function mockUpdateReturning(row: unknown) {
-    const whereSpy = vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue(row ? [row] : []),
+    const whereSpy = vi.fn();
+    const setPayloads: Record<string, unknown>[] = [];
+    const set = vi.fn((values: Record<string, unknown>) => {
+        setPayloads.push(values);
+        const returned =
+            "storageFilename" in values
+                ? { storageFilename: values.storageFilename }
+                : "storagePath" in values
+                  ? { storagePath: values.storagePath }
+                  : row;
+        const returning = vi.fn().mockResolvedValue(returned ? [returned] : []);
+        whereSpy.mockReturnValueOnce({ returning });
+        return { values, where: whereSpy };
     });
-    const set = vi.fn((values: Record<string, unknown>) => ({
-        values,
-        where: whereSpy,
-    }));
     (db.update as Mock).mockReturnValue({ set });
-    return { set, whereSpy };
+    return { set, setPayloads, whereSpy };
 }
 
 function mockSelectReturning(result: unknown[]) {
@@ -109,7 +116,9 @@ function mockSelectReturning(result: unknown[]) {
 }
 
 function mockOwnedRecording(storagePath = "user-1/legacy.mp3") {
-    return mockSelectReturning([{ id: "rec-1", storagePath }]);
+    return mockSelectReturning([
+        { id: "rec-1", storagePath, storageFilename: null },
+    ]);
 }
 
 /**
@@ -162,6 +171,7 @@ describe("PATCH /api/recordings/[id]", () => {
     it("encrypts the new title at rest and returns plaintext", async () => {
         mockOwnedRecording();
         mockSelectReturning([]);
+        mockSelectReturning([]);
         const { set } = mockUpdateReturning({
             id: "rec-1",
             filename: "encrypted:Q4 planning",
@@ -177,7 +187,6 @@ describe("PATCH /api/recordings/[id]", () => {
         expect(set).toHaveBeenCalledWith(
             expect.objectContaining({
                 filename: "encrypted:Q4 planning",
-                storagePath: "user-1/rec-1-Q4_planning.mp3",
             }),
         );
         await expect(response.json()).resolves.toEqual({
@@ -268,11 +277,14 @@ describe("PATCH /api/recordings/[id]", () => {
     it("renames existing audio and document sidecars", async () => {
         mockOwnedRecording();
         mockSelectReturning([]);
+        mockSelectReturning([]);
         mockUpdateReturning({
             id: "rec-1",
             filename: "encrypted:New title",
         });
-        storage.exists.mockResolvedValue(true);
+        storage.exists.mockImplementation(async (key: string) =>
+            key.includes("legacy"),
+        );
 
         const response = await patchRecording(
             patchRequest({ filename: "New title" }),
@@ -283,27 +295,30 @@ describe("PATCH /api/recordings/[id]", () => {
         expect(storage.copyFile).toHaveBeenCalledTimes(3);
         expect(storage.copyFile).toHaveBeenCalledWith(
             "user-1/legacy.mp3",
-            "user-1/rec-1-New_title.mp3",
+            "user-1/New_title.mp3",
         );
         expect(storage.copyFile).toHaveBeenCalledWith(
             "user-1/legacy.transcript.md",
-            "user-1/rec-1-New_title.transcript.md",
+            "user-1/New_title.transcript.md",
         );
         expect(storage.copyFile).toHaveBeenCalledWith(
             "user-1/legacy.summary.md",
-            "user-1/rec-1-New_title.summary.md",
+            "user-1/New_title.summary.md",
         );
         expect(storage.deleteFile).toHaveBeenCalledTimes(3);
     });
 
     it("does not remove a legacy source shared by another recording", async () => {
         mockOwnedRecording();
+        mockSelectReturning([]);
         mockSelectReturning([{ id: "rec-2" }]);
         mockUpdateReturning({
             id: "rec-1",
             filename: "encrypted:New title",
         });
-        storage.exists.mockResolvedValue(true);
+        storage.exists.mockImplementation(async (key: string) =>
+            key.includes("legacy"),
+        );
 
         const response = await patchRecording(
             patchRequest({ filename: "New title" }),
@@ -318,7 +333,14 @@ describe("PATCH /api/recordings/[id]", () => {
     it("keeps the database unchanged when storage copying fails", async () => {
         mockOwnedRecording();
         mockSelectReturning([]);
-        storage.exists.mockResolvedValue(true);
+        mockSelectReturning([]);
+        const { setPayloads } = mockUpdateReturning({
+            id: "rec-1",
+            filename: "encrypted:New title",
+        });
+        storage.exists.mockImplementation(async (key: string) =>
+            key.includes("legacy"),
+        );
         storage.copyFile.mockRejectedValueOnce(new Error("disk full"));
 
         const response = await patchRecording(
@@ -330,7 +352,9 @@ describe("PATCH /api/recordings/[id]", () => {
         await expect(response.json()).resolves.toMatchObject({
             code: ErrorCode.STORAGE_ERROR,
         });
-        expect(db.update).not.toHaveBeenCalled();
+        expect(setPayloads.some((payload) => "filename" in payload)).toBe(
+            false,
+        );
         expect(emitEvent).not.toHaveBeenCalled();
     });
 });

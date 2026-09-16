@@ -204,13 +204,13 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
             expect(result.errors).toEqual([]);
             expect(storage.uploadFile).toHaveBeenCalledTimes(1);
             const [key, body, contentType] = storage.uploadFile.mock.calls[0];
-            expect(key).toBe("user-160/new-rec-2026-05-19_18-06-54.ogg");
+            expect(key).toBe("user-160/.pending/new-rec.ogg");
             expect(body).toBe(oggBuffer);
             expect(contentType).toBe("audio/ogg");
             expect(storage.deleteFile).not.toHaveBeenCalled();
         });
 
-        it("fails closed when every candidate storage key is already held", async () => {
+        it("uses an id-scoped staging key before readable-name reconciliation", async () => {
             const storage = await storageMock();
             stubPlaud();
             stubSelects([
@@ -234,9 +234,13 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
 
             const result = await syncRecordingsForUser(mockUserId);
 
-            expect(result.newRecordings).toBe(0);
-            expect(result.errors.length).toBeGreaterThan(0);
-            expect(storage.uploadFile).not.toHaveBeenCalled();
+            expect(result.newRecordings).toBe(1);
+            expect(result.errors).toEqual([]);
+            expect(storage.uploadFile).toHaveBeenCalledWith(
+                "user-160/.pending/new-rec.ogg",
+                oggBuffer,
+                "audio/ogg",
+            );
         });
 
         function stubUpdateTransaction() {
@@ -345,7 +349,7 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
             expect(result.errors).toEqual([]);
             expect(storage.uploadFile).toHaveBeenCalledTimes(1);
             const [key, body, contentType] = storage.uploadFile.mock.calls[0];
-            expect(key).toBe("user-160/local-rec-160-2026-05-19_18-06-54.ogg");
+            expect(key).toBe("user-160/.pending/local-rec-160.ogg");
             expect(key).not.toBe(sharedPath);
             expect(body).toBe(oggBuffer);
             expect(contentType).toBe("audio/ogg");

@@ -280,6 +280,9 @@ export const recordings = pgTable(
         // Storage info
         storageType: varchar("storage_type", { length: 10 }).notNull(), // 'local' or 's3'
         storagePath: text("storage_path").notNull(), // Local path or S3 key
+        // Reserved readable basename for the audio and its sidecars. Null on
+        // legacy rows until the startup reconciliation worker allocates one.
+        storageFilename: text("storage_filename"),
         downloadedAt: timestamp("downloaded_at"),
         // Version from Plaud API (for detecting updates)
         plaudVersion: varchar("plaud_version", { length: 50 }).notNull(),
@@ -336,6 +339,16 @@ export const recordings = pgTable(
         userPlaudFileUnique: unique(
             "recordings_user_id_plaud_file_id_unique",
         ).on(table.userId, table.plaudFileId),
+        userStorageFilenameStemUnique: uniqueIndex(
+            "recordings_user_id_storage_filename_stem_unique",
+        )
+            .on(
+                table.userId,
+                sql`regexp_replace(${table.storageFilename}, '\\.[^.]+$', '')`,
+            )
+            .where(
+                sql`${table.storageFilename} is not null and ${table.deletedAt} is null`,
+            ),
     }),
 );
 

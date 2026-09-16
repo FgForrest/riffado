@@ -7,7 +7,8 @@ import { encryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { captureServerEvent } from "@/lib/posthog-server";
-import { buildRecordingStoragePath } from "@/lib/recordings/filename";
+import { buildRecordingStagingPath } from "@/lib/recordings/filename";
+import { enqueueStorageReconciliationJob } from "@/lib/recordings/storage-reconciliation-job";
 import type { StorageProvider } from "@/lib/storage/types";
 import { autoTranscribeNewRecording } from "@/lib/transcription/auto-transcribe-new-recording";
 import { getAudioMimeType } from "@/lib/utils";
@@ -53,10 +54,9 @@ export async function saveUploadedAudio(
     input: SaveUploadedAudioInput,
 ): Promise<SavedUploadedAudio> {
     const recordingId = nanoid();
-    const storageKey = buildRecordingStoragePath(
+    const storageKey = buildRecordingStagingPath(
         input.userId,
         recordingId,
-        input.basename,
         input.extension,
     );
     const contentType = getAudioMimeType(storageKey);
@@ -126,6 +126,18 @@ export async function saveUploadedAudio(
             converted_from_video: input.convertedFromVideo,
         },
     });
+
+    try {
+        await enqueueStorageReconciliationJob({
+            userId: input.userId,
+            recordingId,
+        });
+    } catch (error) {
+        console.error(
+            `Could not queue storage filename reconciliation for recording ${recordingId}:`,
+            error,
+        );
+    }
 
     try {
         await autoTranscribeNewRecording(input.userId, recordingId);

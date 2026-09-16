@@ -1,0 +1,2 @@
+ALTER TABLE "recordings" ADD COLUMN "storage_filename" text;--> statement-breakpoint
+CREATE UNIQUE INDEX "recordings_user_id_storage_filename_stem_unique" ON "recordings" USING btree ("user_id",regexp_replace("storage_filename", '\.[^.]+$', '')) WHERE "recordings"."storage_filename" is not null and "recordings"."deleted_at" is null;
