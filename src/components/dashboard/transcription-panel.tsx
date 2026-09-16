@@ -272,6 +272,7 @@ export function TranscriptionPanel({
                             recordingId={recording.id}
                             source={activeTranscript.source}
                             speakers={speakerTags}
+                            attributions={speakerAttributions}
                             onAttributionsChange={handleAttributionsChange}
                         />
                     )}
