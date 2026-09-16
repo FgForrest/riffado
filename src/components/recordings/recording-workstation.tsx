@@ -2,9 +2,12 @@
 
 import { ArrowLeft, Loader2, Trash2 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { RecordingPlayer } from "@/components/dashboard/recording-player";
+import {
+    RecordingPlayer,
+    type RecordingPlayerHandle,
+} from "@/components/dashboard/recording-player";
 import {
     TranscriptionPanel,
     type TranscriptOption,
@@ -62,6 +65,7 @@ export function RecordingWorkstation({
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [filename, setFilename] = useState(recording.filename);
+    const playerRef = useRef<RecordingPlayerHandle>(null);
 
     useEffect(() => {
         setFilename(recording.filename);
@@ -170,6 +174,7 @@ export function RecordingWorkstation({
                 {/* Content */}
                 <div className="space-y-6">
                     <RecordingPlayer
+                        ref={playerRef}
                         recording={displayRecording}
                         initialPlaybackSpeed={initialPlaybackSpeed}
                         initialVolume={initialVolume}
@@ -184,6 +189,12 @@ export function RecordingWorkstation({
                         isTranscribing={isTranscribing}
                         onTranscribe={handleTranscribe}
                         onTranscribeComplete={refresh}
+                        onSeekToTurn={
+                            recording.audioReaped
+                                ? undefined
+                                : (startMs) =>
+                                      playerRef.current?.seekTo(startMs / 1000)
+                        }
                     />
 
                     {/* Metadata */}

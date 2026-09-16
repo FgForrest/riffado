@@ -12,6 +12,7 @@ import {
     Trash2,
 } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { MarkdownActions } from "@/components/dashboard/markdown-actions";
 import { TranscribeInBrowserButton } from "@/components/dashboard/transcribe-in-browser-button";
 import { TranscriptView } from "@/components/dashboard/transcript-view";
 import { Markdown } from "@/components/markdown";
@@ -72,6 +73,8 @@ interface TranscriptionPanelProps {
     onTranscribe: () => void;
     /** Refresh handler called after a browser-side transcription completes. */
     onTranscribeComplete?: () => void;
+    /** Seek the recording audio to a provider-reported transcript turn. */
+    onSeekToTurn?: (startMs: number) => void;
 }
 
 function transcriptSourceLabel(source: string): string {
@@ -133,6 +136,7 @@ export function TranscriptionPanel({
     isTranscribing,
     onTranscribe,
     onTranscribeComplete,
+    onSeekToTurn,
 }: TranscriptionPanelProps) {
     const transcriptList = toTranscriptList(transcripts, transcription);
 
@@ -189,12 +193,18 @@ export function TranscriptionPanel({
             {/* Transcription Card */}
             <Card>
                 <CardHeader>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
                         <CardTitle className="flex items-center gap-2">
                             <FileText className="size-5" />
                             Transcription
                         </CardTitle>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                            {activeTranscript?.text && (
+                                <MarkdownActions
+                                    recordingId={recording.id}
+                                    kind="transcript"
+                                />
+                            )}
                             {activeTranscript?.text && (
                                 <Button
                                     onClick={onTranscribe}
@@ -303,6 +313,7 @@ export function TranscriptionPanel({
                                     model={activeTranscript.model}
                                     storedTurns={activeTranscript.turns}
                                     speakerAttributions={speakerAttributions}
+                                    onSeekToTurn={onSeekToTurn}
                                 />
                             </div>
                             <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t">
@@ -349,12 +360,18 @@ export function TranscriptionPanel({
             {activeTranscript?.text && (
                 <Card>
                     <CardHeader>
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
                             <CardTitle className="flex items-center gap-2">
                                 <ListChecks className="size-5" />
                                 Summary
                             </CardTitle>
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                                {summaryData?.summary && (
+                                    <MarkdownActions
+                                        recordingId={recording.id}
+                                        kind="summary"
+                                    />
+                                )}
                                 {!isSummarizing && (
                                     <Select
                                         value={summaryPreset}

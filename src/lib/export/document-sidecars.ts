@@ -57,6 +57,11 @@ export interface SummarySidecarInput {
     participants: string[];
 }
 
+export interface RecordingMarkdownDocument {
+    content: string;
+    filename: string;
+}
+
 interface SidecarProjectionContext {
     primary: typeof transcriptions.$inferSelect | null;
     resolve: SpeakerNameResolver | undefined;
@@ -162,107 +167,155 @@ export async function exportRecordingSidecars(
 
     const projection = await loadSidecarProjectionContext(userId, recordingId);
 
-    if (selection.transcript) {
-        const { primary } = projection;
+    const selectedKinds: SidecarKind[] = [
+        ...(selection.transcript ? (["transcript"] as const) : []),
+        ...(selection.summary ? (["summary"] as const) : []),
+    ];
+    for (const kind of selectedKinds) {
+        const document = await renderRecordingMarkdownDocument(
+            userId,
+            recording,
+            title,
+            projection,
+            kind,
+            storagePath,
+        );
+        if (!document) continue;
 
-        if (primary) {
-            // The sidecar is a file the user reads, so it carries names
-            // rather than raw provider labels. Confirmed attributions only.
-            const text = projectTranscript(
-                {
-                    id: primary.id,
-                    text: decryptText(primary.text),
-                    turns: primary.turns,
-                },
-                projection.resolve,
-            );
-            if (text?.trim()) {
-                storage ??= await createUserStorageProvider(userId);
-                await storage.uploadFile(
-                    sidecarKey(storagePath, "transcript"),
-                    Buffer.from(
-                        buildTranscriptMarkdown({
-                            title,
-                            recordedAt: recording.startTime,
-                            durationMs: recording.duration,
-                            language: primary.detectedLanguage,
-                            provider: primary.provider,
-                            model: primary.model,
-                            source: primary.source,
-                            text,
-                            participants: projection.participants,
-                        }),
-                        "utf8",
-                    ),
-                    MARKDOWN_CONTENT_TYPE,
-                );
-                written.push("transcript");
-            }
-        }
-    }
-
-    if (selection.summary) {
-        const [enhancement] = await db
-            .select()
-            .from(aiEnhancements)
-            .where(
-                and(
-                    eq(aiEnhancements.recordingId, recordingId),
-                    eq(aiEnhancements.userId, userId),
-                ),
-            )
-            .limit(1);
-
-        if (enhancement) {
-            const summaryValue = decryptText(enhancement.summary) ?? null;
-            const summary = summaryValue
-                ? projectSummarySpeakerReferencesForExport(
-                      summaryValue,
-                      projection.resolve,
-                  )
-                : null;
-            const keyPoints = stringArray(
-                decryptJsonField<unknown>(enhancement.keyPoints),
-            ).map((item) =>
-                projectSummarySpeakerReferencesForExport(
-                    item,
-                    projection.resolve,
-                ),
-            );
-            const actionItems = stringArray(
-                decryptJsonField<unknown>(enhancement.actionItems),
-            ).map((item) =>
-                projectSummarySpeakerReferencesForExport(
-                    item,
-                    projection.resolve,
-                ),
-            );
-
-            if (summary?.trim() || keyPoints.length > 0 || actionItems.length) {
-                storage ??= await createUserStorageProvider(userId);
-                await storage.uploadFile(
-                    sidecarKey(storagePath, "summary"),
-                    Buffer.from(
-                        buildSummaryMarkdown({
-                            title,
-                            recordedAt: recording.startTime,
-                            provider: enhancement.provider,
-                            model: enhancement.model,
-                            summary,
-                            keyPoints,
-                            actionItems,
-                            participants: projection.participants,
-                        }),
-                        "utf8",
-                    ),
-                    MARKDOWN_CONTENT_TYPE,
-                );
-                written.push("summary");
-            }
-        }
+        storage ??= await createUserStorageProvider(userId);
+        await storage.uploadFile(
+            sidecarKey(storagePath, kind),
+            Buffer.from(document.content, "utf8"),
+            MARKDOWN_CONTENT_TYPE,
+        );
+        written.push(kind);
     }
 
     return written;
+}
+
+/** Build the same portable Markdown document used for disk sidecars. */
+export async function getRecordingMarkdownDocument(
+    userId: string,
+    recordingId: string,
+    kind: SidecarKind,
+): Promise<RecordingMarkdownDocument | null> {
+    const [recording] = await db
+        .select()
+        .from(recordings)
+        .where(
+            and(
+                eq(recordings.id, recordingId),
+                eq(recordings.userId, userId),
+                isNull(recordings.deletedAt),
+            ),
+        )
+        .limit(1);
+    if (!recording) return null;
+
+    const title = decryptText(recording.filename);
+    const projection = await loadSidecarProjectionContext(userId, recordingId);
+    return renderRecordingMarkdownDocument(
+        userId,
+        recording,
+        title,
+        projection,
+        kind,
+        recording.storagePath,
+    );
+}
+
+async function renderRecordingMarkdownDocument(
+    userId: string,
+    recording: typeof recordings.$inferSelect,
+    title: string,
+    projection: SidecarProjectionContext,
+    kind: SidecarKind,
+    storagePath: string,
+): Promise<RecordingMarkdownDocument | null> {
+    const filename = sidecarKey(storagePath, kind).split("/").at(-1);
+    if (!filename) return null;
+
+    if (kind === "transcript") {
+        const { primary } = projection;
+        if (!primary) return null;
+
+        const text = projectTranscript(
+            {
+                id: primary.id,
+                text: decryptText(primary.text),
+                turns: primary.turns,
+            },
+            projection.resolve,
+        );
+        if (!text?.trim()) return null;
+
+        return {
+            filename,
+            content: buildTranscriptMarkdown({
+                title,
+                recordedAt: recording.startTime,
+                durationMs: recording.duration,
+                language: primary.detectedLanguage,
+                provider: primary.provider,
+                model: primary.model,
+                source: primary.source,
+                text,
+                participants: projection.participants,
+            }),
+        };
+    }
+
+    const [enhancement] = await db
+        .select()
+        .from(aiEnhancements)
+        .where(
+            and(
+                eq(aiEnhancements.recordingId, recording.id),
+                eq(aiEnhancements.userId, userId),
+            ),
+        )
+        .limit(1);
+    if (!enhancement) return null;
+
+    const summaryValue = decryptText(enhancement.summary) ?? null;
+    const summary = summaryValue
+        ? projectSummarySpeakerReferencesForExport(
+              summaryValue,
+              projection.resolve,
+          )
+        : null;
+    const keyPoints = stringArray(
+        decryptJsonField<unknown>(enhancement.keyPoints),
+    ).map((item) =>
+        projectSummarySpeakerReferencesForExport(item, projection.resolve),
+    );
+    const actionItems = stringArray(
+        decryptJsonField<unknown>(enhancement.actionItems),
+    ).map((item) =>
+        projectSummarySpeakerReferencesForExport(item, projection.resolve),
+    );
+    if (
+        !summary?.trim() &&
+        keyPoints.length === 0 &&
+        actionItems.length === 0
+    ) {
+        return null;
+    }
+
+    return {
+        filename,
+        content: buildSummaryMarkdown({
+            title,
+            recordedAt: recording.startTime,
+            provider: enhancement.provider,
+            model: enhancement.model,
+            summary,
+            keyPoints,
+            actionItems,
+            participants: projection.participants,
+        }),
+    };
 }
 
 async function loadSidecarProjectionContext(

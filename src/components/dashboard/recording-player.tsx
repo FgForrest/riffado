@@ -1,5 +1,7 @@
 "use client";
 
+import type * as React from "react";
+import { useImperativeHandle } from "react";
 import { RecordingPlayerControls } from "@/components/dashboard/recording-player-controls";
 import { RecordingPlayerHeader } from "@/components/dashboard/recording-player-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -24,6 +26,10 @@ interface RecordingPlayerProps {
     scrubberStyle?: "waveform" | "slider";
 }
 
+export interface RecordingPlayerHandle {
+    seekTo: (seconds: number) => void;
+}
+
 /**
  * Audio playback card for a single recording. State is owned by
  * usePlaybackEngine (audio element + transport state); keyboard
@@ -39,7 +45,8 @@ export function RecordingPlayer({
     initialVolume = 75,
     initialAutoPlayNext = false,
     scrubberStyle = "waveform",
-}: RecordingPlayerProps) {
+    ref,
+}: RecordingPlayerProps & { ref?: React.Ref<RecordingPlayerHandle> }) {
     const {
         audioRef,
         isPlaying,
@@ -50,6 +57,7 @@ export function RecordingPlayer({
         playbackSpeed,
         togglePlayPause,
         seekToRatio,
+        seekToTime,
         seekRelative,
         cycleSpeed,
         toggleMute,
@@ -60,6 +68,8 @@ export function RecordingPlayer({
         initialVolume,
         initialAutoPlayNext,
     });
+
+    useImperativeHandle(ref, () => ({ seekTo: seekToTime }), [seekToTime]);
 
     // With the audio gone there is nothing to decode and nothing to
     // scrub. The header keys every waveform affordance off this value,

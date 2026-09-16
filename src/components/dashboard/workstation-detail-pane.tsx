@@ -1,10 +1,15 @@
 "use client";
 
 import { ArrowLeft } from "lucide-react";
-import { RecordingPlayer } from "@/components/dashboard/recording-player";
+import { useRef } from "react";
+import {
+    RecordingPlayer,
+    type RecordingPlayerHandle,
+} from "@/components/dashboard/recording-player";
 import { TranscriptionPanel } from "@/components/dashboard/transcription-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import type { TranscriptTurn } from "@/lib/transcription/turns";
 import { cn } from "@/lib/utils";
 import type { Recording } from "@/types/recording";
 
@@ -13,6 +18,7 @@ interface TranscriptionData {
     language?: string;
     source?: string;
     model?: string;
+    turns?: TranscriptTurn[] | null;
 }
 
 interface Props {
@@ -60,6 +66,8 @@ export function WorkstationDetailPane({
     initialAutoPlayNext,
     scrubberStyle,
 }: Props) {
+    const playerRef = useRef<RecordingPlayerHandle>(null);
+
     return (
         <div
             className={cn(
@@ -85,6 +93,7 @@ export function WorkstationDetailPane({
             {currentRecording ? (
                 <>
                     <RecordingPlayer
+                        ref={playerRef}
                         recording={currentRecording}
                         initialPlaybackSpeed={initialPlaybackSpeed}
                         initialVolume={initialVolume}
@@ -111,6 +120,12 @@ export function WorkstationDetailPane({
                         isTranscribing={isCurrentTranscribing}
                         onTranscribe={onTranscribe}
                         onTranscribeComplete={onTranscribeComplete}
+                        onSeekToTurn={
+                            currentRecording.audioReaped
+                                ? undefined
+                                : (startMs) =>
+                                      playerRef.current?.seekTo(startMs / 1000)
+                        }
                     />
                 </>
             ) : (

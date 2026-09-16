@@ -37,6 +37,29 @@ export interface TranscriptViewProps {
     storedTurns?: TranscriptTurn[] | null;
     /** Confirmed names projected over raw labels without changing the text. */
     speakerAttributions?: SpeakerAttributions;
+    /** Seek audio to a timed turn. Omitted when audio is unavailable. */
+    onSeekToTurn?: (startMs: number) => void;
+}
+
+interface RenderableTurn {
+    speaker: string;
+    label: string;
+    text: string;
+    startMs?: number;
+}
+
+function formatTimestamp(milliseconds: number): string {
+    const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    return hours > 0
+        ? [hours, minutes, seconds]
+              .map((value) => String(value).padStart(2, "0"))
+              .join(":")
+        : [minutes, seconds]
+              .map((value) => String(value).padStart(2, "0"))
+              .join(":");
 }
 
 /**
@@ -55,13 +78,15 @@ export function TranscriptView({
     model,
     storedTurns,
     speakerAttributions = {},
+    onSeekToTurn,
 }: TranscriptViewProps) {
-    const turns = useMemo(() => {
+    const turns = useMemo<RenderableTurn[] | null>(() => {
         if (storedTurns?.length) {
             return storedTurns.map((turn) => ({
                 speaker: turn.speaker,
                 label: formatSpeakerLabel(turn.speaker),
                 text: turn.text,
+                startMs: turn.startMs,
             }));
         }
         if (!mayBeDiarized({ source, model })) return null;
@@ -86,6 +111,12 @@ export function TranscriptView({
                     SPEAKER_STYLES[
                         (position === -1 ? 0 : position) % SPEAKER_STYLES.length
                     ];
+                const displayName =
+                    speakerAttributions[turn.speaker]?.name ?? turn.label;
+                const canSeek =
+                    onSeekToTurn !== undefined &&
+                    turn.startMs !== undefined &&
+                    Number.isFinite(turn.startMs);
                 return (
                     <div
                         key={`${turn.speaker}-${index}-${turn.text.slice(0, 24)}`}
@@ -96,12 +127,25 @@ export function TranscriptView({
                                 <span
                                     className={`size-1.5 rounded-full shrink-0 ${style.dot}`}
                                 />
-                                <span
-                                    className={`text-xs font-medium ${style.text}`}
-                                >
-                                    {speakerAttributions[turn.speaker]?.name ??
-                                        turn.label}
-                                </span>
+                                {canSeek ? (
+                                    <button
+                                        type="button"
+                                        className={`rounded-sm text-xs font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${style.text}`}
+                                        onClick={() =>
+                                            onSeekToTurn(turn.startMs ?? 0)
+                                        }
+                                        aria-label={`Seek audio to ${formatTimestamp(turn.startMs ?? 0)}, ${displayName}`}
+                                        title={`Seek audio to ${formatTimestamp(turn.startMs ?? 0)}`}
+                                    >
+                                        {displayName}
+                                    </button>
+                                ) : (
+                                    <span
+                                        className={`text-xs font-medium ${style.text}`}
+                                    >
+                                        {displayName}
+                                    </span>
+                                )}
                             </div>
                         )}
                         <p className="text-sm whitespace-pre-wrap leading-relaxed pl-3.5">
