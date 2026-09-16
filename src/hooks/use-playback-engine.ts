@@ -166,6 +166,20 @@ export function usePlaybackEngine({
         setCurrentTime(newTime);
     }, []);
 
+    /** Seek to an absolute offset in seconds, used by timed transcript turns. */
+    const seekToTime = useCallback((seconds: number) => {
+        const audio = audioRef.current;
+        if (!audio || !Number.isFinite(seconds)) return;
+        const requestedTime = Math.max(0, seconds);
+        const newTime =
+            audio.duration > 0 && Number.isFinite(audio.duration)
+                ? Math.min(audio.duration, requestedTime)
+                : requestedTime;
+        isSeekingRef.current = true;
+        audio.currentTime = newTime;
+        setCurrentTime(newTime);
+    }, []);
+
     /**
      * Seek by signed seconds offset (used by keyboard left/right).
      * Clamps to [0, duration].
@@ -217,6 +231,7 @@ export function usePlaybackEngine({
         playbackSpeed,
         togglePlayPause,
         seekToRatio,
+        seekToTime,
         seekRelative,
         cycleSpeed,
         toggleMute,
