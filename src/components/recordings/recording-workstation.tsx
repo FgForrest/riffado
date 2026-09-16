@@ -143,20 +143,26 @@ export function RecordingWorkstation({
                             scrubberStyle={scrubberStyle}
                         />
                     )}
-                    <TranscriptionPanel
-                        recording={displayRecording}
-                        transcription={transcription}
-                        transcripts={transcripts}
-                        isTranscribing={isTranscribing}
-                        onTranscribe={handleTranscribe}
-                        onTranscribeComplete={refresh}
-                        onSeekToTurn={
-                            recording.audioReaped
-                                ? undefined
-                                : (startMs) =>
-                                      playerRef.current?.seekTo(startMs / 1000)
-                        }
-                    />
+                    {(!displayRecording.audioReaped ||
+                        displayRecording.hasTranscript !== false) && (
+                        <TranscriptionPanel
+                            key={`${displayRecording.id}:${displayRecording.audioReaped ? 1 : 0}:${displayRecording.hasTranscript ? 1 : 0}:${displayRecording.hasSummary ? 1 : 0}`}
+                            recording={displayRecording}
+                            transcription={transcription}
+                            transcripts={transcripts}
+                            isTranscribing={isTranscribing}
+                            onTranscribe={handleTranscribe}
+                            onTranscribeComplete={refresh}
+                            onSeekToTurn={
+                                recording.audioReaped
+                                    ? undefined
+                                    : (startMs) =>
+                                          playerRef.current?.seekTo(
+                                              startMs / 1000,
+                                          )
+                            }
+                        />
+                    )}
 
                     {/* Metadata */}
                     <Card>
