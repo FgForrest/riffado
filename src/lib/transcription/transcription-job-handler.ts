@@ -73,6 +73,9 @@ export const transcriptionJobHandler: JobHandler<TranscriptionJobPayload> = {
     async run({ payload, userId }): Promise<JobResult> {
         const result = await transcribeRecording(userId, payload.recordingId, {
             trigger: payload.trigger,
+            providerId: payload.providerId,
+            model: payload.model,
+            force: payload.force,
         });
         if (!result.success) throw failedResultError(result.errorCode);
         return { transcribed: true };

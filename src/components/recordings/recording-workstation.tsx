@@ -25,6 +25,7 @@ import {
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
+import { useTranscribeQueue } from "@/hooks/use-transcribe-queue";
 import type { Recording } from "@/types/recording";
 
 interface Transcription {
@@ -61,15 +62,21 @@ export function RecordingWorkstation({
     scrubberStyle,
 }: RecordingWorkstationProps) {
     const { push, refresh } = useRouter();
-    const [isTranscribing, setIsTranscribing] = useState(false);
     const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [filename, setFilename] = useState(recording.filename);
     const playerRef = useRef<RecordingPlayerHandle>(null);
+    const { inFlightActions, observeTranscriptionById, transcribeById } =
+        useTranscribeQueue({ onTranscribeComplete: refresh });
+    const isTranscribing = inFlightActions.get(recording.id) === "transcribing";
 
     useEffect(() => {
         setFilename(recording.filename);
     }, [recording.filename]);
+
+    useEffect(() => {
+        void observeTranscriptionById(recording.id);
+    }, [observeTranscriptionById, recording.id]);
 
     const displayRecording = useMemo(
         () =>
@@ -88,28 +95,8 @@ export function RecordingWorkstation({
     );
 
     const handleTranscribe = useCallback(async () => {
-        setIsTranscribing(true);
-        try {
-            const response = await fetch(
-                `/api/recordings/${recording.id}/transcribe`,
-                {
-                    method: "POST",
-                },
-            );
-
-            if (response.ok) {
-                toast.success("Transcription complete");
-                refresh();
-            } else {
-                const error = await response.json();
-                toast.error(error.error || "Transcription failed");
-            }
-        } catch {
-            toast.error("Failed to transcribe recording");
-        } finally {
-            setIsTranscribing(false);
-        }
-    }, [recording.id, refresh]);
+        await transcribeById(recording.id);
+    }, [recording.id, transcribeById]);
 
     const handleDelete = useCallback(async () => {
         setIsDeleting(true);

@@ -36,8 +36,11 @@ vi.mock("@/lib/notifications/email", () => ({
     sendNewRecordingEmail: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock("@/lib/transcription/transcribe-recording", () => ({
-    transcribeRecording: vi.fn().mockResolvedValue({ success: true }),
+vi.mock("@/lib/transcription/transcription-job", () => ({
+    enqueueTranscriptionJob: vi.fn().mockResolvedValue({
+        job: { id: "job-1" },
+        created: true,
+    }),
 }));
 
 vi.mock("@/lib/sync/untranscribed", () => ({
@@ -60,7 +63,7 @@ import { captureServerException } from "@/lib/posthog-server";
 import { resetAutoTranscribeStateForTests } from "@/lib/sync/auto-transcribe-state";
 import { syncRecordingsForUser } from "@/lib/sync/sync-recordings";
 import { listUntranscribedRecordingIds } from "@/lib/sync/untranscribed";
-import { transcribeRecording } from "@/lib/transcription/transcribe-recording";
+import { enqueueTranscriptionJob } from "@/lib/transcription/transcription-job";
 
 describe("Sync", () => {
     const mockUserId = "user-123";
@@ -265,11 +268,11 @@ describe("Sync", () => {
                 },
             );
             await vi.waitFor(() => {
-                expect(transcribeRecording).toHaveBeenCalledWith(
-                    mockUserId,
-                    "local-rec-1",
-                    { trigger: "sync" },
-                );
+                expect(enqueueTranscriptionJob).toHaveBeenCalledWith({
+                    userId: mockUserId,
+                    recordingId: "local-rec-1",
+                    trigger: "sync",
+                });
             });
         });
 

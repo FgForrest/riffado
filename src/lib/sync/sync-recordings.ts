@@ -36,14 +36,13 @@ import { createUserStorageProvider } from "@/lib/storage/factory";
 import {
     claimAutoTranscribeIds,
     listAutoTranscribeRetryIds,
-    noteAutoTranscribeOutcome,
     releaseAutoTranscribeIds,
 } from "@/lib/sync/auto-transcribe-state";
 import {
     upsertEnhancement,
     upsertTranscription,
 } from "@/lib/transcription/persist";
-import { transcribeRecording } from "@/lib/transcription/transcribe-recording";
+import { enqueueTranscriptionJob } from "@/lib/transcription/transcription-job";
 import { emitEvent } from "@/lib/webhooks/emit";
 import type { PlaudRecording } from "@/types/plaud";
 
@@ -892,9 +891,7 @@ async function runSyncRecordingsForUser(userId: string): Promise<SyncResult> {
             const idsToTranscribe = claimAutoTranscribeIds(eligibleIds);
 
             if (idsToTranscribe.length > 0) {
-                queueTranscriptions(userId, idsToTranscribe).catch((error) => {
-                    console.error("Background transcription failed:", error);
-                });
+                await enqueueTranscriptions(userId, idsToTranscribe);
             }
         }
 
@@ -935,21 +932,21 @@ async function runSyncRecordingsForUser(userId: string): Promise<SyncResult> {
     }
 }
 
-async function queueTranscriptions(
+async function enqueueTranscriptions(
     userId: string,
     recordingIds: string[],
 ): Promise<void> {
     try {
         for (const recordingId of recordingIds) {
             try {
-                const outcome = await transcribeRecording(userId, recordingId, {
+                await enqueueTranscriptionJob({
+                    userId,
+                    recordingId,
                     trigger: "sync",
                 });
-                noteAutoTranscribeOutcome(userId, recordingId, outcome.success);
             } catch (error) {
-                noteAutoTranscribeOutcome(userId, recordingId, false);
                 console.error(
-                    `Auto-transcription failed for recording ${recordingId}:`,
+                    `Could not queue auto-transcription for recording ${recordingId}:`,
                     error,
                 );
             }
