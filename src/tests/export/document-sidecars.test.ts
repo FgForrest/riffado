@@ -369,23 +369,22 @@ describe("exportRecordingSidecars", () => {
                     {
                         id: "tr-1",
                         source: "riffado",
-                        text: "speaker_0: Hello.",
+                        text: "Speaker 0: Hello.",
                     },
                 ]) as never,
             )
             .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never)
             .mockReturnValueOnce(
                 rows([
-                    { label: "speaker_0", displayName: "Jane Doe" },
+                    { label: "Speaker 0", displayName: "Jane Doe" },
                 ]) as never,
             )
             .mockReturnValueOnce(
                 rows([
                     {
-                        summary:
-                            "[Speaker 0](#speaker-0) approved [Speaker 1](#speaker-1).",
-                        keyPoints: ["Decision by [Speaker 0](#speaker-0)"],
-                        actionItems: ["Follow up with [Speaker 1](#speaker-1)"],
+                        summary: "Speaker 0 approved Speaker 1.",
+                        keyPoints: ["Decision by Speaker 0"],
+                        actionItems: ["Follow up with Speaker 1"],
                         provider: "OpenAI",
                         model: "gpt-4o-mini",
                     },

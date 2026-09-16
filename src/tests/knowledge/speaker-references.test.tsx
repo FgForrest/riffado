@@ -4,6 +4,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { Markdown } from "@/components/markdown";
 import {
+    canonicalizeSummarySpeakerReferences,
     projectSummarySpeakerReferencesForExport,
     speakerAnchorId,
     speakerLabelFromSummaryHref,
@@ -23,7 +24,10 @@ describe("summary speaker references", () => {
         render(
             <Markdown
                 speakerAttributions={{
-                    speaker_0: { personId: "person-1", name: "Jane Doe" },
+                    "Speaker 0": {
+                        personId: "person-1",
+                        name: "Jane Doe",
+                    },
                 }}
             >
                 {markdown}
@@ -33,6 +37,26 @@ describe("summary speaker references", () => {
         const link = screen.getByRole("link", { name: "Jane Doe" });
         expect(link.getAttribute("href")).toBe("/people/person-1");
         expect(markdown).toBe("[Speaker 0](#speaker-0) approved the proposal.");
+    });
+
+    it("canonicalizes a plain model-authored speaker reference for rendering", () => {
+        const markdown = "Speaker 0 approved the proposal.";
+        render(
+            <Markdown
+                speakerAttributions={{
+                    speaker_0: { personId: "person-1", name: "Jane Doe" },
+                }}
+            >
+                {markdown}
+            </Markdown>,
+        );
+
+        const link = screen.getByRole("link", { name: "Jane Doe" });
+        expect(link.getAttribute("href")).toBe("/people/person-1");
+        expect(markdown).toBe("Speaker 0 approved the proposal.");
+        expect(canonicalizeSummarySpeakerReferences(markdown)).toBe(
+            "[Speaker 0](#speaker-0) approved the proposal.",
+        );
     });
 
     it("keeps an unresolved UI reference linked to its speaker tag", () => {
@@ -47,8 +71,8 @@ describe("summary speaker references", () => {
 
     it("exports confirmed and unknown speakers as plain text", () => {
         const projected = projectSummarySpeakerReferencesForExport(
-            "[Speaker 0](#speaker-0) asked [Speaker 1](#speaker-1).",
-            (speaker) => (speaker === "speaker_0" ? "Jane Doe" : null),
+            "[Speaker 0](#speaker-0) asked Speaker 1.",
+            (speaker) => (speaker === "Speaker 0" ? "Jane Doe" : null),
         );
 
         expect(projected).toBe("Jane Doe asked Speaker 1.");
