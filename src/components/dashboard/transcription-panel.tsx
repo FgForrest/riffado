@@ -9,7 +9,6 @@ import {
     Loader2,
     RefreshCw,
     Sparkles,
-    Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MarkdownActions } from "@/components/dashboard/markdown-actions";
@@ -280,7 +279,6 @@ export function TranscriptionPanel({
         setSummaryPreset,
         summaryPromptOptions,
         handleSummarize,
-        handleDeleteSummary,
     } = useTranscriptionSummary({
         recordingId: recording?.id,
         summarySource,
@@ -719,8 +717,8 @@ export function TranscriptionPanel({
                                                 </div>
                                             )}
 
-                                        {/* Meta + Delete */}
-                                        <div className="flex items-center justify-between pt-2 border-t">
+                                        {/* Summary metadata */}
+                                        <div className="flex items-center border-t pt-2">
                                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                                 <span className="px-2 py-0.5 rounded bg-muted font-medium">
                                                     {transcriptSourceLabel(
@@ -752,19 +750,6 @@ export function TranscriptionPanel({
                                                     </span>
                                                 )}
                                             </div>
-                                            {summarySource === "riffado" && (
-                                                <Button
-                                                    onClick={
-                                                        handleDeleteSummary
-                                                    }
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    className="text-destructive hover:text-destructive"
-                                                >
-                                                    <Trash2 className="size-4 mr-1" />
-                                                    Delete
-                                                </Button>
-                                            )}
                                         </div>
                                     </section>
                                 )}
