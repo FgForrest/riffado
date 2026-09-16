@@ -11,10 +11,9 @@ import { buildNameResolver } from "@/lib/knowledge/attribution";
 import { projectTranscript } from "@/lib/knowledge/project-transcript";
 import { projectSummarySpeakerReferencesForExport } from "@/lib/knowledge/speaker-references";
 import {
-    audioExtension,
-    buildRecordingStoragePath,
-} from "@/lib/recordings/filename";
-import { reconcileRecordingStorage } from "@/lib/recordings/reconcile-storage";
+    reconcileRecordingStorage,
+    recordingStorageNeedsReconciliation,
+} from "@/lib/recordings/reconcile-storage";
 import { sidecarKey } from "@/lib/recordings/storage-files";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import {
@@ -147,18 +146,16 @@ export async function exportRecordingSidecars(
     let storage: Awaited<ReturnType<typeof createUserStorageProvider>> | null =
         null;
 
-    const expectedStoragePath = buildRecordingStoragePath(
+    const storageState = {
+        id: recording.id,
         userId,
-        recording.id,
         title,
-        audioExtension(recording.storagePath),
-    );
-    if (expectedStoragePath !== recording.storagePath) {
+        storagePath: recording.storagePath,
+        storageFilename: recording.storageFilename,
+    };
+    if (recordingStorageNeedsReconciliation(storageState)) {
         const reconciled = await reconcileRecordingStorage({
-            id: recording.id,
-            userId,
-            title,
-            storagePath: recording.storagePath,
+            ...storageState,
         });
         storagePath = reconciled.storagePath;
     }

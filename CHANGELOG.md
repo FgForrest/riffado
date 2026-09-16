@@ -17,6 +17,7 @@
 - Changing the default summary prompt in Settings → Summary wiped any custom summary prompts on every save, since the request always sent `customPrompts: []` instead of the current list ([#199](https://github.com/riffado/riffado/issues/199)).
 
 ### Changed
+- Migration `0045_cultured_gwen_stacy` adds nullable `recordings.storage_filename` tracking and a per-user unique filename-stem index. Existing and newly uploaded recording audio, transcript, and summary files are reconciled to readable title-based names with numeric collision suffixes.
 - Migration `0041_slippery_mongu` adds `multi_pass_rounds`, `multi_pass_passes_used` and `multi_pass_merged` to `ai_enhancements`. All nullable; NULL means a single-pass summary, which is also how every existing row reads.
 - Migration `0040_natural_absorbing_man` adds `summary_multi_pass`, `summary_multi_pass_rounds`, `summary_multi_pass_auto` and `summary_merge_prompt` to `user_settings`. Purely additive and defaulted, so it is inert until multi-pass summarization is switched on, and an older image runs unchanged against a migrated database.
 - Migration `0036_wide_raider` upgrades `stripe_webhook_events` to a durable Stripe event inbox. Inert on self-host unless hosted billing is configured.

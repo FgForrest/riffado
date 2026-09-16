@@ -34,6 +34,7 @@ export const storageReconciliationScanJobHandler: JobHandler<
                 id: recordings.id,
                 filename: recordings.filename,
                 storagePath: recordings.storagePath,
+                storageFilename: recordings.storageFilename,
             })
             .from(recordings)
             .where(
@@ -52,6 +53,7 @@ export const storageReconciliationScanJobHandler: JobHandler<
                 userId,
                 title: decryptText(row.filename),
                 storagePath: row.storagePath,
+                storageFilename: row.storageFilename,
             };
             if (recordingStorageNeedsReconciliation(state)) {
                 const result = await enqueueStorageReconciliationJob({
@@ -85,6 +87,7 @@ export const storageReconciliationJobHandler: JobHandler<StorageReconciliationJo
                     id: recordings.id,
                     filename: recordings.filename,
                     storagePath: recordings.storagePath,
+                    storageFilename: recordings.storageFilename,
                 })
                 .from(recordings)
                 .where(
@@ -102,6 +105,7 @@ export const storageReconciliationJobHandler: JobHandler<StorageReconciliationJo
                 userId,
                 title: decryptText(recording.filename),
                 storagePath: recording.storagePath,
+                storageFilename: recording.storageFilename,
             });
             await rewriteExistingRecordingSidecars(userId, recording.id);
             return { reconciled: result.changed };

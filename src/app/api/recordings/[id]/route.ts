@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import {
@@ -12,17 +12,11 @@ import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { refreshExistingRecordingSidecars } from "@/lib/export/document-sidecars";
 import {
-    audioExtension,
-    buildRecordingStoragePath,
     MAX_RECORDING_TITLE_LENGTH,
     normalizeRecordingTitle,
 } from "@/lib/recordings/filename";
-import {
-    copyExistingRecordingFiles,
-    deleteOldRecordingFiles,
-} from "@/lib/recordings/storage-files";
+import { reconcileRecordingStorage } from "@/lib/recordings/reconcile-storage";
 import { createUserStorageProvider } from "@/lib/storage/factory";
-import type { StorageProvider } from "@/lib/storage/types";
 import { emitEvent } from "@/lib/webhooks/emit";
 import { createRedactedWebhookPayload } from "@/lib/webhooks/payload";
 
@@ -125,6 +119,7 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
         .select({
             id: recordings.id,
             storagePath: recordings.storagePath,
+            storageFilename: recordings.storageFilename,
         })
         .from(recordings)
         .where(
@@ -144,61 +139,39 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
         );
     }
 
-    const newStoragePath = buildRecordingStoragePath(
-        userId,
-        recording.id,
-        filename,
-        audioExtension(recording.storagePath),
-    );
-    let storage: StorageProvider | null = null;
-    let copiedSources: string[] = [];
-    let storagePathIsShared = false;
-
-    if (newStoragePath !== recording.storagePath) {
-        const [shared] = await db
-            .select({ id: recordings.id })
-            .from(recordings)
-            .where(
-                and(
-                    eq(recordings.userId, userId),
-                    eq(recordings.storagePath, recording.storagePath),
-                    ne(recordings.id, id),
-                ),
-            )
-            .limit(1);
-        storagePathIsShared = Boolean(shared);
-        storage = await createUserStorageProvider(userId);
-        try {
-            copiedSources = await copyExistingRecordingFiles(
-                storage,
-                recording.storagePath,
-                newStoragePath,
-            );
-        } catch (error) {
-            console.error(
-                `Failed to rename storage files for recording ${id}:`,
-                error,
-            );
-            throw new AppError(
-                ErrorCode.STORAGE_ERROR,
-                "Failed to rename recording files. Please retry.",
-                500,
-            );
-        }
+    let reconciled: Awaited<ReturnType<typeof reconcileRecordingStorage>>;
+    try {
+        reconciled = await reconcileRecordingStorage({
+            id: recording.id,
+            userId,
+            title: filename,
+            storagePath: recording.storagePath,
+            storageFilename: recording.storageFilename,
+        });
+    } catch (error) {
+        console.error(
+            `Failed to rename storage files for recording ${id}:`,
+            error,
+        );
+        throw new AppError(
+            ErrorCode.STORAGE_ERROR,
+            "Failed to rename recording files. Please retry.",
+            500,
+        );
     }
 
     const [updated] = await db
         .update(recordings)
         .set({
             filename: encryptText(filename),
-            storagePath: newStoragePath,
             updatedAt: new Date(),
         })
         .where(
             and(
                 eq(recordings.id, id),
                 eq(recordings.userId, userId),
-                eq(recordings.storagePath, recording.storagePath),
+                eq(recordings.storagePath, reconciled.storagePath),
+                eq(recordings.storageFilename, reconciled.storageFilename),
                 isNull(recordings.deletedAt),
             ),
         )
@@ -213,10 +186,6 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
             "Recording not found",
             404,
         );
-    }
-
-    if (storage && !storagePathIsShared) {
-        await deleteOldRecordingFiles(storage, copiedSources, id);
     }
 
     await refreshExistingRecordingSidecars(userId, id);

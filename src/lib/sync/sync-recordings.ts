@@ -30,7 +30,8 @@ import {
     captureServerEvent,
     captureServerException,
 } from "@/lib/posthog-server";
-import { buildRecordingStoragePath } from "@/lib/recordings/filename";
+import { buildRecordingStagingPath } from "@/lib/recordings/filename";
+import { enqueueStorageReconciliationJob } from "@/lib/recordings/storage-reconciliation-job";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import {
     claimAutoTranscribeIds,
@@ -122,47 +123,11 @@ async function storagePathHeldByOtherRecording(
     return Boolean(other);
 }
 
-async function allocateStorageKey(
-    userId: string,
-    recordingId: string,
-    title: string,
-    ext: string,
-): Promise<string> {
-    const candidate = (suffix: string) =>
-        buildRecordingStoragePath(
-            userId,
-            recordingId,
-            `${title}${suffix}`,
-            ext,
-        );
-
-    for (let i = 0; i < 100; i++) {
-        const suffix = i === 0 ? "" : ` (${i + 1})`;
-        const key = candidate(suffix);
-        const [existing] = await db
-            .select({ id: recordings.id })
-            .from(recordings)
-            .where(
-                and(
-                    eq(recordings.userId, userId),
-                    eq(recordings.storagePath, key),
-                    ne(recordings.id, recordingId),
-                ),
-            )
-            .limit(1);
-        if (!existing) return key;
-    }
-    throw new Error(
-        "Unable to allocate a unique storage key for Plaud recording",
-    );
-}
-
 async function resolveStorageKey(
     userId: string,
     existingRecording: { id: string; storagePath: string | null } | undefined,
     fileExtension: string,
     recordingId: string,
-    title: string,
 ): Promise<string> {
     if (existingRecording?.storagePath) {
         const shared = await storagePathHeldByOtherRecording(
@@ -172,7 +137,21 @@ async function resolveStorageKey(
         );
         if (!shared) return existingRecording.storagePath;
     }
-    return allocateStorageKey(userId, recordingId, title, fileExtension);
+    return buildRecordingStagingPath(userId, recordingId, fileExtension);
+}
+
+async function queueStorageReconciliation(
+    userId: string,
+    recordingId: string,
+): Promise<void> {
+    try {
+        await enqueueStorageReconciliationJob({ userId, recordingId });
+    } catch (error) {
+        console.error(
+            `Could not queue storage filename reconciliation for recording ${recordingId}:`,
+            error,
+        );
+    }
 }
 
 /**
@@ -386,7 +365,6 @@ async function processRecording(
             existingRecording,
             fileExtension,
             recordingId,
-            plaudRecording.filename,
         );
         const contentType = sniffed.contentType;
         await storage.uploadFile(storageKey, audioBuffer, contentType);
@@ -460,6 +438,11 @@ async function processRecording(
                 return { status: "skipped" };
             }
 
+            await queueStorageReconciliation(
+                context.userId,
+                existingRecording.id,
+            );
+
             await emitEvent(
                 "recording.updated",
                 context.userId,
@@ -482,6 +465,8 @@ async function processRecording(
             .returning({ id: recordings.id });
 
         seenRecordingIds.add(newRecording.id);
+
+        await queueStorageReconciliation(context.userId, newRecording.id);
 
         await emitEvent("recording.synced", context.userId, newRecording.id);
 

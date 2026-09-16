@@ -61,39 +61,33 @@ describe("sanitizeDownloadBasename", () => {
 });
 
 describe("buildDownloadFilename", () => {
-    it("prefixes the safe title with the recording id", () => {
-        expect(
-            buildDownloadFilename("Planning Call", "u/rec.mp3", "rec-1"),
-        ).toBe("rec-1-Planning_Call.mp3");
-        expect(buildDownloadFilename("   ", "u/rec.wav", "rec-1")).toBe(
-            "rec-1-untitled.wav",
+    it("uses the safe title without an opaque recording id", () => {
+        expect(buildDownloadFilename("Planning Call", "u/rec.mp3")).toBe(
+            "Planning_Call.mp3",
         );
+        expect(buildDownloadFilename("   ", "u/rec.wav")).toBe("untitled.wav");
     });
 
     it("does not double the extension when the title already has it", () => {
-        expect(buildDownloadFilename("memo.m4a", "u/file.m4a", "id")).toBe(
-            "id-memo.m4a",
+        expect(buildDownloadFilename("memo.m4a", "u/file.m4a")).toBe(
+            "memo.m4a",
         );
-        expect(buildDownloadFilename("memo.MP3", "u/file.mp3", "id")).toBe(
-            "id-memo.mp3",
+        expect(buildDownloadFilename("memo.MP3", "u/file.mp3")).toBe(
+            "memo.mp3",
         );
     });
 
     it("keeps unicode in the download name", () => {
-        expect(buildDownloadFilename("会議 日本語", "u/a.mp3", "id")).toBe(
-            "id-会議_日本語.mp3",
+        expect(buildDownloadFilename("会議 日本語", "u/a.mp3")).toBe(
+            "会議_日本語.mp3",
         );
     });
 
-    it("makes formerly reserved basenames safe through the id prefix", () => {
-        expect(buildDownloadFilename("CON", "u/rec.mp3", "id")).toBe(
-            "id-CON.mp3",
-        );
-        expect(buildDownloadFilename("CON.mp3", "u/rec.mp3", "id")).toBe(
-            "id-CON.mp3",
-        );
-        expect(buildDownloadFilename("LPT1.wav", "u/rec.wav", "id")).toBe(
-            "id-LPT1.wav",
+    it("makes Windows reserved basenames safe", () => {
+        expect(buildDownloadFilename("CON", "u/rec.mp3")).toBe("_CON.mp3");
+        expect(buildDownloadFilename("CON.mp3", "u/rec.mp3")).toBe("_CON.mp3");
+        expect(buildDownloadFilename("LPT1.wav", "u/rec.wav")).toBe(
+            "_LPT1.wav",
         );
     });
 });
@@ -104,24 +98,21 @@ describe("recording storage filenames", () => {
             "Muj_titulek_nahravky",
         );
         expect(
-            buildRecordingStorageFilename("ID", "Můj titulek nahrávky", ".MP3"),
-        ).toBe("ID-Muj_titulek_nahravky.mp3");
+            buildRecordingStorageFilename("Můj titulek nahrávky", ".MP3"),
+        ).toBe("Muj_titulek_nahravky.mp3");
         expect(
-            buildRecordingStoragePath(
-                "user-1",
-                "ID",
-                "Můj titulek nahrávky",
-                "mp3",
-            ),
-        ).toBe("user-1/ID-Muj_titulek_nahravky.mp3");
+            buildRecordingStoragePath("user-1", "Můj titulek nahrávky", "mp3"),
+        ).toBe("user-1/Muj_titulek_nahravky.mp3");
+    });
+
+    it("adds a numeric suffix only for collisions", () => {
+        expect(buildRecordingStorageFilename("Weekly status", "mp3", 1)).toBe(
+            "Weekly_status-1.mp3",
+        );
     });
 
     it("bounds long unicode names by UTF-8 bytes", () => {
-        const filename = buildRecordingStorageFilename(
-            "recording-id",
-            "会".repeat(200),
-            "mp3",
-        );
+        const filename = buildRecordingStorageFilename("会".repeat(200), "mp3");
         expect(new TextEncoder().encode(filename).length).toBeLessThanOrEqual(
             240,
         );

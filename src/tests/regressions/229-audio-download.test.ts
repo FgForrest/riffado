@@ -4,7 +4,7 @@
  *   GET /api/recordings/[id]/audio?download=1
  *
  * Covers:
- *   1. Authenticated download sets Content-Disposition (id + title + storage ext)
+ *   1. Authenticated download sets Content-Disposition (title + storage ext)
  *   2. Playback (no download param) does not set Content-Disposition
  *   3. Download ignores Range and returns the full file
  *   4. 404 for another user's recording / missing row
@@ -64,6 +64,7 @@ function recordingRow(overrides: Record<string, unknown> = {}) {
         fileMd5: "abc",
         storageType: "local",
         storagePath: "user-1/rec.mp3",
+        storageFilename: null,
         downloadedAt: now,
         plaudVersion: "1",
         timezone: null,
@@ -102,7 +103,7 @@ describe("GET /api/recordings/[id]/audio?download=1", () => {
         });
     });
 
-    it("returns the original file as an attachment named from its id and title", async () => {
+    it("returns the original file as an attachment named from its title", async () => {
         selectRecording(recordingRow());
 
         const response = await getAudio(
@@ -118,7 +119,7 @@ describe("GET /api/recordings/[id]/audio?download=1", () => {
             "attachment",
         );
         expect(response.headers.get("Content-Disposition")).toContain(
-            "rec-1-Planning_Call.mp3",
+            "Planning_Call.mp3",
         );
         expect(await response.text()).toBe("audio-bytes");
     });
@@ -136,7 +137,24 @@ describe("GET /api/recordings/[id]/audio?download=1", () => {
         expect(response.status).toBe(200);
         expect(response.headers.get("Content-Type")).toBe("audio/mp4");
         expect(response.headers.get("Content-Disposition")).toContain(
-            "rec-1-Planning_Call.m4a",
+            "Planning_Call.m4a",
+        );
+    });
+
+    it("preserves a reserved collision suffix", async () => {
+        selectRecording(
+            recordingRow({ storageFilename: "Planning_Call-1.mp3" }),
+        );
+
+        const response = await getAudio(
+            new Request(
+                "http://localhost/api/recordings/rec-1/audio?download=1",
+            ),
+            routeParams(),
+        );
+
+        expect(response.headers.get("Content-Disposition")).toContain(
+            "Planning_Call-1.mp3",
         );
     });
 
