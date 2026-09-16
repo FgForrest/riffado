@@ -119,7 +119,29 @@ export function useTranscriptionSummary({
     summarySource = "riffado",
     transcriptionText,
 }: UseTranscriptionSummaryOptions) {
-    const [summaryData, setSummaryData] = useState<SummaryData | null>(null);
+    const [summaryDataByKey, setSummaryDataByKey] = useState<
+        Record<string, SummaryData | null>
+    >({});
+    const summaryViewKey = recordingId
+        ? `${recordingId}:${summarySource}`
+        : null;
+    const summaryData = summaryViewKey
+        ? (summaryDataByKey[summaryViewKey] ?? null)
+        : null;
+    const setSummaryFor = useCallback(
+        (
+            targetId: string,
+            targetSource: SummarySource,
+            data: SummaryData | null,
+        ) => {
+            const key = `${targetId}:${targetSource}`;
+            setSummaryDataByKey((current) => ({
+                ...current,
+                [key]: data,
+            }));
+        },
+        [],
+    );
     const [availableSummarySources, setAvailableSummarySources] = useState<
         SummarySource[]
     >([]);
@@ -214,37 +236,61 @@ export function useTranscriptionSummary({
         },
         [],
     );
-    if (recordingId !== recordingIdRef.current) {
-        recordingIdRef.current = recordingId;
-        setSummaryData(null);
-        setAvailableSummarySources([]);
-    }
-    if (summarySource !== summarySourceRef.current) {
-        summarySourceRef.current = summarySource;
-        setSummaryData(null);
-    }
+    const recordingChanged = recordingIdRef.current !== recordingId;
+    recordingIdRef.current = recordingId;
+    summarySourceRef.current = summarySource;
 
-    // Detect when transcription text actually changes -> invalidate
-    // the cached summary so the next fetch lands fresh. We compare
-    // through a ref because the dashboard variant receives the text
-    // via prop (parent-owned), and reading prop-vs-state isn't enough
-    // to spot a stale summary.
-    const transcriptionTextRef = useRef(transcriptionText);
-    if (transcriptionText !== transcriptionTextRef.current) {
-        transcriptionTextRef.current = transcriptionText;
-        setSummaryFetchKey((k) => k + 1);
-        setSummaryData(null);
-    }
-    if (
-        recordingId &&
-        rememberTranscriptionText(
-            lastTextByIdRef.current,
-            recordingId,
+    const transcriptionTextByViewRef = useRef(
+        new Map<string, string | null | undefined>(),
+    );
+
+    useEffect(() => {
+        setAvailableSummarySources([]);
+        setSummaryDataByKey((current) => {
+            if (!recordingId) return {};
+            const prefix = `${recordingId}:`;
+            return Object.fromEntries(
+                Object.entries(current).filter(([key]) =>
+                    key.startsWith(prefix),
+                ),
+            );
+        });
+    }, [recordingId]);
+
+    useEffect(() => {
+        if (!recordingId || !summaryViewKey) return;
+        const previous = transcriptionTextByViewRef.current.get(summaryViewKey);
+        const initialized =
+            transcriptionTextByViewRef.current.has(summaryViewKey);
+        transcriptionTextByViewRef.current.set(
+            summaryViewKey,
             transcriptionText,
-        )
-    ) {
-        bumpContentGeneration(contentGenByIdRef.current, recordingId);
-    }
+        );
+
+        if (summarySource === "riffado") {
+            const changed = rememberTranscriptionText(
+                lastTextByIdRef.current,
+                recordingId,
+                transcriptionText,
+            );
+            if (changed) {
+                bumpContentGeneration(contentGenByIdRef.current, recordingId);
+            }
+        }
+
+        if (!initialized || previous === transcriptionText) return;
+        setSummaryFor(recordingId, summarySource, null);
+        if (!recordingChanged) {
+            setSummaryFetchKey((key) => key + 1);
+        }
+    }, [
+        recordingId,
+        recordingChanged,
+        setSummaryFor,
+        summarySource,
+        summaryViewKey,
+        transcriptionText,
+    ]);
 
     /**
      * Adopt a summary job that is already running.
@@ -308,7 +354,7 @@ export function useTranscriptionSummary({
                     setAvailableSummarySources(data.availableSources ?? []);
                     if (data.summary && isCurrent()) {
                         fetchGenerationRef.current += 1;
-                        setSummaryData(data);
+                        setSummaryFor(targetId, "riffado", data);
                         toast.success("Summary generated");
                     }
                 } else if (isCurrent()) {
@@ -328,7 +374,7 @@ export function useTranscriptionSummary({
                 setSummaryElapsedMs(0);
             }
         },
-        [],
+        [setSummaryFor],
     );
 
     // Fetch when recording id changes or the re-fetch key bumps.
@@ -337,10 +383,7 @@ export function useTranscriptionSummary({
     // newer A GET (A → B → A) or a just-finished POST.
     // biome-ignore lint/correctness/useExhaustiveDependencies: summaryFetchKey is an intentional re-fetch trigger
     useEffect(() => {
-        if (!recordingId) {
-            setSummaryData(null);
-            return;
-        }
+        if (!recordingId) return;
         const requestedId = recordingId;
         const generation = ++fetchGenerationRef.current;
         const controller = new AbortController();
@@ -353,7 +396,7 @@ export function useTranscriptionSummary({
             },
         )
             .then((res) => res.json())
-            .then((data) => {
+            .then((data: SummaryData) => {
                 if (
                     !shouldApplyFetchedSummary(
                         recordingIdRef.current,
@@ -365,15 +408,29 @@ export function useTranscriptionSummary({
                 ) {
                     return;
                 }
-                setAvailableSummarySources(
-                    (data as SummaryData).availableSources ?? [],
+                const availableSources = data.availableSources ?? [];
+                setAvailableSummarySources(availableSources);
+                setSummaryFor(
+                    requestedId,
+                    requestedSource,
+                    data.summary ? data : null,
                 );
-                if (data.summary) {
-                    setSummaryData(data);
-                } else {
-                    setSummaryData(null);
+
+                for (const source of availableSources) {
+                    if (source === requestedSource) continue;
+                    void fetch(
+                        `/api/recordings/${requestedId}/summary?source=${source}`,
+                        { signal: controller.signal },
+                    )
+                        .then((response) => response.json())
+                        .then((prefetched: SummaryData) => {
+                            if (prefetched.summary) {
+                                setSummaryFor(requestedId, source, prefetched);
+                            }
+                        })
+                        .catch(() => {});
                 }
-                const active = (data as SummaryData).activeJob;
+                const active = data.activeJob;
                 if (
                     active &&
                     (active.status === "pending" ||
@@ -389,7 +446,13 @@ export function useTranscriptionSummary({
                 getAbortRef.current = null;
             }
         };
-    }, [recordingId, summarySource, summaryFetchKey, attachToActiveJob]);
+    }, [
+        recordingId,
+        summarySource,
+        summaryFetchKey,
+        attachToActiveJob,
+        setSummaryFor,
+    ]);
 
     const handleSummarize = useCallback(async () => {
         if (!recordingId) return;
@@ -422,7 +485,7 @@ export function useTranscriptionSummary({
         const applyResult = (data: SummaryData) => {
             if (!postIsCurrent()) return;
             fetchGenerationRef.current += 1;
-            setSummaryData(data);
+            setSummaryFor(targetId, "riffado", data);
             setAvailableSummarySources((current) =>
                 current.includes("riffado") ? current : [...current, "riffado"],
             );
@@ -584,16 +647,18 @@ export function useTranscriptionSummary({
             setSummaryProgress(null);
             setSummaryElapsedMs(0);
         }
-    }, [recordingId, summaryPreset, summarySource]);
+    }, [recordingId, setSummaryFor, summaryPreset, summarySource]);
 
     const handleDeleteSummary = useCallback(async () => {
         if (!recordingId) return;
         const targetId = recordingId;
+        const targetSource = summarySource;
         // Optimistic delete -- the summary disappears immediately and
         // only comes back if the server rejects the request.
         const previous = summaryData;
-        setSummaryData(null);
+        setSummaryFor(targetId, targetSource, null);
         const deleteIsCurrent = () =>
+            summarySourceRef.current === targetSource &&
             shouldApplySummaryToView(recordingIdRef.current, targetId);
 
         try {
@@ -610,17 +675,17 @@ export function useTranscriptionSummary({
                 }
             } else {
                 if (deleteIsCurrent()) {
-                    setSummaryData(previous);
+                    setSummaryFor(targetId, targetSource, previous);
                     toast.error("Failed to delete summary");
                 }
             }
         } catch {
             if (deleteIsCurrent()) {
-                setSummaryData(previous);
+                setSummaryFor(targetId, targetSource, previous);
                 toast.error("Failed to delete summary");
             }
         }
-    }, [recordingId, summaryData, summarySource]);
+    }, [recordingId, setSummaryFor, summaryData, summarySource]);
 
     /**
      * Imperative re-fetch trigger. Use after a re-transcribe call
@@ -642,12 +707,13 @@ export function useTranscriptionSummary({
 
     const refetchSummary = useCallback(() => {
         const id = recordingIdRef.current;
+        const source = summarySourceRef.current;
         if (id) {
             bumpContentGeneration(contentGenByIdRef.current, id);
+            setSummaryFor(id, source, null);
         }
-        setSummaryData(null);
         setSummaryFetchKey((k) => k + 1);
-    }, []);
+    }, [setSummaryFor]);
 
     return {
         summaryData,
