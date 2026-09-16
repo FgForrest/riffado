@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { parseBuffer } from "music-metadata";
 import { nanoid } from "nanoid";
 import { db } from "@/db";
 import { recordings } from "@/db/schema";
@@ -11,6 +10,7 @@ import { buildRecordingStagingPath } from "@/lib/recordings/filename";
 import { enqueueStorageReconciliationJob } from "@/lib/recordings/storage-reconciliation-job";
 import type { StorageProvider } from "@/lib/storage/types";
 import { autoTranscribeNewRecording } from "@/lib/transcription/auto-transcribe-new-recording";
+import { readAudioDurationMs } from "@/lib/uploads/audio-duration";
 import { getAudioMimeType } from "@/lib/utils";
 
 export interface SaveUploadedAudioInput {
@@ -32,24 +32,6 @@ export interface SavedUploadedAudio {
     filesize: number;
 }
 
-async function getAudioDurationMs(
-    buffer: Uint8Array,
-    mimeType: string,
-): Promise<number> {
-    try {
-        const { format } = await parseBuffer(
-            buffer,
-            { mimeType, size: buffer.byteLength },
-            { duration: true },
-        );
-        const seconds = format.duration ?? 0;
-        return seconds > 0 ? Math.round(seconds * 1000) : 0;
-    } catch (error) {
-        console.error("Audio metadata parse failed:", error);
-        return 0;
-    }
-}
-
 export async function saveUploadedAudio(
     input: SaveUploadedAudioInput,
 ): Promise<SavedUploadedAudio> {
@@ -60,7 +42,7 @@ export async function saveUploadedAudio(
         input.extension,
     );
     const contentType = getAudioMimeType(storageKey);
-    const durationMs = await getAudioDurationMs(input.buffer, contentType);
+    const durationMs = await readAudioDurationMs(input.buffer, contentType);
 
     if (durationMs === 0) {
         throw new AppError(
