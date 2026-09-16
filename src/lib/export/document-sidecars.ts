@@ -9,7 +9,10 @@ import {
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { buildNameResolver } from "@/lib/knowledge/attribution";
 import { projectTranscript } from "@/lib/knowledge/project-transcript";
-import { projectSummarySpeakerReferencesForExport } from "@/lib/knowledge/speaker-references";
+import {
+    inferSummarySpeakerNumberOffset,
+    projectSummarySpeakerReferencesForExport,
+} from "@/lib/knowledge/speaker-references";
 import {
     reconcileRecordingStorage,
     recordingStorageNeedsReconciliation,
@@ -51,6 +54,8 @@ export interface SummarySidecarInput {
     recordedAt: Date;
     provider: string;
     model: string;
+    source: string;
+    transcriptSource: string;
     summary: string | null;
     keyPoints: string[];
     actionItems: string[];
@@ -66,6 +71,7 @@ interface SidecarProjectionContext {
     primary: typeof transcriptions.$inferSelect | null;
     resolve: SpeakerNameResolver | undefined;
     participants: string[];
+    speakers: string[];
 }
 
 export { sidecarKey } from "@/lib/recordings/storage-files";
@@ -95,6 +101,8 @@ export function buildSummaryMarkdown(input: SummarySidecarInput): string {
         `title: ${yamlString(input.title)}`,
         `recorded: ${input.recordedAt.toISOString()}`,
         ...participantsFrontMatter(input.participants),
+        `source: ${yamlString(input.source)}`,
+        `transcript_source: ${yamlString(input.transcriptSource)}`,
         `provider: ${yamlString(input.provider)}`,
         `model: ${yamlString(input.model)}`,
         "---",
@@ -128,6 +136,7 @@ export async function exportRecordingSidecars(
     userId: string,
     recordingId: string,
     selection: SidecarSelection,
+    source?: string,
 ): Promise<SidecarKind[]> {
     if (!selection.transcript && !selection.summary) return [];
 
@@ -165,30 +174,33 @@ export async function exportRecordingSidecars(
         storagePath = reconciled.storagePath;
     }
 
-    const projection = await loadSidecarProjectionContext(userId, recordingId);
-
     const selectedKinds: SidecarKind[] = [
         ...(selection.transcript ? (["transcript"] as const) : []),
         ...(selection.summary ? (["summary"] as const) : []),
     ];
     for (const kind of selectedKinds) {
-        const document = await renderRecordingMarkdownDocument(
-            userId,
-            recording,
-            title,
-            projection,
-            kind,
-            storagePath,
-        );
-        if (!document) continue;
+        const sources = source
+            ? [source]
+            : await contentSources(userId, recordingId, kind);
+        for (const contentSource of sources) {
+            const document = await renderRecordingMarkdownDocument(
+                userId,
+                recording,
+                title,
+                kind,
+                storagePath,
+                contentSource,
+            );
+            if (!document) continue;
 
-        storage ??= await createUserStorageProvider(userId);
-        await storage.uploadFile(
-            sidecarKey(storagePath, kind),
-            Buffer.from(document.content, "utf8"),
-            MARKDOWN_CONTENT_TYPE,
-        );
-        written.push(kind);
+            storage ??= await createUserStorageProvider(userId);
+            await storage.uploadFile(
+                sidecarKey(storagePath, kind, contentSource),
+                Buffer.from(document.content, "utf8"),
+                MARKDOWN_CONTENT_TYPE,
+            );
+            written.push(kind);
+        }
     }
 
     return written;
@@ -199,6 +211,7 @@ export async function getRecordingMarkdownDocument(
     userId: string,
     recordingId: string,
     kind: SidecarKind,
+    source?: string,
 ): Promise<RecordingMarkdownDocument | null> {
     const [recording] = await db
         .select()
@@ -214,14 +227,13 @@ export async function getRecordingMarkdownDocument(
     if (!recording) return null;
 
     const title = decryptText(recording.filename);
-    const projection = await loadSidecarProjectionContext(userId, recordingId);
     return renderRecordingMarkdownDocument(
         userId,
         recording,
         title,
-        projection,
         kind,
         recording.storagePath,
+        source,
     );
 }
 
@@ -229,16 +241,22 @@ async function renderRecordingMarkdownDocument(
     userId: string,
     recording: typeof recordings.$inferSelect,
     title: string,
-    projection: SidecarProjectionContext,
     kind: SidecarKind,
     storagePath: string,
+    source?: string,
 ): Promise<RecordingMarkdownDocument | null> {
-    const filename = sidecarKey(storagePath, kind).split("/").at(-1);
-    if (!filename) return null;
-
     if (kind === "transcript") {
+        const projection = await loadSidecarProjectionContext(
+            userId,
+            recording.id,
+            source,
+        );
         const { primary } = projection;
         if (!primary) return null;
+        const filename = sidecarKey(storagePath, kind, primary.source)
+            .split("/")
+            .at(-1);
+        if (!filename) return null;
 
         const text = projectTranscript(
             {
@@ -266,7 +284,7 @@ async function renderRecordingMarkdownDocument(
         };
     }
 
-    const [enhancement] = await db
+    const enhancements = await db
         .select()
         .from(aiEnhancements)
         .where(
@@ -274,26 +292,54 @@ async function renderRecordingMarkdownDocument(
                 eq(aiEnhancements.recordingId, recording.id),
                 eq(aiEnhancements.userId, userId),
             ),
-        )
-        .limit(1);
+        );
+    const enhancement = source
+        ? enhancements.find((candidate) => candidate.source === source)
+        : await preferredEnhancement(userId, enhancements);
     if (!enhancement) return null;
 
+    const projection = await loadSidecarProjectionContext(
+        userId,
+        recording.id,
+        enhancement.source,
+        enhancement.transcriptionId,
+    );
+    const filename = sidecarKey(storagePath, kind, enhancement.source)
+        .split("/")
+        .at(-1);
+    if (!filename) return null;
+
     const summaryValue = decryptText(enhancement.summary) ?? null;
+    const keyPointValues = stringArray(
+        decryptJsonField<unknown>(enhancement.keyPoints),
+    );
+    const actionItemValues = stringArray(
+        decryptJsonField<unknown>(enhancement.actionItems),
+    );
+    const speakerNumberOffset = inferSummarySpeakerNumberOffset(
+        [summaryValue ?? "", ...keyPointValues, ...actionItemValues].join("\n"),
+        projection.speakers,
+    );
     const summary = summaryValue
         ? projectSummarySpeakerReferencesForExport(
               summaryValue,
               projection.resolve,
+              speakerNumberOffset,
           )
         : null;
-    const keyPoints = stringArray(
-        decryptJsonField<unknown>(enhancement.keyPoints),
-    ).map((item) =>
-        projectSummarySpeakerReferencesForExport(item, projection.resolve),
+    const keyPoints = keyPointValues.map((item) =>
+        projectSummarySpeakerReferencesForExport(
+            item,
+            projection.resolve,
+            speakerNumberOffset,
+        ),
     );
-    const actionItems = stringArray(
-        decryptJsonField<unknown>(enhancement.actionItems),
-    ).map((item) =>
-        projectSummarySpeakerReferencesForExport(item, projection.resolve),
+    const actionItems = actionItemValues.map((item) =>
+        projectSummarySpeakerReferencesForExport(
+            item,
+            projection.resolve,
+            speakerNumberOffset,
+        ),
     );
     if (
         !summary?.trim() &&
@@ -310,6 +356,8 @@ async function renderRecordingMarkdownDocument(
             recordedAt: recording.startTime,
             provider: enhancement.provider,
             model: enhancement.model,
+            source: enhancement.source,
+            transcriptSource: projection.primary?.source ?? enhancement.source,
             summary,
             keyPoints,
             actionItems,
@@ -321,6 +369,8 @@ async function renderRecordingMarkdownDocument(
 async function loadSidecarProjectionContext(
     userId: string,
     recordingId: string,
+    source?: string,
+    transcriptionId?: string | null,
 ): Promise<SidecarProjectionContext> {
     const rows = await db
         .select()
@@ -338,17 +388,23 @@ async function loadSidecarProjectionContext(
         .where(eq(userSettings.userId, userId))
         .limit(1);
 
-    const primary = resolvePrimaryTranscript(
-        rows,
-        settings?.preferred ?? "plaud",
-    );
+    const primary =
+        (transcriptionId
+            ? rows.find((transcript) => transcript.id === transcriptionId)
+            : undefined) ??
+        (source
+            ? rows.find((transcript) => transcript.source === source)
+            : resolvePrimaryTranscript(rows, settings?.preferred ?? "plaud")) ??
+        null;
     const resolve = primary
         ? await buildNameResolver(userId, primary.id)
         : undefined;
+    const speakers = primary ? transcriptSpeakerLabels(primary) : [];
     return {
         primary,
         resolve,
-        participants: primary ? participantNames(primary, resolve) : [],
+        participants: participantNames(speakers, resolve),
+        speakers,
     };
 }
 
@@ -371,16 +427,61 @@ export async function rewriteExistingRecordingSidecars(
     if (!recording) return;
 
     const storage = await createUserStorageProvider(userId);
-    const [transcript, summary] = await Promise.all([
-        storage.exists(sidecarKey(recording.storagePath, "transcript")),
-        storage.exists(sidecarKey(recording.storagePath, "summary")),
+    const transcriptSources = await contentSources(
+        userId,
+        recordingId,
+        "transcript",
+    );
+    const summarySources = await contentSources(userId, recordingId, "summary");
+    const legacyTranscriptKey = sidecarKey(recording.storagePath, "transcript");
+    const legacySummaryKey = sidecarKey(recording.storagePath, "summary");
+    const [legacyTranscript, legacySummary] = await Promise.all([
+        storage.exists(legacyTranscriptKey),
+        storage.exists(legacySummaryKey),
     ]);
-    if (!transcript && !summary) return;
+    let migratedLegacyTranscript = false;
+    let migratedLegacySummary = false;
 
-    await exportRecordingSidecars(userId, recordingId, {
-        transcript,
-        summary,
-    });
+    for (const source of transcriptSources) {
+        if (
+            legacyTranscript ||
+            (await storage.exists(
+                sidecarKey(recording.storagePath, "transcript", source),
+            ))
+        ) {
+            const written = await exportRecordingSidecars(
+                userId,
+                recordingId,
+                { transcript: true, summary: false },
+                source,
+            );
+            if (written.includes("transcript")) {
+                migratedLegacyTranscript ||= legacyTranscript;
+            }
+        }
+    }
+    for (const source of summarySources) {
+        if (
+            legacySummary ||
+            (await storage.exists(
+                sidecarKey(recording.storagePath, "summary", source),
+            ))
+        ) {
+            const written = await exportRecordingSidecars(
+                userId,
+                recordingId,
+                { transcript: false, summary: true },
+                source,
+            );
+            if (written.includes("summary")) {
+                migratedLegacySummary ||= legacySummary;
+            }
+        }
+    }
+    if (migratedLegacyTranscript) {
+        await storage.deleteFile(legacyTranscriptKey);
+    }
+    if (migratedLegacySummary) await storage.deleteFile(legacySummaryKey);
 }
 
 /** Best-effort wrapper for user-facing mutation and attribution paths. */
@@ -398,6 +499,37 @@ export async function refreshExistingRecordingSidecars(
     }
 }
 
+/** Best-effort removal of one source-specific sidecar after content deletion. */
+export async function removeRecordingSidecar(
+    userId: string,
+    recordingId: string,
+    kind: SidecarKind,
+    source: string,
+): Promise<void> {
+    try {
+        const [recording] = await db
+            .select({ storagePath: recordings.storagePath })
+            .from(recordings)
+            .where(
+                and(
+                    eq(recordings.id, recordingId),
+                    eq(recordings.userId, userId),
+                    isNull(recordings.deletedAt),
+                ),
+            )
+            .limit(1);
+        if (!recording) return;
+        const storage = await createUserStorageProvider(userId);
+        const key = sidecarKey(recording.storagePath, kind, source);
+        if (await storage.exists(key)) await storage.deleteFile(key);
+    } catch (error) {
+        console.error(
+            `Failed to remove ${source} ${kind} sidecar for recording ${recordingId}:`,
+            error,
+        );
+    }
+}
+
 /**
  * Best-effort variant used by the transcription and summary pipelines.
  * Reads the user's toggles, writes what they asked for, and swallows any
@@ -407,6 +539,7 @@ export async function exportRecordingSidecarsIfEnabled(
     userId: string,
     recordingId: string,
     kind: SidecarKind,
+    source?: string,
 ): Promise<void> {
     try {
         const [settings] = await db
@@ -424,16 +557,66 @@ export async function exportRecordingSidecarsIfEnabled(
             kind === "transcript" ? settings.transcript : settings.summary;
         if (!enabled) return;
 
-        await exportRecordingSidecars(userId, recordingId, {
-            transcript: kind === "transcript",
-            summary: kind === "summary",
-        });
+        await exportRecordingSidecars(
+            userId,
+            recordingId,
+            {
+                transcript: kind === "transcript",
+                summary: kind === "summary",
+            },
+            source,
+        );
     } catch (error) {
         console.error(
             `Failed to export ${kind} sidecar for recording ${recordingId}:`,
             error,
         );
     }
+}
+
+async function contentSources(
+    userId: string,
+    recordingId: string,
+    kind: SidecarKind,
+): Promise<string[]> {
+    const rows =
+        kind === "transcript"
+            ? await db
+                  .select({ source: transcriptions.source })
+                  .from(transcriptions)
+                  .where(
+                      and(
+                          eq(transcriptions.recordingId, recordingId),
+                          eq(transcriptions.userId, userId),
+                      ),
+                  )
+            : await db
+                  .select({ source: aiEnhancements.source })
+                  .from(aiEnhancements)
+                  .where(
+                      and(
+                          eq(aiEnhancements.recordingId, recordingId),
+                          eq(aiEnhancements.userId, userId),
+                      ),
+                  );
+    return [...new Set(rows.map((row) => row.source))];
+}
+
+async function preferredEnhancement(
+    userId: string,
+    enhancements: Array<typeof aiEnhancements.$inferSelect>,
+): Promise<typeof aiEnhancements.$inferSelect | undefined> {
+    const [settings] = await db
+        .select({ preferred: userSettings.preferredTranscriptSource })
+        .from(userSettings)
+        .where(eq(userSettings.userId, userId))
+        .limit(1);
+    const preferred = settings?.preferred ?? "plaud";
+    return (
+        enhancements.find((enhancement) => enhancement.source === preferred) ??
+        enhancements.find((enhancement) => enhancement.source === "riffado") ??
+        enhancements[0]
+    );
 }
 
 function bulletList(items: string[]): string {
@@ -458,16 +641,9 @@ function participantsFrontMatter(participants: string[]): string[] {
 }
 
 function participantNames(
-    transcript: typeof transcriptions.$inferSelect,
+    labels: readonly string[],
     resolve: SpeakerNameResolver | undefined,
 ): string[] {
-    const storedTurns = readTranscriptTurns(transcript);
-    const parsedTurns = storedTurns
-        ? null
-        : parseSpeakerTurns(decryptText(transcript.text));
-    const labels = storedTurns
-        ? storedTurns.map((turn) => turn.speaker)
-        : (parsedTurns?.map((turn) => turn.speaker) ?? []);
     const names: string[] = [];
 
     for (const label of labels) {
@@ -475,6 +651,18 @@ function participantNames(
         if (name && !names.includes(name)) names.push(name);
     }
     return names;
+}
+
+function transcriptSpeakerLabels(
+    transcript: typeof transcriptions.$inferSelect,
+): string[] {
+    const storedTurns = readTranscriptTurns(transcript);
+    const parsedTurns = storedTurns
+        ? null
+        : parseSpeakerTurns(decryptText(transcript.text));
+    return storedTurns
+        ? storedTurns.map((turn) => turn.speaker)
+        : (parsedTurns?.map((turn) => turn.speaker) ?? []);
 }
 
 function formatDuration(durationMs: number): string {

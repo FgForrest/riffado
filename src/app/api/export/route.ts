@@ -16,6 +16,7 @@ import {
     projectTranscript,
 } from "@/lib/knowledge/project-transcript";
 import { captureServerEvent } from "@/lib/posthog-server";
+import { resolvePrimaryTranscript } from "@/lib/v1/serialize";
 
 // GET - Export recordings in specified format
 export const GET = apiHandler(async (request: Request) => {
@@ -88,17 +89,27 @@ export const GET = apiHandler(async (request: Request) => {
     // (encryptText); `actionItems`/`keyPoints` are `jsonb` envelopes
     // (encryptJsonField) -- same at-rest scheme the summary API itself
     // decrypts before returning to the client.
-    const enhancementMap = new Map(
-        userEnhancements.map((e) => [
-            e.recordingId,
-            {
-                ...e,
-                summary: decryptText(e.summary),
-                actionItems: decryptJsonField<string[]>(e.actionItems),
-                keyPoints: decryptJsonField<string[]>(e.keyPoints),
-            },
-        ]),
-    );
+    const enhancementMap = new Map<
+        string,
+        Array<
+            (typeof userEnhancements)[number] & {
+                summary: string;
+                actionItems: string[];
+                keyPoints: string[];
+            }
+        >
+    >();
+    for (const enhancement of userEnhancements) {
+        const group = enhancementMap.get(enhancement.recordingId) ?? [];
+        group.push({
+            ...enhancement,
+            summary: decryptText(enhancement.summary) ?? "",
+            actionItems:
+                decryptJsonField<string[]>(enhancement.actionItems) ?? [],
+            keyPoints: decryptJsonField<string[]>(enhancement.keyPoints) ?? [],
+        });
+        enhancementMap.set(enhancement.recordingId, group);
+    }
 
     // Speaker names are applied here rather than stored: the exported file
     // is a rendering for the user, so it should read the way the app does.
@@ -108,16 +119,34 @@ export const GET = apiHandler(async (request: Request) => {
         session.user.id,
         userTranscriptions.map((t) => t.id),
     );
+    const transcriptionGroups = new Map<
+        string,
+        Array<
+            (typeof userTranscriptions)[number] & {
+                text: string;
+            }
+        >
+    >();
+    for (const transcript of userTranscriptions) {
+        const group = transcriptionGroups.get(transcript.recordingId) ?? [];
+        group.push({
+            ...transcript,
+            text: projectTranscript(
+                {
+                    id: transcript.id,
+                    text: decryptText(transcript.text),
+                    turns: transcript.turns,
+                },
+                resolvers.get(transcript.id),
+            ),
+        });
+        transcriptionGroups.set(transcript.recordingId, group);
+    }
+    const preferredSource = settings?.preferredTranscriptSource ?? "plaud";
     const transcriptionMap = new Map(
-        userTranscriptions.map((t) => [
-            t.recordingId,
-            {
-                ...t,
-                text: projectTranscript(
-                    { id: t.id, text: decryptText(t.text), turns: t.turns },
-                    resolvers.get(t.id),
-                ),
-            },
+        Array.from(transcriptionGroups, ([recordingId, rows]) => [
+            recordingId,
+            resolvePrimaryTranscript(rows, preferredSource),
         ]),
     );
     const decryptedRecordings = userRecordings.map((r) => ({
@@ -134,7 +163,17 @@ export const GET = apiHandler(async (request: Request) => {
         case "json":
             exportData = JSON.stringify(
                 decryptedRecordings.map((recording) => {
-                    const enhancement = enhancementMap.get(recording.id);
+                    const transcripts =
+                        transcriptionGroups.get(recording.id) ?? [];
+                    const enhancements = enhancementMap.get(recording.id) ?? [];
+                    const enhancement =
+                        enhancements.find(
+                            (item) => item.source === preferredSource,
+                        ) ??
+                        enhancements.find(
+                            (item) => item.source === "riffado",
+                        ) ??
+                        enhancements[0];
                     return {
                         id: recording.id,
                         filename: recording.filename,
@@ -143,6 +182,14 @@ export const GET = apiHandler(async (request: Request) => {
                         filesize: recording.filesize,
                         transcription:
                             transcriptionMap.get(recording.id)?.text || null,
+                        transcriptions: transcripts.map((item) => ({
+                            id: item.id,
+                            source: item.source,
+                            provider: item.provider,
+                            model: item.model,
+                            detectedLanguage: item.detectedLanguage,
+                            text: item.text,
+                        })),
                         summary: enhancement
                             ? {
                                   summary: enhancement.summary,
@@ -150,6 +197,16 @@ export const GET = apiHandler(async (request: Request) => {
                                   keyPoints: enhancement.keyPoints,
                               }
                             : null,
+                        summaries: enhancements.map((item) => ({
+                            id: item.id,
+                            transcriptionId: item.transcriptionId,
+                            source: item.source,
+                            provider: item.provider,
+                            model: item.model,
+                            summary: item.summary,
+                            actionItems: item.actionItems,
+                            keyPoints: item.keyPoints,
+                        })),
                     };
                 }),
                 null,

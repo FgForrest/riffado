@@ -519,8 +519,11 @@ describe("Issue #274 — pagination content backfill", () => {
             expect.objectContaining({
                 userId: USER_ID,
                 recordingId: `local-${older.rec.id}`,
+                transcriptionId: `tr-${older.rec.id}`,
                 source: "plaud",
                 summary: "imported summary",
+                provider: "plaud",
+                model: "plaud-native",
             }),
         );
     });

@@ -93,6 +93,7 @@ const SEEDS: DemoRecordingSeed[] = [
             "[03:14] Fine, Friday is the deadline. Let's move on to the Q1 plan…",
         ].join("\n"),
         summary: {
+            source: "riffado",
             summary:
                 "Q4 closed strong: revenue $4.1M (+18% QoQ), gross margin 73%, churn at a yearly low of 2.1% monthly. The post-migration support load dropped ~30% WoW and the team is inside the enterprise SLA. Three of four open roles closed; staff-engineer search continues. The next release is targeted to ship before the holiday freeze, contingent on the export-format spec being signed off by Friday.",
             keyPoints: [
@@ -143,6 +144,7 @@ const SEEDS: DemoRecordingSeed[] = [
             "[01:55] The onboarding emails are too dense. I'd send fewer of them, shorter. The product itself was fine — we were productive day three.",
         ].join("\n"),
         summary: {
+            source: "riffado",
             summary:
                 "Acme chose us on two specific signals: API parity with the docs, and a sub-week turnaround on security questionnaires. They were replacing a stack of one homegrown OSS-based tool plus an unrolled paid product. They reached productive use on day three. Main onboarding friction: too many, too long welcome emails — they want fewer and shorter.",
             keyPoints: [

@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- Independent Plaud and custom content pipelines. Plaud transcripts and summaries are imported together during sync, custom summaries remain tied to custom transcripts, and the workstation can switch each view separately while showing its provider and model.
 - Speechmatics as a transcription provider. Unlike every provider before it, Speechmatics Batch is a job API rather than a single request — Riffado submits the audio, polls until the job finishes, downloads the `json-v2` transcript and then deletes the job so the audio does not linger on Speechmatics' servers. The preset offers `enhanced`, `standard` and the multilingual `melia-1`, each with an optional **(speaker labels)** variant that renders as a dialog in the workstation. Leave Base URL blank for auto-routing, or pin a region (`https://eu2.asr.api.speechmatics.com`). Transcription only — it has no `chat/completions` surface, so summarization still needs a separate provider.
 - Live progress while a summary generates. An elapsed clock on every run, and for multi-pass the pass count as it advances — `Summarizing — 1/3 passes`, then `Merging 3 passes…` — streamed from the server as server-sent events. A caller that does not ask for `text/event-stream` still gets the same JSON response as before.
 - The summary footer now shows a `multi-pass · 3` badge when a summary was generated with multi-pass, and `multi-pass · 2/3` in amber when the run degraded — fewer passes usable than requested, or a merge that failed. Hovering gives the full reason. A degraded run otherwise produces a summary indistinguishable from a clean one, so there was no way to tell that the text in front of you came from two passes instead of three.
@@ -17,6 +18,7 @@
 - Changing the default summary prompt in Settings → Summary wiped any custom summary prompts on every save, since the request always sent `customPrompts: []` instead of the current list ([#199](https://github.com/riffado/riffado/issues/199)).
 
 ### Changed
+- Migration `0046_misty_forgotten_one` adds nullable `ai_enhancements.transcription_id` provenance and scopes summary uniqueness by recording, user, and source. Existing summary rows remain custom summaries.
 - Migration `0045_cultured_gwen_stacy` adds nullable `recordings.storage_filename` tracking and a per-user unique filename-stem index. Existing and newly uploaded recording audio, transcript, and summary files are reconciled to readable title-based names with numeric collision suffixes.
 - Migration `0041_slippery_mongu` adds `multi_pass_rounds`, `multi_pass_passes_used` and `multi_pass_merged` to `ai_enhancements`. All nullable; NULL means a single-pass summary, which is also how every existing row reads.
 - Migration `0040_natural_absorbing_man` adds `summary_multi_pass`, `summary_multi_pass_rounds`, `summary_multi_pass_auto` and `summary_merge_prompt` to `user_settings`. Purely additive and defaulted, so it is inert until multi-pass summarization is switched on, and an older image runs unchanged against a migrated database.

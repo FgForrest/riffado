@@ -251,6 +251,11 @@ describe("Issue #79 - API keys and v1 recordings", () => {
                 }),
             })
             .mockReturnValueOnce({
+                from: vi.fn().mockReturnValue({
+                    where: vi.fn().mockReturnValue({}),
+                }),
+            })
+            .mockReturnValueOnce({
                 from: vi.fn().mockReturnValue(listChain),
             });
 

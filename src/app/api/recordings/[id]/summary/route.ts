@@ -6,6 +6,7 @@ import { aiEnhancements, recordings } from "@/db/schema";
 import { requireApiSession } from "@/lib/auth-server";
 import { DEMO_SUMMARIES, isDemoRecordingId } from "@/lib/demo/fixtures";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { removeRecordingSidecar } from "@/lib/export/document-sidecars";
 import { appErrorFromJobFailure } from "@/lib/jobs/retryable";
 import { watchJob } from "@/lib/jobs/watch";
 import type { MultiPassPhase } from "@/lib/summary/multi-pass";
@@ -13,7 +14,10 @@ import {
     encodeStreamEvent,
     type SummaryStreamEvent,
 } from "@/lib/summary/progress-stream";
-import { readStoredSummary } from "@/lib/summary/read-summary";
+import {
+    readStoredSummaries,
+    readStoredSummary,
+} from "@/lib/summary/read-summary";
 import {
     enqueueSummaryJob,
     SUMMARY_JOB_KIND,
@@ -34,6 +38,14 @@ const WATCH_TIMEOUT_MS = SUMMARY_TIMEOUT_MS + 60_000;
 
 /** Keep-alive cadence for the stream, well inside a typical proxy idle timeout. */
 const KEEPALIVE_MS = 15_000;
+
+type SummarySource = "plaud" | "riffado";
+
+function requestedSummarySource(request: Request): SummarySource {
+    return new URL(request.url).searchParams.get("source") === "plaud"
+        ? "plaud"
+        : "riffado";
+}
 
 /** Assert the recording exists and is the caller's, before queueing anything. */
 async function requireOwnedRecording(
@@ -125,7 +137,7 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
         if (row.status === "failed") {
             throw appErrorFromJobFailure(row.errorCode, row.lastError);
         }
-        const stored = await readStoredSummary(userId, id);
+        const stored = await readStoredSummary(userId, id, "riffado");
         if (!stored) {
             throw new AppError(
                 ErrorCode.INTERNAL_ERROR,
@@ -138,6 +150,8 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
             summary: stored.summary,
             keyPoints: stored.keyPoints,
             actionItems: stored.actionItems,
+            source: stored.source,
+            transcriptionId: stored.transcriptionId,
             provider: stored.provider ?? result.provider,
             model: stored.model ?? result.model,
             promptId: result.promptId,
@@ -205,7 +219,11 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
                         code: mapped.code,
                     });
                 } else {
-                    const stored = await readStoredSummary(userId, id);
+                    const stored = await readStoredSummary(
+                        userId,
+                        id,
+                        "riffado",
+                    );
                     const result = (row.result ?? {}) as Record<
                         string,
                         unknown
@@ -217,6 +235,8 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
                                 summary: stored.summary ?? "",
                                 keyPoints: stored.keyPoints,
                                 actionItems: stored.actionItems,
+                                source: stored.source,
+                                transcriptionId: stored.transcriptionId,
                                 provider:
                                     stored.provider ??
                                     (result.provider as string | undefined),
@@ -277,6 +297,7 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
     const session = await requireApiSession(request);
 
     const { id } = await (context as IdContext).params;
+    const source = requestedSummarySource(request);
 
     // Dev-only short-circuit for the `/dev/demo-dashboard` screenshot
     // route. Two gates -- `NODE_ENV !== production` AND a `demo-` id
@@ -286,7 +307,11 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
     if (process.env.NODE_ENV !== "production" && isDemoRecordingId(id)) {
         const fixture = DEMO_SUMMARIES.get(id);
         if (!fixture) {
-            return NextResponse.json({ summary: null });
+            return NextResponse.json({
+                summary: null,
+                source,
+                availableSources: [],
+            });
         }
         return NextResponse.json({
             summary: fixture.summary,
@@ -294,6 +319,9 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
             actionItems: fixture.actionItems,
             provider: fixture.provider,
             model: fixture.model,
+            source: "riffado",
+            transcriptionId: null,
+            availableSources: ["riffado"],
         });
     }
 
@@ -332,21 +360,31 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
               }
             : undefined;
 
-    const stored = await readStoredSummary(session.user.id, id);
+    const summaries = await readStoredSummaries(session.user.id, id);
+    const availableSources = summaries.map((summary) => summary.source);
+    const stored = summaries.find((summary) => summary.source === source);
 
     if (!stored) {
-        return NextResponse.json({ summary: null, activeJob });
+        return NextResponse.json({
+            summary: null,
+            source,
+            availableSources,
+            activeJob: source === "riffado" ? activeJob : undefined,
+        });
     }
 
     return NextResponse.json({
         summary: stored.summary,
         keyPoints: stored.keyPoints,
         actionItems: stored.actionItems,
+        source: stored.source,
+        transcriptionId: stored.transcriptionId,
         provider: stored.provider,
         model: stored.model,
         multiPass: stored.multiPass,
         createdAt: stored.createdAt,
-        activeJob,
+        availableSources,
+        activeJob: source === "riffado" ? activeJob : undefined,
     });
 });
 
@@ -355,6 +393,7 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
     const session = await requireApiSession(request);
 
     const { id } = await (context as IdContext).params;
+    const source = requestedSummarySource(request);
 
     await db.transaction(async (tx) => {
         const deleted = await tx
@@ -363,6 +402,7 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
                 and(
                     eq(aiEnhancements.recordingId, id),
                     eq(aiEnhancements.userId, session.user.id),
+                    eq(aiEnhancements.source, source),
                 ),
             )
             .returning({ id: aiEnhancements.id });
@@ -380,6 +420,8 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
                 );
         }
     });
+
+    await removeRecordingSidecar(session.user.id, id, "summary", source);
 
     return NextResponse.json({ success: true });
 });

@@ -75,6 +75,7 @@ export const transcriptionJobHandler: JobHandler<TranscriptionJobPayload> = {
             trigger: payload.trigger,
             providerId: payload.providerId,
             model: payload.model,
+            attributionSource: payload.attributionSource,
             force: payload.force,
         });
         if (!result.success) throw failedResultError(result.errorCode);

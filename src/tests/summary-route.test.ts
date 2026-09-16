@@ -32,8 +32,12 @@ vi.mock("@/lib/summary/summary-job", async (importOriginal) => {
 });
 
 vi.mock("@/lib/jobs/watch", () => ({ watchJob: vi.fn() }));
+vi.mock("@/lib/export/document-sidecars", () => ({
+    removeRecordingSidecar: vi.fn().mockResolvedValue(undefined),
+}));
 vi.mock("@/lib/summary/read-summary", () => ({
     readStoredSummary: vi.fn(),
+    readStoredSummaries: vi.fn(),
 }));
 vi.mock("@/db/queries/async-jobs", () => ({ getActiveJob: vi.fn() }));
 
@@ -57,9 +61,13 @@ vi.mock("@/lib/demo/fixtures", () => ({
     isDemoRecordingId: vi.fn().mockReturnValue(false),
 }));
 
-import { POST } from "@/app/api/recordings/[id]/summary/route";
+import { GET, POST } from "@/app/api/recordings/[id]/summary/route";
+import { getActiveJob } from "@/db/queries/async-jobs";
 import { watchJob } from "@/lib/jobs/watch";
-import { readStoredSummary } from "@/lib/summary/read-summary";
+import {
+    readStoredSummaries,
+    readStoredSummary,
+} from "@/lib/summary/read-summary";
 import { enqueueSummaryJob } from "@/lib/summary/summary-job";
 
 /** The recording-ownership check the route makes before queueing anything. */
@@ -93,6 +101,8 @@ describe("POST /api/recordings/[id]/summary (manual)", () => {
             summary: "ok",
             keyPoints: ["a", "b"],
             actionItems: ["x"],
+            source: "riffado",
+            transcriptionId: "tr-custom",
             provider: "openai",
             model: "gpt-4o-mini",
             multiPass: undefined,
@@ -123,6 +133,8 @@ describe("POST /api/recordings/[id]/summary (manual)", () => {
             summary: "ok",
             keyPoints: ["a", "b"],
             actionItems: ["x"],
+            source: "riffado",
+            transcriptionId: "tr-custom",
             provider: "openai",
             model: "gpt-4o-mini",
             promptFallback: false,
@@ -212,6 +224,55 @@ describe("POST /api/recordings/[id]/summary (manual)", () => {
         expect(await response.json()).toEqual({
             jobId: "job-1",
             status: "processing",
+        });
+    });
+});
+
+describe("GET /api/recordings/[id]/summary (source variants)", () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        stubRecordingExists();
+        (getActiveJob as Mock).mockResolvedValue(null);
+        (readStoredSummaries as Mock).mockResolvedValue([
+            {
+                summary: "Plaud summary",
+                keyPoints: [],
+                actionItems: [],
+                source: "plaud",
+                transcriptionId: "tr-plaud",
+                provider: "plaud",
+                model: "plaud-native",
+                createdAt: new Date(0),
+            },
+            {
+                summary: "Custom summary",
+                keyPoints: [],
+                actionItems: [],
+                source: "riffado",
+                transcriptionId: "tr-custom",
+                provider: "openai",
+                model: "gpt-4o-mini",
+                createdAt: new Date(0),
+            },
+        ]);
+    });
+
+    it("returns the requested pipeline and advertises both variants", async () => {
+        const response = await GET(
+            new Request(
+                "http://localhost/api/recordings/rec-1/summary?source=plaud",
+            ),
+            { params: Promise.resolve({ id: "rec-1" }) },
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.json()).toMatchObject({
+            summary: "Plaud summary",
+            source: "plaud",
+            transcriptionId: "tr-plaud",
+            provider: "plaud",
+            model: "plaud-native",
+            availableSources: ["plaud", "riffado"],
         });
     });
 });

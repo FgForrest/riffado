@@ -207,20 +207,25 @@ export function serializeRecordingDetail(
     recording: RecordingRow,
     device: DeviceRow | null,
     transcripts: TranscriptionRow[],
-    enhancement: AiEnhancementRow | null,
+    enhancements: AiEnhancementRow[],
     preferredSource = "plaud",
 ): V1RecordingDetail {
     const primary = resolvePrimaryTranscript(transcripts, preferredSource);
+    const primaryEnhancement =
+        enhancements.find((item) => item.source === preferredSource) ??
+        enhancements.find((item) => item.source === "riffado") ??
+        enhancements[0] ??
+        null;
     return {
         ...serializeRecording(recording, device, {
             hasTranscription: transcripts.length > 0,
-            hasSummary: Boolean(enhancement),
+            hasSummary: enhancements.length > 0,
         }),
         transcript: serializeTranscript(primary),
         transcripts: transcripts
             .map(serializeTranscript)
             .filter((t): t is V1Transcript => t !== null),
-        summary: serializeSummary(enhancement),
+        summary: serializeSummary(primaryEnhancement),
     };
 }
 
@@ -240,14 +245,10 @@ export async function getV1RecordingDetailForUser(
     userId: string,
     recordingId: string,
 ): Promise<V1RecordingDetail | null> {
-    // device + enhancement are 1:1 with a recording, so left-joining them is
-    // safe. Transcripts are 1:N (a Plaud-imported transcript and the user's
-    // own coexist), so they're fetched separately to avoid row fan-out.
     const [row] = await db
         .select({
             recording: recordings,
             device: plaudDevices,
-            enhancement: aiEnhancements,
         })
         .from(recordings)
         .leftJoin(
@@ -255,13 +256,6 @@ export async function getV1RecordingDetailForUser(
             and(
                 eq(plaudDevices.userId, userId),
                 eq(plaudDevices.serialNumber, recordings.deviceSn),
-            ),
-        )
-        .leftJoin(
-            aiEnhancements,
-            and(
-                eq(aiEnhancements.recordingId, recordings.id),
-                eq(aiEnhancements.userId, userId),
             ),
         )
         .where(
@@ -275,21 +269,32 @@ export async function getV1RecordingDetailForUser(
 
     if (!row) return null;
 
-    const transcriptRows = await db
-        .select()
-        .from(transcriptions)
-        .where(
-            and(
-                eq(transcriptions.recordingId, recordingId),
-                eq(transcriptions.userId, userId),
+    const [transcriptRows, enhancementRows] = await Promise.all([
+        db
+            .select()
+            .from(transcriptions)
+            .where(
+                and(
+                    eq(transcriptions.recordingId, recordingId),
+                    eq(transcriptions.userId, userId),
+                ),
             ),
-        );
+        db
+            .select()
+            .from(aiEnhancements)
+            .where(
+                and(
+                    eq(aiEnhancements.recordingId, recordingId),
+                    eq(aiEnhancements.userId, userId),
+                ),
+            ),
+    ]);
 
     return serializeRecordingDetail(
         row.recording,
         row.device,
         transcriptRows,
-        row.enhancement,
+        enhancementRows,
         await getPreferredTranscriptSource(userId),
     );
 }

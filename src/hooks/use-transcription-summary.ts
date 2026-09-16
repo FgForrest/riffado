@@ -24,6 +24,8 @@ export interface SummaryPromptOption {
     isPreset: boolean;
 }
 
+export type SummarySource = "plaud" | "riffado";
+
 import {
     followJob,
     type JobProgressSnapshot,
@@ -56,6 +58,9 @@ export interface SummaryData {
     summary: string | null;
     keyPoints: string[] | null;
     actionItems: string[] | null;
+    source: SummarySource;
+    transcriptionId?: string | null;
+    availableSources?: SummarySource[];
     provider?: string;
     model?: string;
     /**
@@ -91,6 +96,7 @@ export interface SummaryData {
 interface UseTranscriptionSummaryOptions {
     /** Recording id used for `/api/recordings/:id/summary` requests. */
     recordingId: string | null | undefined;
+    summarySource?: SummarySource;
     /**
      * Latest transcription text. When this changes we drop the cached
      * summary (stale relative to the new text) and re-fetch -- the
@@ -110,9 +116,13 @@ interface UseTranscriptionSummaryOptions {
  */
 export function useTranscriptionSummary({
     recordingId,
+    summarySource = "riffado",
     transcriptionText,
 }: UseTranscriptionSummaryOptions) {
     const [summaryData, setSummaryData] = useState<SummaryData | null>(null);
+    const [availableSummarySources, setAvailableSummarySources] = useState<
+        SummarySource[]
+    >([]);
     const [summarizingIds, setSummarizingIds] = useState(
         () => new Set<string>(),
     );
@@ -183,6 +193,7 @@ export function useTranscriptionSummary({
     }, []);
 
     const recordingIdRef = useRef(recordingId);
+    const summarySourceRef = useRef(summarySource);
     const fetchGenerationRef = useRef(0);
     const contentGenByIdRef = useRef(new Map<string, number>());
     const lastTextByIdRef = useRef(
@@ -205,6 +216,11 @@ export function useTranscriptionSummary({
     );
     if (recordingId !== recordingIdRef.current) {
         recordingIdRef.current = recordingId;
+        setSummaryData(null);
+        setAvailableSummarySources([]);
+    }
+    if (summarySource !== summarySourceRef.current) {
+        summarySourceRef.current = summarySource;
         setSummaryData(null);
     }
 
@@ -249,6 +265,7 @@ export function useTranscriptionSummary({
                 targetId,
             );
             const isCurrent = () =>
+                summarySourceRef.current === "riffado" &&
                 shouldApplyFetchedSummary(
                     recordingIdRef.current,
                     targetId,
@@ -284,10 +301,11 @@ export function useTranscriptionSummary({
                 if (!snapshot || !isCurrent()) return;
                 if (snapshot.status === "completed") {
                     const response = await fetch(
-                        `/api/recordings/${targetId}/summary`,
+                        `/api/recordings/${targetId}/summary?source=riffado`,
                     );
                     if (!response.ok) return;
                     const data = (await response.json()) as SummaryData;
+                    setAvailableSummarySources(data.availableSources ?? []);
                     if (data.summary && isCurrent()) {
                         fetchGenerationRef.current += 1;
                         setSummaryData(data);
@@ -327,9 +345,13 @@ export function useTranscriptionSummary({
         const generation = ++fetchGenerationRef.current;
         const controller = new AbortController();
         getAbortRef.current = controller;
-        fetch(`/api/recordings/${requestedId}/summary`, {
-            signal: controller.signal,
-        })
+        const requestedSource = summarySource;
+        fetch(
+            `/api/recordings/${requestedId}/summary?source=${requestedSource}`,
+            {
+                signal: controller.signal,
+            },
+        )
             .then((res) => res.json())
             .then((data) => {
                 if (
@@ -338,10 +360,14 @@ export function useTranscriptionSummary({
                         requestedId,
                         fetchGenerationRef.current,
                         generation,
-                    )
+                    ) ||
+                    summarySourceRef.current !== requestedSource
                 ) {
                     return;
                 }
+                setAvailableSummarySources(
+                    (data as SummaryData).availableSources ?? [],
+                );
                 if (data.summary) {
                     setSummaryData(data);
                 } else {
@@ -363,10 +389,11 @@ export function useTranscriptionSummary({
                 getAbortRef.current = null;
             }
         };
-    }, [recordingId, summaryFetchKey, attachToActiveJob]);
+    }, [recordingId, summarySource, summaryFetchKey, attachToActiveJob]);
 
     const handleSummarize = useCallback(async () => {
         if (!recordingId) return;
+        if (summarySource !== "riffado") return;
         if (summarizingIdsRef.current.has(recordingId)) return;
         const targetId = recordingId;
         const postGeneration = contentGenerationFor(
@@ -374,6 +401,7 @@ export function useTranscriptionSummary({
             targetId,
         );
         const postIsCurrent = () =>
+            summarySourceRef.current === "riffado" &&
             shouldApplyFetchedSummary(
                 recordingIdRef.current,
                 targetId,
@@ -395,6 +423,9 @@ export function useTranscriptionSummary({
             if (!postIsCurrent()) return;
             fetchGenerationRef.current += 1;
             setSummaryData(data);
+            setAvailableSummarySources((current) =>
+                current.includes("riffado") ? current : [...current, "riffado"],
+            );
             if (data.promptFallback) {
                 toast.warning(
                     "Selected summary prompt is no longer available -- used your default prompt instead.",
@@ -414,7 +445,7 @@ export function useTranscriptionSummary({
         const applyStoredSummary = async (): Promise<boolean> => {
             try {
                 const response = await fetch(
-                    `/api/recordings/${targetId}/summary`,
+                    `/api/recordings/${targetId}/summary?source=riffado`,
                 );
                 if (!response.ok) return false;
                 const data = (await response.json()) as SummaryData;
@@ -553,7 +584,7 @@ export function useTranscriptionSummary({
             setSummaryProgress(null);
             setSummaryElapsedMs(0);
         }
-    }, [recordingId, summaryPreset]);
+    }, [recordingId, summaryPreset, summarySource]);
 
     const handleDeleteSummary = useCallback(async () => {
         if (!recordingId) return;
@@ -567,12 +598,15 @@ export function useTranscriptionSummary({
 
         try {
             const response = await fetch(
-                `/api/recordings/${targetId}/summary`,
+                `/api/recordings/${targetId}/summary?source=${summarySource}`,
                 { method: "DELETE" },
             );
             if (response.ok) {
                 if (deleteIsCurrent()) {
                     toast.success("Summary deleted");
+                    setAvailableSummarySources((current) =>
+                        current.filter((source) => source !== summarySource),
+                    );
                 }
             } else {
                 if (deleteIsCurrent()) {
@@ -586,7 +620,7 @@ export function useTranscriptionSummary({
                 toast.error("Failed to delete summary");
             }
         }
-    }, [recordingId, summaryData]);
+    }, [recordingId, summaryData, summarySource]);
 
     /**
      * Imperative re-fetch trigger. Use after a re-transcribe call
@@ -617,7 +651,8 @@ export function useTranscriptionSummary({
 
     return {
         summaryData,
-        isSummarizing,
+        availableSummarySources,
+        isSummarizing: summarySource === "riffado" && isSummarizing,
         summaryProgress,
         summaryElapsedMs,
         summaryExpanded,

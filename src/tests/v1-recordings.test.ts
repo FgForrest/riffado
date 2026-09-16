@@ -86,6 +86,7 @@ const enhancement = {
     provider: "openai",
     model: "gpt-4o-mini",
     source: "riffado",
+    transcriptionId: "tr-1",
     // Single-pass summary: multi-pass provenance is NULL.
     multiPassRounds: null,
     multiPassUsed: null,
@@ -140,7 +141,7 @@ describe("v1 recordings", () => {
             recording,
             device,
             [transcription],
-            enhancement,
+            [enhancement],
         );
 
         expect(detail.transcript?.text).toBe("Hello world");
@@ -156,7 +157,7 @@ describe("v1 recordings", () => {
             { ...recording, filename: "Legacy Recording" },
             null,
             [{ ...transcription, text: "Legacy transcript" }],
-            null,
+            [],
         );
 
         expect(detail.title).toBe("Legacy Recording");

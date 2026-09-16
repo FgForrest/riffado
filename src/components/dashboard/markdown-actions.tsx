@@ -9,13 +9,18 @@ import type { SidecarKind } from "@/lib/export/document-sidecars";
 interface MarkdownActionsProps {
     kind: SidecarKind;
     recordingId: string;
+    source: string;
 }
 
-export function MarkdownActions({ kind, recordingId }: MarkdownActionsProps) {
+export function MarkdownActions({
+    kind,
+    recordingId,
+    source,
+}: MarkdownActionsProps) {
     const [copyState, setCopyState] = useState<"idle" | "copying" | "copied">(
         "idle",
     );
-    const endpoint = `/api/recordings/${encodeURIComponent(recordingId)}/markdown/${kind}`;
+    const endpoint = `/api/recordings/${encodeURIComponent(recordingId)}/markdown/${kind}?source=${encodeURIComponent(source)}`;
     const documentLabel = kind === "transcript" ? "transcript" : "summary";
 
     const copyMarkdown = async () => {

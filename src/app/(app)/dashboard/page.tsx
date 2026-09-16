@@ -57,6 +57,7 @@ export default async function DashboardPage() {
                 // decide whether this text was diarized and can be rendered
                 // as a dialog.
                 source: transcriptions.source,
+                provider: transcriptions.provider,
                 model: transcriptions.model,
                 // Provider-reported turns, preferred over re-deriving them
                 // from the text because only these carry timings.
@@ -113,16 +114,43 @@ export default async function DashboardPage() {
             ),
     );
 
+    const preferredTranscriptSource =
+        settingsRow?.preferredTranscriptSource ?? "plaud";
+    const transcriptVariants = new Map<
+        string,
+        Array<{
+            source: string;
+            text: string;
+            language?: string;
+            provider?: string;
+            model?: string;
+            turns: ReturnType<typeof readTranscriptTurns>;
+        }>
+    >();
+    for (const transcript of userTranscriptions) {
+        const variant = {
+            source: transcript.source,
+            text: decryptText(transcript.text),
+            language: transcript.language || undefined,
+            provider: transcript.provider ?? undefined,
+            model: transcript.model ?? undefined,
+            turns: readTranscriptTurns(transcript),
+        };
+        const variants = transcriptVariants.get(transcript.recordingId) ?? [];
+        variants.push(variant);
+        transcriptVariants.set(transcript.recordingId, variants);
+    }
+    for (const variants of transcriptVariants.values()) {
+        variants.sort((left, right) => {
+            if (left.source === preferredTranscriptSource) return -1;
+            if (right.source === preferredTranscriptSource) return 1;
+            return left.source.localeCompare(right.source);
+        });
+    }
     const transcriptionMap = new Map(
-        userTranscriptions.map((t) => [
-            t.recordingId,
-            {
-                text: decryptText(t.text),
-                language: t.language || undefined,
-                source: t.source,
-                model: t.model,
-                turns: readTranscriptTurns(t),
-            },
+        Array.from(transcriptVariants, ([recordingId, variants]) => [
+            recordingId,
+            variants[0],
         ]),
     );
 
@@ -135,6 +163,7 @@ export default async function DashboardPage() {
         <Workstation
             recordings={recordingsData}
             transcriptions={transcriptionMap}
+            transcriptVariants={transcriptVariants}
             isAdmin={isAdminEmail(session.user.email)}
             userEmail={session.user.email ?? null}
             initialSettings={initialSettings}

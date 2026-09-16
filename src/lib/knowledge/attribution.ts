@@ -1,7 +1,12 @@
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { people, transcriptSpeakers } from "@/db/schema";
+import { people, transcriptions, transcriptSpeakers } from "@/db/schema";
 import { decryptText } from "@/lib/encryption/fields";
+import { speakerAnchorId } from "@/lib/knowledge/speaker-references";
+import {
+    parseSpeakerTurns,
+    speakerOrder,
+} from "@/lib/transcription/diarization";
 import type { SpeakerNameResolver } from "@/lib/transcription/turns";
 
 export type AttributionSource =
@@ -34,6 +39,141 @@ export interface SetTranscriptSpeakerArgs {
     status: AttributionStatus;
     confidence?: number | null;
     evidenceStartMs?: number | null;
+}
+
+interface TransferableSpeakerRow {
+    transcriptionId: string;
+    transcriptionSource: string;
+    transcriptionText: string;
+    label: string | null;
+    personId: string | null;
+    source: AttributionSource | null;
+    confidence: number | null;
+    evidenceStartMs: number | null;
+}
+
+interface CopyMatchingSpeakerAttributionsArgs {
+    userId: string;
+    recordingId: string;
+    sourceSource: string;
+    targetSource: string;
+    targetText: string;
+}
+
+function orderedSpeakers(text: string): string[] {
+    const turns = parseSpeakerTurns(text);
+    return turns ? speakerOrder(turns) : [];
+}
+
+function remapCandidateRows(
+    rows: readonly TransferableSpeakerRow[],
+    nextSpeakers: readonly string[],
+): Omit<SetTranscriptSpeakerArgs, "userId" | "transcriptionId">[] {
+    const previousSpeakers = orderedSpeakers(
+        decryptText(rows[0]?.transcriptionText ?? ""),
+    );
+    if (
+        previousSpeakers.length === 0 ||
+        previousSpeakers.length !== nextSpeakers.length
+    ) {
+        return [];
+    }
+
+    return rows.flatMap((row) => {
+        if (!row.label || !row.personId || !row.source) return [];
+        const previousIndex = previousSpeakers.findIndex(
+            (label) =>
+                speakerAnchorId(label) === speakerAnchorId(row.label ?? ""),
+        );
+        if (previousIndex === -1) return [];
+        return [
+            {
+                label: nextSpeakers[previousIndex],
+                personId: row.personId,
+                source: row.source,
+                status: "confirmed" as const,
+                confidence: row.confidence,
+                evidenceStartMs: row.evidenceStartMs,
+            },
+        ];
+    });
+}
+
+/**
+ * Copy confirmed names from another transcript source after the first manual
+ * Riffado transcription, provided both diarizations found the same number of
+ * speakers. Labels are mapped by speaker order so `Speaker 0` and `speaker_0`
+ * remain equivalent across providers.
+ */
+export async function copyMatchingSpeakerAttributions({
+    userId,
+    recordingId,
+    sourceSource,
+    targetSource,
+    targetText,
+}: CopyMatchingSpeakerAttributionsArgs): Promise<boolean> {
+    const rows = await db
+        .select({
+            transcriptionId: transcriptions.id,
+            transcriptionSource: transcriptions.source,
+            transcriptionText: transcriptions.text,
+            label: transcriptSpeakers.label,
+            personId: transcriptSpeakers.personId,
+            source: transcriptSpeakers.source,
+            confidence: transcriptSpeakers.confidence,
+            evidenceStartMs: transcriptSpeakers.evidenceStartMs,
+        })
+        .from(transcriptions)
+        .leftJoin(
+            transcriptSpeakers,
+            and(
+                eq(transcriptSpeakers.transcriptionId, transcriptions.id),
+                eq(transcriptSpeakers.userId, userId),
+                eq(transcriptSpeakers.status, "confirmed"),
+            ),
+        )
+        .where(
+            and(
+                eq(transcriptions.recordingId, recordingId),
+                eq(transcriptions.userId, userId),
+            ),
+        );
+
+    const target = rows.find((row) => row.transcriptionSource === targetSource);
+    const nextSpeakers = orderedSpeakers(targetText);
+    if (!target || nextSpeakers.length === 0) return false;
+
+    const candidates = new Map<string, TransferableSpeakerRow[]>();
+    for (const row of rows) {
+        if (
+            row.transcriptionId === target.transcriptionId ||
+            row.transcriptionSource !== sourceSource ||
+            !row.personId
+        ) {
+            continue;
+        }
+        const candidate = candidates.get(row.transcriptionId) ?? [];
+        candidate.push(row);
+        candidates.set(row.transcriptionId, candidate);
+    }
+
+    const mapped = Array.from(candidates.values())
+        .map((candidate) => remapCandidateRows(candidate, nextSpeakers))
+        .filter((candidate) => candidate.length > 0)
+        .sort((left, right) => right.length - left.length)[0];
+    if (!mapped) return false;
+
+    await db
+        .insert(transcriptSpeakers)
+        .values(
+            mapped.map((row) => ({
+                ...row,
+                userId,
+                transcriptionId: target.transcriptionId,
+            })),
+        )
+        .onConflictDoNothing();
+    return true;
 }
 
 /**

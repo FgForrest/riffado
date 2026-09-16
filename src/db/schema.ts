@@ -531,6 +531,10 @@ export const aiEnhancements = pgTable(
         userId: text("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
+        transcriptionId: text("transcription_id").references(
+            () => transcriptions.id,
+            { onDelete: "cascade" },
+        ),
         summary: text("summary"),
         actionItems: jsonb("action_items"), // Array of action items
         keyPoints: jsonb("key_points"), // Array of key points
@@ -554,8 +558,12 @@ export const aiEnhancements = pgTable(
         createdAt: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => ({
-        // Each user can have at most one enhancement per recording
-        userRecordingUnique: unique().on(table.recordingId, table.userId),
+        userRecordingSourceUnique: unique(
+            "ai_enhancements_recording_user_source_unique",
+        ).on(table.recordingId, table.userId, table.source),
+        transcriptionIdIdx: index("ai_enhancements_transcription_id_idx").on(
+            table.transcriptionId,
+        ),
     }),
 );
 
@@ -742,7 +750,7 @@ export const userSettings = pgTable("user_settings", {
     // idea. Kept (rather than dropped) so the settings API payload is
     // unchanged and no destructive migration is needed; nothing reads it.
     autoExport: boolean("auto_export").notNull().default(false),
-    // Write a `<recording>.transcript.md` / `<recording>.summary.md`
+    // Write source-specific `<recording>.<source>.transcript.md` and summary files.
     // sidecar next to the audio file in storage after each successful run.
     autoExportTranscript: boolean("auto_export_transcript")
         .notNull()

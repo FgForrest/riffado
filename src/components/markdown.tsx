@@ -6,8 +6,10 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
     canonicalizeSummarySpeakerReferences,
+    offsetSpeakerLabel,
     resolveSpeakerAttribution,
     type SpeakerAttributions,
+    speakerAnchorId,
     speakerLabelFromSummaryHref,
 } from "@/lib/knowledge/speaker-references";
 import { cn } from "@/lib/utils";
@@ -119,6 +121,8 @@ export interface MarkdownProps {
     className?: string;
     /** Confirmed names used to project stable summary speaker placeholders. */
     speakerAttributions?: SpeakerAttributions;
+    /** Numeric correction for a summary that used one-based speaker labels. */
+    speakerNumberOffset?: number;
 }
 
 /**
@@ -134,14 +138,21 @@ export function Markdown({
     inline,
     className,
     speakerAttributions,
+    speakerNumberOffset = 0,
 }: MarkdownProps) {
     const Wrapper = inline ? "span" : "div";
     const components: Components = {
         ...(inline ? inlineComponents : blockComponents),
         a: ({ href, children: linkChildren }) => {
             const speaker = speakerLabelFromSummaryHref(href);
-            const attribution = speaker
-                ? resolveSpeakerAttribution(speakerAttributions, speaker)
+            const projectedSpeaker = speaker
+                ? offsetSpeakerLabel(speaker, speakerNumberOffset)
+                : null;
+            const attribution = projectedSpeaker
+                ? resolveSpeakerAttribution(
+                      speakerAttributions,
+                      projectedSpeaker,
+                  )
                 : undefined;
             if (attribution) {
                 return (
@@ -154,12 +165,17 @@ export function Markdown({
                 );
             }
             if (href?.startsWith("#")) {
+                const projectedAnchor = projectedSpeaker
+                    ? speakerAnchorId(projectedSpeaker)
+                    : null;
                 return (
                     <a
-                        href={href}
+                        href={projectedAnchor ? `#${projectedAnchor}` : href}
                         className="text-primary underline underline-offset-2 hover:no-underline"
                     >
-                        {linkChildren}
+                        {projectedAnchor
+                            ? `Speaker ${projectedAnchor.slice("speaker-".length)}`
+                            : linkChildren}
                     </a>
                 );
             }

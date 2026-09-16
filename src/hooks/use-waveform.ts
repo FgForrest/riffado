@@ -29,6 +29,25 @@ interface UseWaveformResult {
     decode: () => void;
 }
 
+function readPeaks(value: unknown): number[] {
+    if (
+        !value ||
+        typeof value !== "object" ||
+        !("peaks" in value) ||
+        !Array.isArray(value.peaks) ||
+        !value.peaks.every(
+            (peak) =>
+                typeof peak === "number" &&
+                Number.isFinite(peak) &&
+                peak >= 0 &&
+                peak <= 1,
+        )
+    ) {
+        throw new Error("Waveform service returned invalid peaks");
+    }
+    return value.peaks;
+}
+
 /**
  * Decode + cache the waveform for a single recording. Idempotent across
  * tab focus changes and recording switches; in-flight network fetches
@@ -100,7 +119,27 @@ export function useWaveform({
             const buf = await res.arrayBuffer();
             if (controller.signal.aborted) return;
 
-            const { peaks: decoded } = await decodePeaks(buf, DEFAULT_BUCKETS);
+            let decoded: number[];
+            let shouldPersist = true;
+            try {
+                ({ peaks: decoded } = await decodePeaks(buf, DEFAULT_BUCKETS));
+            } catch (decodeError) {
+                shouldPersist = false;
+                console.warn(
+                    "Browser waveform decode failed; using server fallback:",
+                    decodeError,
+                );
+                const fallback = await fetch(`/api/recordings/${id}/peaks`, {
+                    method: "PUT",
+                    signal: controller.signal,
+                });
+                if (!fallback.ok) {
+                    throw new Error(
+                        `Server waveform generation failed: ${fallback.status}`,
+                    );
+                }
+                decoded = readPeaks(await fallback.json());
+            }
             if (controller.signal.aborted) return;
             // Stale-result guard: if the user switched recordings while
             // we were decoding, drop the result rather than overwrite
@@ -110,14 +149,13 @@ export function useWaveform({
             setPeaks(decoded);
             setStatus("ready");
 
-            // Best-effort persistence. Failures here are harmless — the
-            // user sees the waveform this session; the next listener
-            // will redecode. Don't surface to the UI.
-            fetch(`/api/recordings/${id}/peaks`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ peaks: decoded }),
-            }).catch(() => {});
+            if (shouldPersist) {
+                fetch(`/api/recordings/${id}/peaks`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ peaks: decoded }),
+                }).catch(() => {});
+            }
         } catch (err) {
             if (controller.signal.aborted) return;
             if (currentIdRef.current !== id) return;

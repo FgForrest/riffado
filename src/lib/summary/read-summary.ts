@@ -12,6 +12,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { aiEnhancements } from "@/db/schema";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
+import type { EnhancementSource } from "@/lib/transcription/persist";
 import type { MultiPassProvenance } from "./multi-pass";
 
 export interface StoredSummary {
@@ -19,6 +20,8 @@ export interface StoredSummary {
     summary: string | null;
     keyPoints: string[];
     actionItems: string[];
+    source: EnhancementSource;
+    transcriptionId: string | null;
     provider: string | null;
     model: string | null;
     multiPass?: MultiPassProvenance;
@@ -28,17 +31,21 @@ export interface StoredSummary {
 export async function readStoredSummary(
     userId: string,
     recordingId: string,
+    source?: EnhancementSource,
 ): Promise<StoredSummary | null> {
-    const [enhancement] = await db
+    const conditions = [
+        eq(aiEnhancements.recordingId, recordingId),
+        eq(aiEnhancements.userId, userId),
+    ];
+    if (source) conditions.push(eq(aiEnhancements.source, source));
+
+    const rows = await db
         .select()
         .from(aiEnhancements)
-        .where(
-            and(
-                eq(aiEnhancements.recordingId, recordingId),
-                eq(aiEnhancements.userId, userId),
-            ),
-        )
-        .limit(1);
+        .where(and(...conditions));
+    const enhancement = source
+        ? rows[0]
+        : (rows.find((row) => row.source === "riffado") ?? rows[0]);
 
     if (!enhancement) return null;
 
@@ -48,6 +55,8 @@ export async function readStoredSummary(
         summary: decryptText(enhancement.summary) ?? null,
         keyPoints: decryptJsonField<string[]>(enhancement.keyPoints) ?? [],
         actionItems: decryptJsonField<string[]>(enhancement.actionItems) ?? [],
+        source: enhancement.source === "plaud" ? "plaud" : ("riffado" as const),
+        transcriptionId: enhancement.transcriptionId,
         provider: enhancement.provider,
         model: enhancement.model,
         // Nested, matching what POST returns, so a client has one shape to
@@ -63,4 +72,16 @@ export async function readStoredSummary(
                   },
         createdAt: enhancement.createdAt,
     };
+}
+
+/** Read both source-scoped summaries for a recording. */
+export async function readStoredSummaries(
+    userId: string,
+    recordingId: string,
+): Promise<StoredSummary[]> {
+    const rows = await Promise.all([
+        readStoredSummary(userId, recordingId, "plaud"),
+        readStoredSummary(userId, recordingId, "riffado"),
+    ]);
+    return rows.filter((row): row is StoredSummary => row !== null);
 }

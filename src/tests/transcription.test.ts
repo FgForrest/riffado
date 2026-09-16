@@ -5,6 +5,7 @@ vi.mock("@/db", () => ({
         select: vi.fn(),
         insert: vi.fn(),
         update: vi.fn(),
+        delete: vi.fn(),
         transaction: vi.fn(),
     },
 }));
@@ -62,6 +63,11 @@ vi.mock("@/lib/plaud/client-factory", () => ({
     createPlaudClient: vi.fn(),
 }));
 
+vi.mock("@/lib/export/document-sidecars", () => ({
+    exportRecordingSidecarsIfEnabled: vi.fn().mockResolvedValue(undefined),
+    removeRecordingSidecar: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { OpenAI } from "openai";
 import { db } from "@/db";
 import { recordings } from "@/db/schema";
@@ -78,6 +84,9 @@ describe("Transcription", () => {
 
     beforeEach(() => {
         vi.clearAllMocks();
+        (db.delete as Mock).mockReturnValue({
+            where: vi.fn().mockResolvedValue(undefined),
+        });
         // biome-ignore lint/complexity/useArrowFunction: mock must be constructable
         (OpenAI as unknown as Mock).mockImplementation(function () {
             return {

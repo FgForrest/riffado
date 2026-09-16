@@ -35,6 +35,7 @@ interface ManifestRecording {
         count: number;
     };
     summary: { included: boolean; path: string | null };
+    summaries: { included: boolean; path: string | null; count: number };
 }
 
 // Which transcript `transcript.txt` renders when a recording has more than
@@ -137,17 +138,27 @@ export async function buildAndUploadExportArchive(input: {
     // `summary` is a `text` column (encryptText); `actionItems`/`keyPoints`
     // are `jsonb` envelopes (encryptJsonField) -- same at-rest scheme the
     // summary API decrypts before returning to the client.
-    const enhancementMap = new Map(
-        userEnhancements.map((e) => [
-            e.recordingId,
-            {
-                ...e,
-                summary: decryptText(e.summary),
-                actionItems: decryptJsonField<string[]>(e.actionItems),
-                keyPoints: decryptJsonField<string[]>(e.keyPoints),
-            },
-        ]),
-    );
+    const enhancementMap = new Map<
+        string,
+        Array<
+            (typeof userEnhancements)[number] & {
+                summary: string;
+                actionItems: string[];
+                keyPoints: string[];
+            }
+        >
+    >();
+    for (const enhancement of userEnhancements) {
+        const group = enhancementMap.get(enhancement.recordingId) ?? [];
+        group.push({
+            ...enhancement,
+            summary: decryptText(enhancement.summary) ?? "",
+            actionItems:
+                decryptJsonField<string[]>(enhancement.actionItems) ?? [],
+            keyPoints: decryptJsonField<string[]>(enhancement.keyPoints) ?? [],
+        });
+        enhancementMap.set(enhancement.recordingId, group);
+    }
 
     const archive = new ZipArchive({ zlib: { level: 6 } });
     const passthrough = new PassThrough();
@@ -244,6 +255,7 @@ export async function buildAndUploadExportArchive(input: {
             transcript: { included: false, path: null },
             transcripts: { included: false, path: null, count: 0 },
             summary: { included: false, path: null },
+            summaries: { included: false, path: null, count: 0 },
         };
 
         const audioExists = await sourceStorage
@@ -368,7 +380,11 @@ export async function buildAndUploadExportArchive(input: {
             };
         }
 
-        const enhancement = enhancementMap.get(recording.id);
+        const recordingEnhancements = enhancementMap.get(recording.id) ?? [];
+        const enhancement =
+            recordingEnhancements.find((item) => item.source === "plaud") ??
+            recordingEnhancements.find((item) => item.source === "riffado") ??
+            recordingEnhancements[0];
         if (enhancement) {
             const summaryPath = `${folder}/summary.json`;
             archive.append(
@@ -378,6 +394,8 @@ export async function buildAndUploadExportArchive(input: {
                             summary: enhancement.summary,
                             actionItems: enhancement.actionItems,
                             keyPoints: enhancement.keyPoints,
+                            source: enhancement.source,
+                            transcriptionId: enhancement.transcriptionId,
                             provider: enhancement.provider,
                             model: enhancement.model,
                             createdAt: enhancement.createdAt.toISOString(),
@@ -389,6 +407,35 @@ export async function buildAndUploadExportArchive(input: {
                 { name: summaryPath },
             );
             entry.summary = { included: true, path: summaryPath };
+        }
+        if (recordingEnhancements.length > 0) {
+            const summariesPath = `${folder}/summaries.json`;
+            archive.append(
+                Buffer.from(
+                    JSON.stringify(
+                        recordingEnhancements.map((item) => ({
+                            id: item.id,
+                            recordingId: item.recordingId,
+                            transcriptionId: item.transcriptionId,
+                            source: item.source,
+                            summary: item.summary,
+                            actionItems: item.actionItems,
+                            keyPoints: item.keyPoints,
+                            provider: item.provider,
+                            model: item.model,
+                            createdAt: item.createdAt.toISOString(),
+                        })),
+                        null,
+                        2,
+                    ),
+                ),
+                { name: summariesPath },
+            );
+            entry.summaries = {
+                included: true,
+                path: summariesPath,
+                count: recordingEnhancements.length,
+            };
         }
 
         manifest.recordings.push(entry);

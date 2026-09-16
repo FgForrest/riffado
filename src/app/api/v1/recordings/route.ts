@@ -131,6 +131,17 @@ export const GET = apiHandler(async (request: Request) => {
                 ),
             ),
     );
+    const enhancementExists = exists(
+        db
+            .select()
+            .from(aiEnhancements)
+            .where(
+                and(
+                    eq(aiEnhancements.recordingId, recordings.id),
+                    eq(aiEnhancements.userId, authn.user.id),
+                ),
+            ),
+    );
 
     if (hasTranscription === true) {
         conditions.push(transcriptExists);
@@ -143,8 +154,8 @@ export const GET = apiHandler(async (request: Request) => {
         .select({
             recording: recordings,
             device: plaudDevices,
-            enhancement: aiEnhancements,
             hasTranscript: transcriptExists,
+            hasSummary: enhancementExists,
         })
         .from(recordings)
         .leftJoin(
@@ -152,13 +163,6 @@ export const GET = apiHandler(async (request: Request) => {
             and(
                 eq(plaudDevices.userId, authn.user.id),
                 eq(plaudDevices.serialNumber, recordings.deviceSn),
-            ),
-        )
-        .leftJoin(
-            aiEnhancements,
-            and(
-                eq(aiEnhancements.recordingId, recordings.id),
-                eq(aiEnhancements.userId, authn.user.id),
             ),
         )
         .where(and(...conditions))
@@ -173,7 +177,7 @@ export const GET = apiHandler(async (request: Request) => {
         data: pageRows.map((row) =>
             serializeRecording(row.recording, row.device, {
                 hasTranscription: Boolean(row.hasTranscript),
-                hasSummary: Boolean(row.enhancement),
+                hasSummary: Boolean(row.hasSummary),
             }),
         ),
         next_cursor:

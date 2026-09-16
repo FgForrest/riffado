@@ -6,7 +6,10 @@ import {
     RecordingPlayer,
     type RecordingPlayerHandle,
 } from "@/components/dashboard/recording-player";
-import { TranscriptionPanel } from "@/components/dashboard/transcription-panel";
+import {
+    TranscriptionPanel,
+    type TranscriptOption,
+} from "@/components/dashboard/transcription-panel";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
@@ -17,6 +20,7 @@ interface TranscriptionData {
     text?: string;
     language?: string;
     source?: string;
+    provider?: string;
     model?: string;
     turns?: TranscriptTurn[] | null;
 }
@@ -24,9 +28,10 @@ interface TranscriptionData {
 interface Props {
     currentRecording: Recording | null;
     currentTranscription: TranscriptionData | undefined;
+    transcripts: TranscriptOption[] | undefined;
     isCurrentTranscribing: boolean;
     visibleRecordings: Recording[];
-    onTranscribe: () => void;
+    onTranscribe: (attributionSource?: string) => void;
     /** Called after a browser-side transcription completes (refresh data). */
     onTranscribeComplete?: () => void;
     onSelectRecording: (r: Recording) => void;
@@ -53,6 +58,7 @@ interface Props {
 export function WorkstationDetailPane({
     currentRecording,
     currentTranscription,
+    transcripts,
     isCurrentTranscribing,
     visibleRecordings,
     onTranscribe,
@@ -117,6 +123,7 @@ export function WorkstationDetailPane({
                     <TranscriptionPanel
                         recording={currentRecording}
                         transcription={currentTranscription}
+                        transcripts={transcripts}
                         isTranscribing={isCurrentTranscribing}
                         onTranscribe={onTranscribe}
                         onTranscribeComplete={onTranscribeComplete}

@@ -34,12 +34,19 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
     const providerId =
         typeof body.providerId === "string" ? body.providerId : undefined;
     const model = typeof body.model === "string" ? body.model : undefined;
+    const attributionSource =
+        body.attributionSource === "riffado" ||
+        body.attributionSource === "plaud" ||
+        body.attributionSource === "mixed"
+            ? body.attributionSource
+            : undefined;
 
     const { job, created } = await enqueueTranscriptionJob({
         userId: session.user.id,
         recordingId: id,
         providerId,
         model,
+        attributionSource,
         force: true,
         trigger: "manual",
     });
