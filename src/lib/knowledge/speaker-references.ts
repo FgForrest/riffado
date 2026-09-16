@@ -7,7 +7,8 @@ export interface SpeakerAttribution {
 
 export type SpeakerAttributions = Readonly<Record<string, SpeakerAttribution>>;
 
-const SUMMARY_SPEAKER_LINK = /\[Speaker ([0-9]+)\]\(#speaker-\1\)/g;
+const SUMMARY_SPEAKER_REFERENCE =
+    /\[Speaker ([0-9]+)\]\(#speaker-\1\)|\bSpeaker ([0-9]+)\b/g;
 
 /** Stable fragment id used by summary placeholders and transcript speaker tags. */
 export function speakerAnchorId(speaker: string): string {
@@ -29,8 +30,38 @@ export function speakerLabelFromSummaryHref(
     return match ? `speaker_${match[1]}` : null;
 }
 
+/** Find an attribution across equivalent provider label formats. */
+export function resolveSpeakerAttribution(
+    attributions: SpeakerAttributions | undefined,
+    speaker: string,
+): SpeakerAttribution | undefined {
+    const direct = attributions?.[speaker];
+    if (direct) return direct;
+
+    const anchor = speakerAnchorId(speaker);
+    return Object.entries(attributions ?? {}).find(
+        ([label]) => speakerAnchorId(label) === anchor,
+    )?.[1];
+}
+
+/** Convert plain model-authored speaker labels into stable summary links. */
+export function canonicalizeSummarySpeakerReferences(markdown: string): string {
+    return markdown.replace(
+        SUMMARY_SPEAKER_REFERENCE,
+        (
+            reference,
+            linkedNumber: string | undefined,
+            plainNumber: string | undefined,
+        ) => {
+            const speakerNumber = linkedNumber ?? plainNumber;
+            if (!speakerNumber) return reference;
+            return `[Speaker ${speakerNumber}](#speaker-${speakerNumber})`;
+        },
+    );
+}
+
 /**
- * Project stored speaker links into portable text for disk exports.
+ * Project stored speaker references into portable text for disk exports.
  *
  * The stored summary remains untouched. Known speakers become their confirmed
  * names; unknown speakers keep their display labels. Neither keeps a link,
@@ -41,8 +72,20 @@ export function projectSummarySpeakerReferencesForExport(
     resolve?: SpeakerNameResolver,
 ): string {
     return markdown.replace(
-        SUMMARY_SPEAKER_LINK,
-        (_reference, speakerNumber: string) =>
-            resolve?.(`speaker_${speakerNumber}`) ?? `Speaker ${speakerNumber}`,
+        SUMMARY_SPEAKER_REFERENCE,
+        (
+            reference,
+            linkedNumber: string | undefined,
+            plainNumber: string | undefined,
+        ) => {
+            const speakerNumber = linkedNumber ?? plainNumber;
+            if (!speakerNumber) return reference;
+            return (
+                resolve?.(`speaker_${speakerNumber}`) ??
+                resolve?.(`Speaker ${speakerNumber}`) ??
+                resolve?.(`speaker-${speakerNumber}`) ??
+                `Speaker ${speakerNumber}`
+            );
+        },
     );
 }

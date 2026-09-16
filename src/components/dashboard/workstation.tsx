@@ -275,9 +275,14 @@ export function Workstation({
         triggerUpload,
     } = useUploadQueue({ onUploadComplete: refresh });
 
-    const { inFlightActions, transcribeById } = useTranscribeQueue({
-        onTranscribeComplete: refresh,
-    });
+    const { inFlightActions, observeTranscriptionById, transcribeById } =
+        useTranscribeQueue({ onTranscribeComplete: refresh });
+
+    useEffect(() => {
+        if (currentRecording) {
+            void observeTranscriptionById(currentRecording.id);
+        }
+    }, [currentRecording, observeTranscriptionById]);
 
     // Any transcribe in flight (across all recordings) blocks new
     // uploads. The previous `isTranscribing` boolean conflated "this

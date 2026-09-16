@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { followJob } from "@/lib/jobs/client";
 
 type ActionKind = "transcribing" | "summarizing";
 
@@ -26,6 +27,16 @@ export function useTranscribeQueue({ onTranscribeComplete }: Options) {
     const [inFlightActions, setInFlightActions] = useState<
         Map<string, ActionKind>
     >(new Map());
+    const activeIdsRef = useRef(new Set<string>());
+    const abortRef = useRef<AbortController | null>(null);
+    if (abortRef.current === null) abortRef.current = new AbortController();
+
+    useEffect(
+        () => () => {
+            abortRef.current?.abort();
+        },
+        [],
+    );
 
     const markAction = useCallback((id: string, kind: ActionKind | null) => {
         setInFlightActions((prev) => {
@@ -35,6 +46,44 @@ export function useTranscribeQueue({ onTranscribeComplete }: Options) {
             return next;
         });
     }, []);
+
+    const beginTracking = useCallback(
+        (id: string): boolean => {
+            if (activeIdsRef.current.has(id)) return false;
+            activeIdsRef.current.add(id);
+            markAction(id, "transcribing");
+            return true;
+        },
+        [markAction],
+    );
+
+    const finishTracking = useCallback(
+        (id: string) => {
+            activeIdsRef.current.delete(id);
+            markAction(id, null);
+        },
+        [markAction],
+    );
+
+    const followTranscription = useCallback(
+        async (id: string, jobId: string) => {
+            try {
+                const snapshot = await followJob(jobId, {
+                    signal: abortRef.current?.signal,
+                });
+                if (!snapshot) return;
+                if (snapshot.status === "completed") {
+                    toast.success("Transcription complete");
+                    onTranscribeComplete();
+                } else {
+                    toast.error(snapshot.error || "Transcription failed");
+                }
+            } finally {
+                finishTracking(id);
+            }
+        },
+        [finishTracking, onTranscribeComplete],
+    );
 
     /**
      * Trigger transcription for a specific recording id. Used by:
@@ -47,15 +96,21 @@ export function useTranscribeQueue({ onTranscribeComplete }: Options) {
      */
     const transcribeById = useCallback(
         async (id: string) => {
-            markAction(id, "transcribing");
+            if (!beginTracking(id)) return;
             try {
                 const response = await fetch(
                     `/api/recordings/${id}/transcribe`,
                     { method: "POST" },
                 );
                 if (response.ok) {
-                    toast.success("Transcription complete");
-                    onTranscribeComplete();
+                    const data = (await response.json()) as {
+                        jobId?: string;
+                    };
+                    if (!data.jobId) {
+                        throw new Error("Transcription job was not returned");
+                    }
+                    await followTranscription(id, data.jobId);
+                    return;
                 } else {
                     const error = await response.json();
                     toast.error(error.error || "Transcription failed");
@@ -63,19 +118,38 @@ export function useTranscribeQueue({ onTranscribeComplete }: Options) {
             } catch {
                 toast.error("Failed to transcribe recording");
             } finally {
-                // Per-id clear only -- don't touch any global "is
-                // transcribing" flag (there isn't one), so a concurrent
-                // transcribe on a different recording keeps its own
-                // marker intact.
-                markAction(id, null);
+                finishTracking(id);
             }
         },
-        [markAction, onTranscribeComplete],
+        [beginTracking, finishTracking, followTranscription],
+    );
+
+    const observeTranscriptionById = useCallback(
+        async (id: string) => {
+            if (activeIdsRef.current.has(id)) return;
+            try {
+                const response = await fetch(
+                    `/api/recordings/${id}/transcribe`,
+                    { signal: abortRef.current?.signal },
+                );
+                if (!response.ok) return;
+                const data = (await response.json()) as {
+                    activeJob?: { jobId: string };
+                };
+                if (!data.activeJob || !beginTracking(id)) return;
+                await followTranscription(id, data.activeJob.jobId);
+            } catch {
+                // Observation is best-effort. The durable job continues even
+                // when this page cannot reach its status endpoint.
+            }
+        },
+        [beginTracking, followTranscription],
     );
 
     return {
         inFlightActions,
         markAction,
+        observeTranscriptionById,
         transcribeById,
     };
 }

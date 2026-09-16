@@ -34,13 +34,13 @@ function stubFetch(scenario: FetchScenario) {
     return fetchMock;
 }
 
-function renderTags() {
+function renderTags(onAttributionsChange = vi.fn()) {
     return render(
         <SpeakerTags
             recordingId="rec-1"
             source="riffado"
             speakers={[{ speaker: "speaker_0", label: "Speaker 0" }]}
-            onAttributionsChange={vi.fn()}
+            onAttributionsChange={onAttributionsChange}
         />,
     );
 }
@@ -159,5 +159,42 @@ describe("SpeakerTags", () => {
             label: "speaker_0",
             displayName: "Nova",
         });
+    });
+
+    it("keeps confirmed names visible while refreshing the same transcript", async () => {
+        const initialResponse = response({
+            speakers: [
+                {
+                    label: "speaker_0",
+                    personId: "person-1",
+                    personName: "Jan",
+                    status: "confirmed",
+                },
+            ],
+        });
+        const pendingRefresh = new Promise<Response>(() => {});
+        const fetchMock = vi
+            .fn()
+            .mockResolvedValueOnce(initialResponse)
+            .mockReturnValueOnce(pendingRefresh);
+        vi.stubGlobal("fetch", fetchMock);
+        const initialChange = vi.fn();
+        const refreshedChange = vi.fn();
+
+        const { rerender } = renderTags(initialChange);
+        await screen.findByRole("link", { name: "Jan" });
+
+        rerender(
+            <SpeakerTags
+                recordingId="rec-1"
+                source="riffado"
+                speakers={[{ speaker: "speaker_0", label: "Speaker 0" }]}
+                onAttributionsChange={refreshedChange}
+            />,
+        );
+
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+        expect(screen.getByRole("link", { name: "Jan" })).toBeDefined();
+        expect(refreshedChange).not.toHaveBeenCalledWith({});
     });
 });

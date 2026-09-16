@@ -5,6 +5,8 @@ import type { Components } from "react-markdown";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+    canonicalizeSummarySpeakerReferences,
+    resolveSpeakerAttribution,
     type SpeakerAttributions,
     speakerLabelFromSummaryHref,
 } from "@/lib/knowledge/speaker-references";
@@ -139,7 +141,7 @@ export function Markdown({
         a: ({ href, children: linkChildren }) => {
             const speaker = speakerLabelFromSummaryHref(href);
             const attribution = speaker
-                ? speakerAttributions?.[speaker]
+                ? resolveSpeakerAttribution(speakerAttributions, speaker)
                 : undefined;
             if (attribution) {
                 return (
@@ -180,7 +182,7 @@ export function Markdown({
                 remarkPlugins={[remarkGfm]}
                 components={components}
             >
-                {children}
+                {canonicalizeSummarySpeakerReferences(children)}
             </ReactMarkdown>
         </Wrapper>
     );

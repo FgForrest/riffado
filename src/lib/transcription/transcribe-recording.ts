@@ -49,9 +49,8 @@ import type { TranscriptTurn } from "@/lib/transcription/turns";
 import { emitEvent } from "@/lib/webhooks/emit";
 
 /**
- * Discriminator for typed error handling at the route boundary. Internal
- * sync callers can ignore it; the manual
- * `/api/recordings/[id]/transcribe` route maps these to HTTP status codes.
+ * Discriminator for typed error handling by durable transcription jobs and
+ * direct internal callers.
  */
 export type TranscribeErrorCode =
     | "RECORDING_NOT_FOUND"

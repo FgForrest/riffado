@@ -77,7 +77,6 @@ import {
     DELETE as deleteSummary,
     GET as getSummary,
 } from "@/app/api/recordings/[id]/summary/route";
-import { POST as transcribeRecordingRoute } from "@/app/api/recordings/[id]/transcribe/route";
 import { db } from "@/db";
 import { aiEnhancements, recordings, transcriptions } from "@/db/schema";
 import { auth } from "@/lib/auth";
@@ -86,6 +85,7 @@ import { ErrorCode } from "@/lib/errors";
 // queues the work for a background worker, while the scoping and
 // `updatedAt` bookkeeping pinned below belong to the write path itself.
 import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
+import { transcribeRecording } from "@/lib/transcription/transcribe-recording";
 
 const userId = "user-79";
 const recordingId = "rec-79";
@@ -185,8 +185,8 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
     });
 
     it("bumps recording updatedAt inside the manual transcription transaction", async () => {
-        // The manual route now delegates to the shared `transcribeRecording`
-        // worker (issue #101 consolidation), so the select chain is:
+        // Manual jobs delegate to the shared `transcribeRecording` worker
+        // (issue #101 consolidation), so the select chain is:
         //   1. recording lookup
         //   2. existing transcription (none — manual re-transcribe path)
         //   3. credentials (default transcription provider)
@@ -246,16 +246,12 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
             ) => callback(tx),
         );
 
-        const response = await transcribeRecordingRoute(
-            routeRequest(`/api/recordings/${recordingId}/transcribe`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({}),
-            }),
-            routeParams(),
-        );
+        const response = await transcribeRecording(userId, recordingId, {
+            force: true,
+            trigger: "manual",
+        });
 
-        expect(response.status).toBe(200);
+        expect(response.success).toBe(true);
         expect(tx.update).toHaveBeenCalledWith(recordings);
         expect(recordingBumpSet).toHaveBeenCalledWith({
             updatedAt: expect.any(Date),

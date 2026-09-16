@@ -15,6 +15,10 @@ export async function autoTranscribeNewRecording(
         .limit(1);
 
     if (!settings?.autoTranscribe) return false;
-    await enqueueTranscriptionJob({ userId, recordingId });
+    await enqueueTranscriptionJob({
+        userId,
+        recordingId,
+        trigger: "upload",
+    });
     return true;
 }

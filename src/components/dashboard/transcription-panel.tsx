@@ -143,6 +143,7 @@ export function TranscriptionPanel({
     const [activeSource, setActiveSource] = useState<string | undefined>(
         undefined,
     );
+    const [transcriptExpanded, setTranscriptExpanded] = useState(true);
     const activeTranscript =
         transcriptList.find((t) => t.source === activeSource) ??
         transcriptList[0];
@@ -285,64 +286,95 @@ export function TranscriptionPanel({
                         </div>
                     ) : activeTranscript?.text ? (
                         <div className="space-y-4">
-                            {transcriptList.length > 1 && (
-                                <div className="flex items-center gap-2 border-b pb-2">
-                                    {transcriptList.map((t) => (
-                                        <button
-                                            key={t.source}
-                                            type="button"
-                                            onClick={() =>
-                                                setActiveSource(t.source)
+                            <button
+                                type="button"
+                                aria-expanded={transcriptExpanded}
+                                onClick={() =>
+                                    setTranscriptExpanded(!transcriptExpanded)
+                                }
+                                className="flex items-center gap-1 text-sm font-medium transition-colors hover:text-primary"
+                            >
+                                {transcriptExpanded ? (
+                                    <ChevronUp className="size-4" />
+                                ) : (
+                                    <ChevronDown className="size-4" />
+                                )}
+                                {transcriptExpanded
+                                    ? "Collapse transcript"
+                                    : "Expand transcript"}
+                            </button>
+                            {transcriptExpanded && (
+                                <div className="space-y-4">
+                                    {transcriptList.length > 1 && (
+                                        <div className="flex items-center gap-2 border-b pb-2">
+                                            {transcriptList.map((t) => (
+                                                <button
+                                                    key={t.source}
+                                                    type="button"
+                                                    onClick={() =>
+                                                        setActiveSource(
+                                                            t.source,
+                                                        )
+                                                    }
+                                                    className={`px-3 py-1 text-xs rounded-md transition-colors ${
+                                                        t.source ===
+                                                        activeTranscript.source
+                                                            ? "bg-primary text-primary-foreground"
+                                                            : "bg-muted text-muted-foreground hover:text-foreground"
+                                                    }`}
+                                                >
+                                                    {transcriptSourceLabel(
+                                                        t.source,
+                                                    )}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <section
+                                        aria-label="Transcript content"
+                                        className="max-h-96 overflow-y-auto rounded-lg bg-muted p-4"
+                                    >
+                                        <TranscriptView
+                                            text={activeTranscript.text}
+                                            source={activeTranscript.source}
+                                            model={activeTranscript.model}
+                                            storedTurns={activeTranscript.turns}
+                                            speakerAttributions={
+                                                speakerAttributions
                                             }
-                                            className={`px-3 py-1 text-xs rounded-md transition-colors ${
-                                                t.source ===
-                                                activeTranscript.source
-                                                    ? "bg-primary text-primary-foreground"
-                                                    : "bg-muted text-muted-foreground hover:text-foreground"
-                                            }`}
-                                        >
-                                            {transcriptSourceLabel(t.source)}
-                                        </button>
-                                    ))}
+                                            onSeekToTurn={onSeekToTurn}
+                                        />
+                                    </section>
+                                    <div className="flex items-center gap-4 border-t pt-2 text-xs text-muted-foreground">
+                                        <span className="rounded bg-muted px-2 py-0.5 font-medium">
+                                            {transcriptSourceLabel(
+                                                activeTranscript.source,
+                                            )}
+                                        </span>
+                                        {activeTranscript.language && (
+                                            <div className="flex items-center gap-1">
+                                                <Languages className="size-3" />
+                                                <span>
+                                                    Language:{" "}
+                                                    {activeTranscript.language}
+                                                </span>
+                                            </div>
+                                        )}
+                                        <div>
+                                            {activeTranscript.text.trim()
+                                                ? activeTranscript.text
+                                                      .trim()
+                                                      .split(/\s+/).length
+                                                : 0}{" "}
+                                            words
+                                        </div>
+                                        <div>
+                                            {activeTranscript.text.length}{" "}
+                                            characters
+                                        </div>
+                                    </div>
                                 </div>
                             )}
-                            <div className="bg-muted rounded-lg p-4 max-h-96 overflow-y-auto">
-                                <TranscriptView
-                                    text={activeTranscript.text}
-                                    source={activeTranscript.source}
-                                    model={activeTranscript.model}
-                                    storedTurns={activeTranscript.turns}
-                                    speakerAttributions={speakerAttributions}
-                                    onSeekToTurn={onSeekToTurn}
-                                />
-                            </div>
-                            <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t">
-                                <span className="px-2 py-0.5 rounded bg-muted font-medium">
-                                    {transcriptSourceLabel(
-                                        activeTranscript.source,
-                                    )}
-                                </span>
-                                {activeTranscript.language && (
-                                    <div className="flex items-center gap-1">
-                                        <Languages className="size-3" />
-                                        <span>
-                                            Language:{" "}
-                                            {activeTranscript.language}
-                                        </span>
-                                    </div>
-                                )}
-                                <div>
-                                    {activeTranscript.text.trim()
-                                        ? activeTranscript.text
-                                              .trim()
-                                              .split(/\s+/).length
-                                        : 0}{" "}
-                                    words
-                                </div>
-                                <div>
-                                    {activeTranscript.text.length} characters
-                                </div>
-                            </div>
                         </div>
                     ) : (
                         <div className="flex flex-col items-center justify-center py-10 text-center">
@@ -437,6 +469,7 @@ export function TranscriptionPanel({
                             <div className="space-y-4">
                                 <button
                                     type="button"
+                                    aria-expanded={summaryExpanded}
                                     onClick={() =>
                                         setSummaryExpanded(!summaryExpanded)
                                     }
@@ -448,12 +481,15 @@ export function TranscriptionPanel({
                                         <ChevronDown className="size-4" />
                                     )}
                                     {summaryExpanded
-                                        ? "Collapse"
+                                        ? "Collapse summary"
                                         : "Expand summary"}
                                 </button>
 
                                 {summaryExpanded && (
-                                    <div className="space-y-4">
+                                    <section
+                                        aria-label="Summary content"
+                                        className="max-h-96 space-y-4 overflow-y-auto pr-2"
+                                    >
                                         {/* Summary text */}
                                         <div className="bg-muted rounded-lg p-4 text-sm">
                                             <Markdown
@@ -579,7 +615,7 @@ export function TranscriptionPanel({
                                                 Delete
                                             </Button>
                                         </div>
-                                    </div>
+                                    </section>
                                 )}
                             </div>
                         ) : (

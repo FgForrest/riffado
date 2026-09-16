@@ -61,21 +61,26 @@ export function SpeakerTags({
     speakers,
     onAttributionsChange,
 }: SpeakerTagsProps) {
-    const [attributions, setAttributions] = useState<SpeakerAttributions>({});
+    const attributionKey = `${recordingId}:${source}`;
+    const [attributionState, setAttributionState] = useState<{
+        key: string;
+        values: SpeakerAttributions;
+    }>({ key: "", values: {} });
+    const attributions =
+        attributionState.key === attributionKey ? attributionState.values : {};
     const [openLabel, setOpenLabel] = useState<string | null>(null);
     const [savingLabel, setSavingLabel] = useState<string | null>(null);
 
     const applyAttributions = useCallback(
         (next: SpeakerAttributions) => {
-            setAttributions(next);
+            setAttributionState({ key: attributionKey, values: next });
             onAttributionsChange(next);
         },
-        [onAttributionsChange],
+        [attributionKey, onAttributionsChange],
     );
 
     useEffect(() => {
         let cancelled = false;
-        applyAttributions({});
         setOpenLabel(null);
 
         void fetch(

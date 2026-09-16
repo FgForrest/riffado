@@ -42,7 +42,11 @@ function handlerContext() {
         userId: "user-1",
         attempt: 1,
         maxAttempts: TRANSCRIPTION_MAX_ATTEMPTS,
-        payload: { recordingId: "recording-1", trigger: "upload" as const },
+        payload: {
+            recordingId: "recording-1",
+            trigger: "upload" as const,
+            force: false,
+        },
         signal: new AbortController().signal,
         reportProgress: vi.fn(),
     };
@@ -86,6 +90,7 @@ describe("automatic upload transcription", () => {
                 payload: {
                     recordingId: "recording-1",
                     trigger: "upload",
+                    force: false,
                 },
             }),
         );
@@ -95,6 +100,7 @@ describe("automatic upload transcription", () => {
         await enqueueTranscriptionJob({
             userId: "user-1",
             recordingId: "recording-1",
+            trigger: "upload",
         });
 
         expect(mocks.enqueueJob).toHaveBeenCalledWith(
@@ -109,16 +115,37 @@ describe("automatic upload transcription", () => {
                 recordingId: "recording-1",
                 trigger: "upload",
             }),
-        ).toEqual({ recordingId: "recording-1", trigger: "upload" });
+        ).toEqual({
+            recordingId: "recording-1",
+            trigger: "upload",
+            providerId: undefined,
+            model: undefined,
+            force: false,
+        });
         expect(() => parseTranscriptionJobPayload({})).toThrow(
             InvalidJobPayloadError,
         );
-        expect(() =>
+        expect(
             parseTranscriptionJobPayload({
                 recordingId: "recording-1",
                 trigger: "sync",
             }),
-        ).toThrow(InvalidJobPayloadError);
+        ).toMatchObject({ trigger: "sync", force: false });
+        expect(
+            parseTranscriptionJobPayload({
+                recordingId: "recording-1",
+                trigger: "manual",
+                providerId: "provider-1",
+                model: "whisper-large-v3",
+                force: true,
+            }),
+        ).toEqual({
+            recordingId: "recording-1",
+            trigger: "manual",
+            providerId: "provider-1",
+            model: "whisper-large-v3",
+            force: true,
+        });
     });
 
     it("transcribes in the background with upload attribution", async () => {
@@ -133,7 +160,12 @@ describe("automatic upload transcription", () => {
         expect(mocks.transcribeRecording).toHaveBeenCalledWith(
             "user-1",
             "recording-1",
-            { trigger: "upload" },
+            {
+                trigger: "upload",
+                providerId: undefined,
+                model: undefined,
+                force: false,
+            },
         );
     });
 
