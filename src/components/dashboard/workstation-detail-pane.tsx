@@ -50,9 +50,9 @@ interface Props {
 }
 
 /**
- * Right-hand detail pane: player + transcription. On lg+ this is a
- * sticky column next to the recording list; on <lg the list and
- * detail toggle via `mobileView` -- both stay mounted so scroll
+ * Right-hand detail pane: player + transcription. On lg+ this is a column
+ * next to the recording list and shares the page scrollbar; on <lg the list
+ * and detail toggle via `mobileView` -- both stay mounted so list scroll
  * position / search query / selection survive a back-navigation.
  *
  * Auto-advance on player ended (when `autoPlayNext` is on) moves to
@@ -83,7 +83,7 @@ export function WorkstationDetailPane({
     return (
         <div
             className={cn(
-                "space-y-6 lg:sticky lg:top-[4.5rem] lg:col-span-2 lg:block lg:max-h-[calc(100vh-5rem)] lg:self-start lg:overflow-y-auto lg:pr-1",
+                "space-y-6 lg:col-span-2 lg:block lg:self-start",
                 hiddenOnMobile && "hidden",
             )}
         >
