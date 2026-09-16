@@ -182,8 +182,7 @@ export function EraseRecordingMenu({
                 <DropdownMenuTrigger asChild>
                     <Button
                         variant="outline"
-                        size="sm"
-                        className="gap-1.5 text-muted-foreground hover:text-destructive"
+                        className="h-11 gap-2.5 rounded-lg px-4 text-muted-foreground hover:text-destructive"
                         disabled={working}
                         aria-label="Erase recording artifacts"
                     >
@@ -193,7 +192,7 @@ export function EraseRecordingMenu({
                             <Trash2 className="size-4" />
                         )}
                         <span className="hidden sm:inline">Erase</span>
-                        <ChevronDown className="hidden size-3.5 sm:block" />
+                        <ChevronDown className="hidden size-4 sm:block" />
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64">

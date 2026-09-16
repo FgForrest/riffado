@@ -103,6 +103,23 @@ describe("independent transcript and summary pipelines", () => {
         );
         expect(summaryOptions.at(-1)?.summarySource).toBe("plaud");
 
+        const transcriptSource = screen.getByRole("group", {
+            name: "Transcript source",
+        });
+        const summarySource = screen.getByRole("group", {
+            name: "Summary source",
+        });
+        expect(transcriptSource.className).toBe(summarySource.className);
+        expect(
+            transcriptSource.querySelector<HTMLButtonElement>(
+                'button[aria-pressed="true"]',
+            )?.className,
+        ).toBe(
+            summarySource.querySelector<HTMLButtonElement>(
+                'button[aria-pressed="true"]',
+            )?.className,
+        );
+
         const customButtons = screen.getAllByRole("button", {
             name: "Custom",
         });

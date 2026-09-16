@@ -1,6 +1,7 @@
 "use client";
 
 import { Pause, Play, Volume2, VolumeX } from "lucide-react";
+import type { ReactNode } from "react";
 import { Waveform } from "@/components/dashboard/waveform";
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -20,6 +21,7 @@ interface Props {
     onToggleMute: () => void;
     scrubberStyle: "waveform" | "slider";
     waveformPeaks: number[] | null;
+    trailingAction?: ReactNode;
 }
 
 /**
@@ -43,6 +45,7 @@ export function RecordingPlayerControls({
     onToggleMute,
     scrubberStyle,
     waveformPeaks,
+    trailingAction,
 }: Props) {
     const seekDisabled = !duration || duration === 0;
     const seekRatio = duration > 0 ? currentTime / duration : 0;
@@ -59,7 +62,7 @@ export function RecordingPlayerControls({
         );
 
     return (
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-3 sm:flex-nowrap sm:gap-4">
             <Button
                 onClick={onTogglePlay}
                 size="lg"
@@ -95,7 +98,7 @@ export function RecordingPlayerControls({
               Waveform takes whatever's left, with min-w-0 so flex
               doesn't expand the parent when bars are dense.
             */}
-            <div className="min-w-0 flex-1">
+            <div className="order-last min-w-0 basis-full sm:order-none sm:basis-auto sm:flex-1">
                 {scrubberStyle === "waveform" && waveformPeaks ? (
                     <Waveform
                         peaks={waveformPeaks}
@@ -151,6 +154,8 @@ export function RecordingPlayerControls({
                     aria-label="Volume"
                 />
             </div>
+
+            {trailingAction}
         </div>
     );
 }

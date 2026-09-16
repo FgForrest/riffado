@@ -8,14 +8,13 @@ import {
     RecordingPlayer,
     type RecordingPlayerHandle,
 } from "@/components/dashboard/recording-player";
+import { RecordingPlayerHeader } from "@/components/dashboard/recording-player-header";
 import {
     TranscriptionPanel,
     type TranscriptOption,
 } from "@/components/dashboard/transcription-panel";
 import { LocalTime } from "@/components/local-time";
-import { DownloadAudioButton } from "@/components/recordings/download-audio-button";
 import { EraseRecordingMenu } from "@/components/recordings/erase-recording-menu";
-import { RecordingTitle } from "@/components/recordings/recording-title";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTranscribeQueue } from "@/hooks/use-transcribe-queue";
@@ -109,50 +108,41 @@ export function RecordingWorkstation({
 
     return (
         <div className="bg-background">
-            <div className="container mx-auto px-4 py-6 max-w-4xl">
-                {/* Header */}
-                <div className="flex items-center gap-4 mb-6">
+            <div className="container mx-auto max-w-6xl px-4 py-6">
+                <div className="mb-4">
                     <Button
                         onClick={() => push("/dashboard")}
-                        variant="outline"
-                        size="icon"
+                        variant="ghost"
+                        size="sm"
+                        className="-ml-2 gap-1.5 text-muted-foreground"
                     >
                         <ArrowLeft className="size-4" />
+                        Back to recordings
                     </Button>
-                    <div className="flex-1 min-w-0">
-                        <h1 className="min-w-0">
-                            <RecordingTitle
-                                recordingId={recording.id}
-                                filename={filename}
-                                onRenamed={handleRenamed}
-                                className="text-3xl font-semibold"
-                            />
-                        </h1>
-                        <p className="text-muted-foreground text-sm mt-1">
-                            <LocalTime value={recording.startTime} />
-                        </p>
-                    </div>
-                    {!recording.audioReaped && (
-                        <DownloadAudioButton recordingId={recording.id} />
-                    )}
-                    <EraseRecordingMenu
-                        recording={displayRecording}
-                        onDeleteLocal={handleDelete}
-                        onChanged={refresh}
-                    />
                 </div>
 
-                {/* Content */}
                 <div className="space-y-6">
-                    <RecordingPlayer
-                        ref={playerRef}
+                    <RecordingPlayerHeader
                         recording={displayRecording}
-                        initialPlaybackSpeed={initialPlaybackSpeed}
-                        initialVolume={initialVolume}
-                        initialAutoPlayNext={initialAutoPlayNext}
-                        scrubberStyle={scrubberStyle}
                         onRenamed={handleRenamed}
+                        action={
+                            <EraseRecordingMenu
+                                recording={displayRecording}
+                                onDeleteLocal={handleDelete}
+                                onChanged={refresh}
+                            />
+                        }
                     />
+                    {!displayRecording.audioReaped && (
+                        <RecordingPlayer
+                            ref={playerRef}
+                            recording={displayRecording}
+                            initialPlaybackSpeed={initialPlaybackSpeed}
+                            initialVolume={initialVolume}
+                            initialAutoPlayNext={initialAutoPlayNext}
+                            scrubberStyle={scrubberStyle}
+                        />
+                    )}
                     <TranscriptionPanel
                         recording={displayRecording}
                         transcription={transcription}

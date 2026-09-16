@@ -6,6 +6,7 @@ import {
     RecordingPlayer,
     type RecordingPlayerHandle,
 } from "@/components/dashboard/recording-player";
+import { RecordingPlayerHeader } from "@/components/dashboard/recording-player-header";
 import {
     TranscriptionPanel,
     type TranscriptOption,
@@ -103,14 +104,18 @@ export function WorkstationDetailPane({
             </Button>
             {currentRecording ? (
                 <>
-                    <div className="relative">
-                        <div className="absolute right-12 top-4 z-10">
+                    <RecordingPlayerHeader
+                        recording={currentRecording}
+                        onRenamed={onRenamed}
+                        action={
                             <EraseRecordingMenu
                                 recording={currentRecording}
                                 onDeleteLocal={onDelete}
                                 onChanged={onArtifactsChanged}
                             />
-                        </div>
+                        }
+                    />
+                    {!currentRecording.audioReaped && (
                         <RecordingPlayer
                             ref={playerRef}
                             recording={currentRecording}
@@ -118,7 +123,6 @@ export function WorkstationDetailPane({
                             initialVolume={initialVolume}
                             initialAutoPlayNext={initialAutoPlayNext}
                             scrubberStyle={scrubberStyle}
-                            onRenamed={onRenamed}
                             onEnded={() => {
                                 const currentIndex =
                                     visibleRecordings.findIndex(
@@ -134,7 +138,7 @@ export function WorkstationDetailPane({
                                 }
                             }}
                         />
-                    </div>
+                    )}
                     <TranscriptionPanel
                         recording={currentRecording}
                         transcription={currentTranscription}
