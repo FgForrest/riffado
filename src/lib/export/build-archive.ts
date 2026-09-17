@@ -538,6 +538,7 @@ interface ArchivedFolderOrganization {
         parentId: string | null;
         name: string;
         kind: string;
+        sortOrder: number;
         createdAt: string;
     }[];
     assignments: { recordingId: string; folderId: string }[];
@@ -554,6 +555,7 @@ async function collectFolderOrganization(
                 parentId: recordingFolders.parentId,
                 name: recordingFolders.name,
                 kind: recordingFolders.kind,
+                sortOrder: recordingFolders.sortOrder,
                 createdAt: recordingFolders.createdAt,
             })
             .from(recordingFolders)
@@ -573,6 +575,7 @@ async function collectFolderOrganization(
             parentId: row.parentId,
             name: decryptText(row.name),
             kind: row.kind,
+            sortOrder: row.sortOrder,
             createdAt: row.createdAt.toISOString(),
         })),
         assignments: assignmentRows.filter((row) =>

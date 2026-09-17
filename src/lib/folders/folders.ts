@@ -16,10 +16,16 @@ import type {
 
 export const MAX_FOLDER_NAME_LENGTH = 100;
 
-const ROOTS: ReadonlyArray<{ kind: "private" | "public"; name: string }> = [
-    { kind: "private", name: "Private" },
-    { kind: "public", name: "Public" },
+const ROOTS: ReadonlyArray<{
+    kind: "private" | "public";
+    name: string;
+    sortOrder: number;
+}> = [
+    { kind: "private", name: "Private", sortOrder: 0 },
+    { kind: "public", name: "Public", sortOrder: 1000 },
 ];
+
+const FOLDER_ORDER_STEP = 1000;
 
 function normalizeName(value: string): string {
     const name = value.trim().replace(/\s+/g, " ");
@@ -47,12 +53,14 @@ function serializeFolder(row: {
     parentId: string | null;
     name: string;
     kind: FolderKind;
+    sortOrder: number;
 }): RecordingFolder {
     return {
         id: row.id,
         parentId: row.parentId,
         name: decryptText(row.name),
         kind: row.kind,
+        sortOrder: row.sortOrder,
     };
 }
 
@@ -66,6 +74,7 @@ export async function ensureRootFolders(userId: string): Promise<void> {
                 name: encryptText(root.name),
                 nameHash: lookupHash(root.name),
                 kind: root.kind,
+                sortOrder: root.sortOrder,
             })),
         )
         .onConflictDoNothing();
@@ -82,6 +91,7 @@ export async function listFolderOrganization(
                 parentId: recordingFolders.parentId,
                 name: recordingFolders.name,
                 kind: recordingFolders.kind,
+                sortOrder: recordingFolders.sortOrder,
             })
             .from(recordingFolders)
             .where(eq(recordingFolders.userId, userId)),
@@ -120,6 +130,21 @@ export async function createFolder(input: {
         throw new AppError(ErrorCode.NOT_FOUND, "Parent folder not found", 404);
     }
 
+    const siblings = await db
+        .select({ sortOrder: recordingFolders.sortOrder })
+        .from(recordingFolders)
+        .where(
+            and(
+                eq(recordingFolders.userId, input.userId),
+                eq(recordingFolders.parentId, parent.id),
+            ),
+        );
+    const sortOrder =
+        siblings.reduce(
+            (highest, sibling) => Math.max(highest, sibling.sortOrder),
+            -FOLDER_ORDER_STEP,
+        ) + FOLDER_ORDER_STEP;
+
     const [created] = await db
         .insert(recordingFolders)
         .values({
@@ -128,12 +153,14 @@ export async function createFolder(input: {
             name: encryptText(name),
             nameHash: lookupHash(name),
             kind: "custom",
+            sortOrder,
         })
         .returning({
             id: recordingFolders.id,
             parentId: recordingFolders.parentId,
             name: recordingFolders.name,
             kind: recordingFolders.kind,
+            sortOrder: recordingFolders.sortOrder,
         });
     if (!created) {
         throw new AppError(
@@ -170,6 +197,7 @@ export async function renameFolder(input: {
             parentId: recordingFolders.parentId,
             name: recordingFolders.name,
             kind: recordingFolders.kind,
+            sortOrder: recordingFolders.sortOrder,
         });
     if (!updated) {
         throw new AppError(ErrorCode.NOT_FOUND, "Folder not found", 404);
@@ -181,6 +209,7 @@ export async function moveFolder(input: {
     userId: string;
     folderId: string;
     parentId: string;
+    beforeId?: string | null;
 }): Promise<RecordingFolder> {
     return db.transaction(
         async (tx) => {
@@ -190,6 +219,7 @@ export async function moveFolder(input: {
                     parentId: recordingFolders.parentId,
                     name: recordingFolders.name,
                     kind: recordingFolders.kind,
+                    sortOrder: recordingFolders.sortOrder,
                 })
                 .from(recordingFolders)
                 .where(eq(recordingFolders.userId, input.userId));
@@ -225,30 +255,69 @@ export async function moveFolder(input: {
                     : undefined;
             }
 
-            const [updated] = await tx
-                .update(recordingFolders)
-                .set({ parentId: parent.id, updatedAt: new Date() })
-                .where(
-                    and(
-                        eq(recordingFolders.id, folder.id),
-                        eq(recordingFolders.userId, input.userId),
-                        eq(recordingFolders.kind, "custom"),
-                    ),
+            const siblings = folders
+                .filter(
+                    (item) =>
+                        item.parentId === parent.id && item.id !== folder.id,
                 )
-                .returning({
-                    id: recordingFolders.id,
-                    parentId: recordingFolders.parentId,
-                    name: recordingFolders.name,
-                    kind: recordingFolders.kind,
-                });
-            if (!updated) {
+                .sort(
+                    (left, right) =>
+                        left.sortOrder - right.sortOrder ||
+                        decryptText(left.name).localeCompare(
+                            decryptText(right.name),
+                        ),
+                );
+            let insertionIndex = siblings.length;
+            if (input.beforeId != null) {
+                insertionIndex = siblings.findIndex(
+                    (item) => item.id === input.beforeId,
+                );
+                if (insertionIndex < 0) {
+                    throw new AppError(
+                        ErrorCode.INVALID_INPUT,
+                        "The requested folder position is invalid",
+                        400,
+                    );
+                }
+            }
+            siblings.splice(insertionIndex, 0, {
+                ...folder,
+                parentId: parent.id,
+            });
+
+            for (const [index, sibling] of siblings.entries()) {
+                await tx
+                    .update(recordingFolders)
+                    .set({
+                        parentId: parent.id,
+                        sortOrder: index * FOLDER_ORDER_STEP,
+                        ...(sibling.id === folder.id
+                            ? { updatedAt: new Date() }
+                            : {}),
+                    })
+                    .where(
+                        and(
+                            eq(recordingFolders.id, sibling.id),
+                            eq(recordingFolders.userId, input.userId),
+                        ),
+                    );
+            }
+
+            const movedIndex = siblings.findIndex(
+                (sibling) => sibling.id === folder.id,
+            );
+            if (movedIndex < 0) {
                 throw new AppError(
-                    ErrorCode.NOT_FOUND,
-                    "Folder not found",
-                    404,
+                    ErrorCode.INTERNAL_ERROR,
+                    "Folder position could not be saved",
+                    500,
                 );
             }
-            return serializeFolder(updated);
+            return serializeFolder({
+                ...folder,
+                parentId: parent.id,
+                sortOrder: movedIndex * FOLDER_ORDER_STEP,
+            });
         },
         { isolationLevel: "serializable" },
     );

@@ -372,6 +372,7 @@ export const recordingFolders = pgTable(
             .$type<"private" | "public" | "custom">()
             .notNull()
             .default("custom"),
+        sortOrder: integer("sort_order").notNull().default(0),
         createdAt: timestamp("created_at").notNull().defaultNow(),
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },

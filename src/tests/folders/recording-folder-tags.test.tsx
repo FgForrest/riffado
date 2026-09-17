@@ -10,6 +10,7 @@ const folder: RecordingFolder = {
     parentId: "private",
     name: "Meetings",
     kind: "custom",
+    sortOrder: 0,
 };
 
 describe("recording folder tags", () => {
@@ -48,6 +49,7 @@ describe("recording folder tags", () => {
                         parentId: null,
                         name: "Private",
                         kind: "private",
+                        sortOrder: 0,
                     },
                 ]}
                 assignments={[]}

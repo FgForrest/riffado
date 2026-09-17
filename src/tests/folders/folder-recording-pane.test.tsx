@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfirmDialogProvider } from "@/components/confirm-dialog";
 import { FolderRecordingPane } from "@/components/dashboard/folder-recording-pane";
@@ -12,18 +12,21 @@ const privateRoot: RecordingFolder = {
     parentId: null,
     name: "Private",
     kind: "private",
+    sortOrder: 0,
 };
 const meetings: RecordingFolder = {
     id: "meetings",
     parentId: "private",
     name: "Meetings",
     kind: "custom",
+    sortOrder: 0,
 };
 const planning: RecordingFolder = {
     id: "planning",
     parentId: "meetings",
     name: "Planning",
     kind: "custom",
+    sortOrder: 0,
 };
 const recordings: Recording[] = [
     {
@@ -92,5 +95,36 @@ describe("folder recording pane", () => {
                 }) as HTMLButtonElement
             ).disabled,
         ).toBe(true);
+    });
+
+    it("sorts the recording table by every displayed column", () => {
+        renderPane(privateRoot);
+
+        expect(
+            screen.getByRole("button", { name: "Sort by Title" }),
+        ).toBeTruthy();
+        expect(
+            screen.getByRole("button", {
+                name: "Sort by Date, descending",
+            }),
+        ).toBeTruthy();
+        expect(
+            screen.getByRole("button", { name: "Sort by Duration" }),
+        ).toBeTruthy();
+        expect(
+            screen.getByRole("button", { name: "Sort by Size" }),
+        ).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: "Sort by Title" }));
+        fireEvent.click(
+            screen.getByRole("button", {
+                name: "Sort by Title, ascending",
+            }),
+        );
+        const rows = screen.getAllByRole("button", { name: /^Open / });
+        expect(rows.map((row) => row.getAttribute("aria-label"))).toEqual([
+            "Open Direct meeting",
+            "Open Child meeting",
+        ]);
     });
 });
