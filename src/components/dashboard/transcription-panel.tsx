@@ -191,6 +191,9 @@ export function TranscriptionPanel({
     const activeTranscript =
         transcriptList.find((t) => t.source === activeSource) ??
         transcriptList[0];
+    const canHavePlaudSummary =
+        recording.deviceSn !== "local" ||
+        transcriptList.some((candidate) => candidate.source === "plaud");
     const speakerTags = useMemo(
         () => transcriptSpeakerTags(activeTranscript),
         [activeTranscript],
@@ -509,20 +512,22 @@ export function TranscriptionPanel({
                                 Summary
                             </CardTitle>
                             <div className="flex flex-wrap items-center gap-2">
-                                <SourceSwitcher
-                                    ariaLabel="Summary source"
-                                    sources={["plaud", "riffado"]}
-                                    value={summarySource}
-                                    onSelect={(source) =>
-                                        setSummarySelection({
-                                            recordingId: recording.id,
-                                            source:
-                                                source === "plaud"
-                                                    ? "plaud"
-                                                    : "riffado",
-                                        })
-                                    }
-                                />
+                                {canHavePlaudSummary && (
+                                    <SourceSwitcher
+                                        ariaLabel="Summary source"
+                                        sources={["plaud", "riffado"]}
+                                        value={summarySource}
+                                        onSelect={(source) =>
+                                            setSummarySelection({
+                                                recordingId: recording.id,
+                                                source:
+                                                    source === "plaud"
+                                                        ? "plaud"
+                                                        : "riffado",
+                                            })
+                                        }
+                                    />
+                                )}
                                 {summaryData?.summary && (
                                     <MarkdownActions
                                         recordingId={recording.id}

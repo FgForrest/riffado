@@ -136,4 +136,63 @@ describe("independent transcript and summary pipelines", () => {
         );
         expect(summaryOptions.at(-1)?.summarySource).toBe("riffado");
     });
+
+    it("hides the summary source switch for an uploaded recording", () => {
+        render(
+            <TranscriptionPanel
+                recording={{
+                    id: "rec-uploaded",
+                    filename: "Uploaded.ogg",
+                    duration: 60_000,
+                    filesize: 1024,
+                    startTime: new Date(0).toISOString(),
+                    deviceSn: "local",
+                }}
+                transcripts={[
+                    {
+                        source: "riffado",
+                        text: "Custom text",
+                        provider: "openai",
+                        model: "whisper-1",
+                    },
+                ]}
+                isTranscribing={false}
+                onTranscribe={vi.fn()}
+            />,
+        );
+
+        expect(
+            screen.queryByRole("group", { name: "Summary source" }),
+        ).toBeNull();
+        expect(summaryOptions.at(-1)?.summarySource).toBe("riffado");
+    });
+
+    it("keeps the summary source switch for Plaud recordings awaiting import", () => {
+        render(
+            <TranscriptionPanel
+                recording={{
+                    id: "rec-plaud",
+                    filename: "Meeting.ogg",
+                    duration: 60_000,
+                    filesize: 1024,
+                    startTime: new Date(0).toISOString(),
+                    deviceSn: "SN-1",
+                }}
+                transcripts={[
+                    {
+                        source: "riffado",
+                        text: "Custom text",
+                        provider: "openai",
+                        model: "whisper-1",
+                    },
+                ]}
+                isTranscribing={false}
+                onTranscribe={vi.fn()}
+            />,
+        );
+
+        expect(
+            screen.getByRole("group", { name: "Summary source" }),
+        ).toBeTruthy();
+    });
 });
