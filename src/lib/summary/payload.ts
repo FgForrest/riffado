@@ -22,6 +22,20 @@ export interface SummaryPayload {
     structured: boolean;
 }
 
+export interface SummaryParseResult {
+    payload: SummaryPayload;
+    /** Safe to send back to the provider or write to logs; contains no reply content. */
+    failure: string | null;
+}
+
+function jsonFailure(error: unknown): string {
+    const message = error instanceof Error ? error.message : "";
+    const location =
+        message.match(/at position \d+(?: \(line \d+ column \d+\))?/i)?.[0] ??
+        message.match(/line \d+ column \d+/i)?.[0];
+    return location ? `JSON.parse failed ${location}.` : "JSON.parse failed.";
+}
+
 /**
  * Coerce a parsed `keyPoints` / `actionItems` value into the `string[]` that
  * the column type, the API response and the render path all assume.
@@ -62,7 +76,9 @@ export function toStringList(value: unknown): string[] {
  * raw text as the summary, which is what the single-pass path has always shown
  * rather than failing the request outright.
  */
-export function parseSummaryPayload(rawContent: string): SummaryPayload {
+export function parseSummaryPayloadResult(
+    rawContent: string,
+): SummaryParseResult {
     const raw = rawContent.trim();
     try {
         // Models fence their JSON despite being told not to, often enough
@@ -76,10 +92,13 @@ export function parseSummaryPayload(rawContent: string): SummaryPayload {
             // Valid JSON, but a scalar -- `"hello"` parses fine and would
             // otherwise yield a payload with no fields and no raw text.
             return {
-                summary: raw,
-                keyPoints: [],
-                actionItems: [],
-                structured: false,
+                payload: {
+                    summary: raw,
+                    keyPoints: [],
+                    actionItems: [],
+                    structured: false,
+                },
+                failure: "JSON.parse returned a non-object top-level value.",
             };
         }
         // A parsed object with no usable `summary` key still counts as
@@ -87,20 +106,31 @@ export function parseSummaryPayload(rawContent: string): SummaryPayload {
         // and those lists are worth keeping. The raw text stands in for the
         // prose so the recording is never left with a blank summary.
         return {
-            summary:
-                typeof parsed.summary === "string" && parsed.summary.trim()
-                    ? parsed.summary
-                    : raw,
-            keyPoints: toStringList(parsed.keyPoints),
-            actionItems: toStringList(parsed.actionItems),
-            structured: true,
+            payload: {
+                summary:
+                    typeof parsed.summary === "string" && parsed.summary.trim()
+                        ? parsed.summary
+                        : raw,
+                keyPoints: toStringList(parsed.keyPoints),
+                actionItems: toStringList(parsed.actionItems),
+                structured: true,
+            },
+            failure: null,
         };
-    } catch {
+    } catch (error) {
         return {
-            summary: raw,
-            keyPoints: [],
-            actionItems: [],
-            structured: false,
+            payload: {
+                summary: raw,
+                keyPoints: [],
+                actionItems: [],
+                structured: false,
+            },
+            failure: jsonFailure(error),
         };
     }
+}
+
+/** Parse a model reply while preserving the existing payload-only API. */
+export function parseSummaryPayload(rawContent: string): SummaryPayload {
+    return parseSummaryPayloadResult(rawContent).payload;
 }
