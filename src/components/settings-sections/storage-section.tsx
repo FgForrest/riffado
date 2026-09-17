@@ -19,21 +19,73 @@ interface StorageSectionProps {
 
 const RETENTION_KINDS = [
     {
-        key: "audio",
-        label: "Audio",
-        hint: "The recording itself. Almost all of the disk space, and it cannot be re-transcribed once gone.",
+        key: "remoteOriginal",
+        setting: "retentionRemoteOriginalDays",
+        label: "Remote original",
+        hint: "Moves the original to the connected recorder service's Trash, but only after it has been downloaded locally.",
     },
     {
-        key: "transcript",
-        label: "Transcript",
-        hint: "Deleted from the database. Can be regenerated later only if the audio is kept.",
+        key: "localAudio",
+        setting: "retentionLocalAudioDays",
+        label: "Local audio",
+        hint: "Riffado's stored audio copy. It cannot be re-transcribed once both local and remote copies are gone.",
     },
     {
-        key: "summary",
-        label: "Summary",
+        key: "localTranscript",
+        setting: "retentionLocalTranscriptDays",
+        label: "Local transcript",
+        hint: "Deleted from Riffado's database. It can be regenerated if audio is still available.",
+    },
+    {
+        key: "localSummary",
+        setting: "retentionLocalSummaryDays",
+        label: "Local summary",
         hint: "Summary, key points and action items.",
     },
 ] as const;
+
+type RetentionKey = (typeof RETENTION_KINDS)[number]["key"];
+type RetentionSetting = (typeof RETENTION_KINDS)[number]["setting"];
+type RetentionPolicyState = Record<
+    RetentionKey,
+    { enabled: boolean; days: number }
+>;
+
+const DEFAULT_RETENTION_POLICY: RetentionPolicyState = {
+    remoteOriginal: { enabled: false, days: 30 },
+    localAudio: { enabled: false, days: 30 },
+    localTranscript: { enabled: false, days: 30 },
+    localSummary: { enabled: false, days: 30 },
+};
+
+function readRetentionPolicy(
+    settings: Record<string, unknown>,
+): RetentionPolicyState {
+    const policy = structuredClone(DEFAULT_RETENTION_POLICY);
+    for (const item of RETENTION_KINDS) {
+        const value = settings[item.setting];
+        if (
+            typeof value === "number" &&
+            Number.isInteger(value) &&
+            value >= 1 &&
+            value <= 365
+        ) {
+            policy[item.key] = { enabled: true, days: value };
+        }
+    }
+    return policy;
+}
+
+function retentionPayload(
+    policy: RetentionPolicyState,
+): Record<RetentionSetting, number | null> {
+    return Object.fromEntries(
+        RETENTION_KINDS.map((item) => [
+            item.setting,
+            policy[item.key].enabled ? policy[item.key].days : null,
+        ]),
+    ) as Record<RetentionSetting, number | null>;
+}
 
 interface StorageUsage {
     storageType: string;
@@ -54,11 +106,12 @@ interface StorageUsage {
 export function StorageSection({ isHosted = false }: StorageSectionProps) {
     const { isLoadingSettings, isSavingSettings, setIsLoadingSettings } =
         useSettings();
-    const [autoDeleteRecordings, setAutoDeleteRecordings] = useState(false);
-    const [retentionDays, setRetentionDays] = useState<number | null>(null);
-    const [deleteAudio, setDeleteAudio] = useState(false);
-    const [deleteTranscript, setDeleteTranscript] = useState(false);
-    const [deleteSummary, setDeleteSummary] = useState(false);
+    const [retentionPolicy, setRetentionPolicy] = useState(
+        DEFAULT_RETENTION_POLICY,
+    );
+    const retentionPolicyRef = useRef(DEFAULT_RETENTION_POLICY);
+    const persistedRetentionPolicyRef = useRef(DEFAULT_RETENTION_POLICY);
+    const retentionSaveQueueRef = useRef<Promise<void>>(Promise.resolve());
     // How many recordings the current selection would reap right now.
     // `null` = not asked yet or nothing selected.
     const [reapPreview, setReapPreview] = useState<{ count: number } | null>(
@@ -71,10 +124,11 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
     // during the fetch — indistinguishable from a real empty account.
     const [isLoadingUsage, setIsLoadingUsage] = useState(true);
     const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
-    // Tracks a retention-days edit that was scheduled but not yet sent.
-    // Used to flush the pending save on unmount so closing the settings
-    // dialog inside the debounce window doesn't drop the user's edit.
-    const pendingRetentionRef = useRef<number | null | undefined>(undefined);
+    // Tracks a retention edit scheduled but not yet sent, so closing the
+    // settings dialog inside the debounce window does not drop it.
+    const pendingRetentionRef = useRef<RetentionPolicyState | undefined>(
+        undefined,
+    );
 
     useEffect(() => {
         const controller = new AbortController();
@@ -87,15 +141,15 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                 });
                 if (cancelled) return;
                 if (response.ok) {
-                    const data = await response.json();
+                    const data = (await response.json()) as Record<
+                        string,
+                        unknown
+                    >;
                     if (cancelled) return;
-                    setAutoDeleteRecordings(data.autoDeleteRecordings ?? false);
-                    setRetentionDays(data.retentionDays ?? null);
-                    setDeleteAudio(data.retentionDeleteAudio ?? false);
-                    setDeleteTranscript(
-                        data.retentionDeleteTranscript ?? false,
-                    );
-                    setDeleteSummary(data.retentionDeleteSummary ?? false);
+                    const policy = readRetentionPolicy(data);
+                    retentionPolicyRef.current = policy;
+                    persistedRetentionPolicyRef.current = policy;
+                    setRetentionPolicy(policy);
                 }
             } catch (error) {
                 if (cancelled) return;
@@ -163,11 +217,13 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                 // use handleStorageSettingChange here because it touches
                 // unmounted React state on rollback; we accept the trade-off
                 // of no error toast in this rare edge case.
-                void fetch("/api/settings/user", {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ retentionDays: pending }),
-                }).catch(() => {});
+                void retentionSaveQueueRef.current.finally(() =>
+                    fetch("/api/settings/user", {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(retentionPayload(pending)),
+                    }).catch(() => {}),
+                );
             }
         };
     }, []);
@@ -179,19 +235,21 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
     // form values rather than the saved ones, so the answer is about the
     // choice being made, not the one already in effect.
     useEffect(() => {
-        const anySelected = deleteAudio || deleteTranscript || deleteSummary;
-        if (!autoDeleteRecordings || !retentionDays || !anySelected) {
+        const payload = retentionPayload(retentionPolicy);
+        const anySelected = Object.values(payload).some(
+            (days) => days !== null,
+        );
+        if (!anySelected) {
             setReapPreview(null);
             return;
         }
 
         const controller = new AbortController();
-        const params = new URLSearchParams({
-            days: String(retentionDays),
-            audio: String(deleteAudio),
-            transcript: String(deleteTranscript),
-            summary: String(deleteSummary),
-        });
+        const params = new URLSearchParams();
+        for (const item of RETENTION_KINDS) {
+            const days = payload[item.setting];
+            if (days !== null) params.set(`${item.key}Days`, String(days));
+        }
 
         // Debounced on the same 500ms as the save below. The days field
         // updates state on every keystroke, so typing "365" would
@@ -216,13 +274,7 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
             clearTimeout(timer);
             controller.abort();
         };
-    }, [
-        autoDeleteRecordings,
-        retentionDays,
-        deleteAudio,
-        deleteTranscript,
-        deleteSummary,
-    ]);
+    }, [retentionPolicy]);
 
     const cancelPendingRetentionSave = () => {
         if (saveTimeoutRef.current) {
@@ -232,76 +284,67 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
         pendingRetentionRef.current = undefined;
     };
 
+    const persistRetentionPolicy = (
+        next: RetentionPolicyState,
+        previous?: RetentionPolicyState,
+    ): Promise<void> => {
+        const save = async () => {
+            try {
+                const response = await fetch("/api/settings/user", {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(retentionPayload(next)),
+                });
+                if (!response.ok) throw new Error("Failed to save settings");
+                persistedRetentionPolicyRef.current = next;
+            } catch {
+                if (previous && retentionPolicyRef.current === next) {
+                    const persisted = persistedRetentionPolicyRef.current;
+                    retentionPolicyRef.current = persisted;
+                    setRetentionPolicy(persisted);
+                    toast.error("Failed to save settings. Changes reverted.");
+                }
+            }
+        };
+        const queued = retentionSaveQueueRef.current.then(save, save);
+        retentionSaveQueueRef.current = queued;
+        return queued;
+    };
+
     const flushPendingRetentionSave = () => {
         const pending = pendingRetentionRef.current;
         cancelPendingRetentionSave();
         if (pending === undefined) return;
-        handleStorageSettingChange({ retentionDays: pending });
+        void persistRetentionPolicy(pending);
     };
 
-    const handleStorageSettingChange = async (updates: {
-        autoDeleteRecordings?: boolean;
-        retentionDays?: number | null;
-        retentionDeleteAudio?: boolean;
-        retentionDeleteTranscript?: boolean;
-        retentionDeleteSummary?: boolean;
-    }) => {
-        const previousValues: Record<string, unknown> = {};
-        if (updates.autoDeleteRecordings !== undefined) {
-            previousValues.autoDeleteRecordings = autoDeleteRecordings;
-            setAutoDeleteRecordings(updates.autoDeleteRecordings);
-        }
-        if (updates.retentionDays !== undefined) {
-            previousValues.retentionDays = retentionDays;
-            setRetentionDays(updates.retentionDays);
-        }
-        if (updates.retentionDeleteAudio !== undefined) {
-            previousValues.retentionDeleteAudio = deleteAudio;
-            setDeleteAudio(updates.retentionDeleteAudio);
-        }
-        if (updates.retentionDeleteTranscript !== undefined) {
-            previousValues.retentionDeleteTranscript = deleteTranscript;
-            setDeleteTranscript(updates.retentionDeleteTranscript);
-        }
-        if (updates.retentionDeleteSummary !== undefined) {
-            previousValues.retentionDeleteSummary = deleteSummary;
-            setDeleteSummary(updates.retentionDeleteSummary);
-        }
+    const setRetentionEnabled = (key: RetentionKey, enabled: boolean) => {
+        cancelPendingRetentionSave();
+        const previous = retentionPolicyRef.current;
+        const next = {
+            ...previous,
+            [key]: { ...previous[key], enabled },
+        };
+        retentionPolicyRef.current = next;
+        setRetentionPolicy(next);
+        void persistRetentionPolicy(next, previous);
+    };
 
-        try {
-            const response = await fetch("/api/settings/user", {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(updates),
-            });
-
-            if (!response.ok) {
-                throw new Error("Failed to save settings");
-            }
-        } catch {
-            if (updates.autoDeleteRecordings !== undefined) {
-                const prev = previousValues.autoDeleteRecordings;
-                if (typeof prev === "boolean") setAutoDeleteRecordings(prev);
-            }
-            if (updates.retentionDays !== undefined) {
-                const prev = previousValues.retentionDays;
-                if (typeof prev === "number" || prev === null)
-                    setRetentionDays(prev);
-            }
-            if (updates.retentionDeleteAudio !== undefined) {
-                const prev = previousValues.retentionDeleteAudio;
-                if (typeof prev === "boolean") setDeleteAudio(prev);
-            }
-            if (updates.retentionDeleteTranscript !== undefined) {
-                const prev = previousValues.retentionDeleteTranscript;
-                if (typeof prev === "boolean") setDeleteTranscript(prev);
-            }
-            if (updates.retentionDeleteSummary !== undefined) {
-                const prev = previousValues.retentionDeleteSummary;
-                if (typeof prev === "boolean") setDeleteSummary(prev);
-            }
-            toast.error("Failed to save settings. Changes reverted.");
-        }
+    const setRetentionDays = (key: RetentionKey, days: number) => {
+        const previous = retentionPolicyRef.current;
+        const next = {
+            ...previous,
+            [key]: { ...previous[key], days },
+        };
+        retentionPolicyRef.current = next;
+        setRetentionPolicy(next);
+        if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+        pendingRetentionRef.current = next;
+        saveTimeoutRef.current = setTimeout(() => {
+            saveTimeoutRef.current = undefined;
+            pendingRetentionRef.current = undefined;
+            void persistRetentionPolicy(next, previous);
+        }, 500);
     };
 
     if (isLoadingSettings) {
@@ -374,122 +417,14 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
 
             <SettingsCard
                 title="Auto-delete old data"
-                description="Once a recording passes the retention period, remove the kinds of data you select below. The recording itself stays in your library."
-                action={
-                    <Switch
-                        id="auto-delete"
-                        checked={autoDeleteRecordings}
-                        onCheckedChange={(checked) => {
-                            // The toggle settles retentionDays itself, so any
-                            // debounced retention edit is now stale and must
-                            // not be flushed on unmount.
-                            cancelPendingRetentionSave();
-                            setAutoDeleteRecordings(checked);
-                            if (!checked) {
-                                setRetentionDays(null);
-                            }
-                            // Nothing is selected by default, so switching
-                            // this on would otherwise arm a policy that
-                            // deletes nothing. Pre-tick audio -- the one
-                            // people mean when they say "delete old
-                            // recordings", and the only one whose absence
-                            // frees real space -- while leaving the text
-                            // alone until it is asked for explicitly.
-                            const armAudio =
-                                checked &&
-                                !deleteAudio &&
-                                !deleteTranscript &&
-                                !deleteSummary;
-                            handleStorageSettingChange({
-                                autoDeleteRecordings: checked,
-                                retentionDays: checked ? retentionDays : null,
-                                ...(armAudio
-                                    ? { retentionDeleteAudio: true }
-                                    : {}),
-                            });
-                        }}
-                        disabled={isSavingSettings}
-                    />
-                }
+                description="Set a separate retention period for each copy. Off means it is kept indefinitely. The recording entry stays in your library."
             >
-                {autoDeleteRecordings && (
-                    <div className="space-y-2">
-                        <Label htmlFor="retention-days">
-                            Retention period (days)
-                        </Label>
-                        <Input
-                            id="retention-days"
-                            type="number"
-                            inputMode="numeric"
-                            min={1}
-                            max={365}
-                            step={1}
-                            value={retentionDays || ""}
-                            onChange={(e) => {
-                                const raw = e.target.value;
-                                if (raw === "") {
-                                    setRetentionDays(null);
-                                    if (saveTimeoutRef.current) {
-                                        clearTimeout(saveTimeoutRef.current);
-                                        saveTimeoutRef.current = undefined;
-                                    }
-                                    pendingRetentionRef.current = undefined;
-                                    handleStorageSettingChange({
-                                        retentionDays: null,
-                                    });
-                                    return;
-                                }
-                                const value = Number(raw);
-                                if (
-                                    !Number.isInteger(value) ||
-                                    value < 1 ||
-                                    value > 365
-                                ) {
-                                    // Reject non-integer or out-of-range
-                                    // values silently. Previously parseInt
-                                    // would silently floor "1.5" to 1 and
-                                    // save it; we now require an integer.
-                                    return;
-                                }
-                                setRetentionDays(value);
-                                if (saveTimeoutRef.current) {
-                                    clearTimeout(saveTimeoutRef.current);
-                                }
-                                pendingRetentionRef.current = value;
-                                saveTimeoutRef.current = setTimeout(() => {
-                                    saveTimeoutRef.current = undefined;
-                                    pendingRetentionRef.current = undefined;
-                                    handleStorageSettingChange({
-                                        retentionDays: value,
-                                    });
-                                }, 500);
-                            }}
-                            onBlur={flushPendingRetentionSave}
-                            placeholder="30"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                            Counted from when the recording was made (1-365
-                            days)
-                        </p>
-
-                        <div className="space-y-3 rounded-lg border p-4">
-                            <div className="space-y-0.5">
-                                <Label className="text-sm">
-                                    What to delete
-                                </Label>
-                                <p className="text-xs text-muted-foreground">
-                                    Each kind is independent. Dropping the audio
-                                    and keeping the text reclaims almost all the
-                                    space; keeping only the summary is equally
-                                    valid.
-                                </p>
-                            </div>
-
-                            {RETENTION_KINDS.map(({ key, label, hint }) => (
-                                <div
-                                    key={key}
-                                    className="flex items-center justify-between gap-4"
-                                >
+                <div className="divide-y rounded-lg border">
+                    {RETENTION_KINDS.map(({ key, label, hint }) => {
+                        const value = retentionPolicy[key];
+                        return (
+                            <div key={key} className="space-y-3 p-4">
+                                <div className="flex items-start justify-between gap-4">
                                     <div className="space-y-0.5">
                                         <Label
                                             htmlFor={`retention-${key}`}
@@ -503,51 +438,72 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                                     </div>
                                     <Switch
                                         id={`retention-${key}`}
-                                        checked={
-                                            key === "audio"
-                                                ? deleteAudio
-                                                : key === "transcript"
-                                                  ? deleteTranscript
-                                                  : deleteSummary
-                                        }
+                                        checked={value.enabled}
                                         onCheckedChange={(checked) =>
-                                            handleStorageSettingChange(
-                                                key === "audio"
-                                                    ? {
-                                                          retentionDeleteAudio:
-                                                              checked,
-                                                      }
-                                                    : key === "transcript"
-                                                      ? {
-                                                            retentionDeleteTranscript:
-                                                                checked,
-                                                        }
-                                                      : {
-                                                            retentionDeleteSummary:
-                                                                checked,
-                                                        },
-                                            )
+                                            setRetentionEnabled(key, checked)
                                         }
                                         disabled={isSavingSettings}
                                     />
                                 </div>
-                            ))}
+                                <div className="flex items-center gap-2">
+                                    <Label
+                                        htmlFor={`retention-${key}-days`}
+                                        className="text-xs text-muted-foreground"
+                                    >
+                                        Retention period
+                                    </Label>
+                                    <Input
+                                        id={`retention-${key}-days`}
+                                        className="h-8 w-24"
+                                        type="number"
+                                        inputMode="numeric"
+                                        min={1}
+                                        max={365}
+                                        step={1}
+                                        value={value.days}
+                                        disabled={
+                                            !value.enabled || isSavingSettings
+                                        }
+                                        onChange={(event) => {
+                                            const days = Number(
+                                                event.target.value,
+                                            );
+                                            if (
+                                                Number.isInteger(days) &&
+                                                days >= 1 &&
+                                                days <= 365
+                                            ) {
+                                                setRetentionDays(key, days);
+                                            }
+                                        }}
+                                        onBlur={(event) => {
+                                            event.currentTarget.value = String(
+                                                retentionPolicy[key].days,
+                                            );
+                                            flushPendingRetentionSave();
+                                        }}
+                                    />
+                                    <span className="text-xs text-muted-foreground">
+                                        days (1-365)
+                                    </span>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
 
-                            <p className="text-xs text-muted-foreground">
-                                {reapPreview === null
-                                    ? "Pick at least one kind and a retention period — nothing is deleted until you do."
-                                    : reapPreview.count === 0
-                                      ? "No recordings are old enough yet, so this deletes nothing today."
-                                      : `Applies to ${reapPreview.count} recording${reapPreview.count === 1 ? "" : "s"} right now. The first sweep runs within the hour and cannot be undone.`}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                                Markdown files written alongside your audio by
-                                Export/Backup are left alone — retention removes
-                                Riffado's copy, not the export in your folder.
-                            </p>
-                        </div>
-                    </div>
-                )}
+                <p className="text-xs text-muted-foreground">
+                    {reapPreview === null
+                        ? "When all options are off, data is kept indefinitely."
+                        : reapPreview.count === 0
+                          ? "No recordings are old enough yet, so this deletes nothing today."
+                          : `Applies to ${reapPreview.count} recording${reapPreview.count === 1 ? "" : "s"} right now. The first sweep runs within the hour.`}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                    Remote originals are moved to Trash only after a successful
+                    local download. Markdown files written by Export/Backup are
+                    left alone.
+                </p>
             </SettingsCard>
         </div>
     );

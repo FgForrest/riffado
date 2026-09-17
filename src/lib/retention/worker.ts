@@ -2,7 +2,6 @@ import {
     listArmedRetentionPolicies,
     listReapCandidates,
     type RetentionPolicy,
-    retentionCutoff,
 } from "@/db/queries/retention";
 import { captureServerException } from "@/lib/posthog-server";
 import { createStorageProvider } from "@/lib/storage/factory";
@@ -29,21 +28,38 @@ async function sweepUser(
     storage: ReturnType<typeof createStorageProvider>,
     policy: RetentionPolicy,
 ): Promise<void> {
-    const cutoff = retentionCutoff(policy.retentionDays);
+    const now = new Date();
     const candidates = await listReapCandidates(
         policy,
-        cutoff,
+        now,
         MAX_RECORDINGS_PER_USER_PER_TICK,
     );
     if (candidates.length === 0) return;
 
-    const totals = { audio: 0, transcript: 0, summary: 0 };
+    const totals = {
+        remoteOriginal: 0,
+        audio: 0,
+        transcript: 0,
+        summary: 0,
+    };
     let failures = 0;
 
     for (const candidate of candidates) {
         try {
-            const { reaped } = await reapRecording(storage, policy, candidate);
+            const { reaped, failed } = await reapRecording(
+                storage,
+                policy,
+                candidate,
+                now,
+            );
             for (const kind of reaped) totals[kind] += 1;
+            for (const [kind, error] of Object.entries(failed)) {
+                failures += 1;
+                console.error(
+                    `[retention] failed to reap ${kind} for recording ${candidate.id}:`,
+                    error,
+                );
+            }
         } catch (error) {
             // One unreadable blob or locked row must not strand the rest
             // of the sweep. The recording keeps its null marker, so the
@@ -56,10 +72,14 @@ async function sweepUser(
         }
     }
 
-    const removed = totals.audio + totals.transcript + totals.summary;
+    const removed =
+        totals.remoteOriginal +
+        totals.audio +
+        totals.transcript +
+        totals.summary;
     if (removed > 0 || failures > 0) {
         console.log(
-            `[retention] user ${policy.userId}: removed ${totals.audio} audio, ${totals.transcript} transcript(s), ${totals.summary} summary(ies) older than ${policy.retentionDays}d` +
+            `[retention] user ${policy.userId}: removed ${totals.remoteOriginal} remote original(s), ${totals.audio} local audio, ${totals.transcript} transcript(s), ${totals.summary} summary(ies)` +
                 (failures > 0 ? `; ${failures} failed, will retry` : ""),
         );
     }

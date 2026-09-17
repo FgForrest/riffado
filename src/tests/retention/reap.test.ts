@@ -4,6 +4,9 @@ const deleteTranscriptsForRecording = vi.fn();
 const deleteSummaryForRecording = vi.fn();
 const markKindsReaped = vi.fn();
 const clearReapedMarkers = vi.fn();
+const claimRemoteOriginalReap = vi.fn();
+const releaseRemoteOriginalReapClaim = vi.fn();
+const movePlaudRecordingToTrash = vi.fn();
 
 vi.mock("@/db/queries/retention", () => ({
     deleteTranscriptsForRecording: (...args: unknown[]) =>
@@ -12,6 +15,14 @@ vi.mock("@/db/queries/retention", () => ({
         deleteSummaryForRecording(...args),
     markKindsReaped: (...args: unknown[]) => markKindsReaped(...args),
     clearReapedMarkers: (...args: unknown[]) => clearReapedMarkers(...args),
+    claimRemoteOriginalReap: (...args: unknown[]) =>
+        claimRemoteOriginalReap(...args),
+    releaseRemoteOriginalReapClaim: (...args: unknown[]) =>
+        releaseRemoteOriginalReapClaim(...args),
+}));
+vi.mock("@/lib/recordings/erase", () => ({
+    movePlaudRecordingToTrash: (...args: unknown[]) =>
+        movePlaudRecordingToTrash(...args),
 }));
 
 import type { ReapCandidate, RetentionPolicy } from "@/db/queries/retention";
@@ -23,10 +34,10 @@ const NOW = new Date("2026-09-13T12:00:00.000Z");
 function policy(overrides: Partial<RetentionPolicy> = {}): RetentionPolicy {
     return {
         userId: "user-1",
-        retentionDays: 30,
-        audio: false,
-        transcript: false,
-        summary: false,
+        remoteOriginalDays: null,
+        audioDays: null,
+        transcriptDays: null,
+        summaryDays: null,
         ...overrides,
     };
 }
@@ -35,6 +46,10 @@ function candidate(overrides: Partial<ReapCandidate> = {}): ReapCandidate {
     return {
         id: "rec-1",
         storagePath: "user-1/Board meeting.mp3",
+        startTime: new Date("2026-07-01T00:00:00.000Z"),
+        deviceSn: "plaud-device-1",
+        downloadedAt: new Date("2026-07-01T00:01:00.000Z"),
+        isTrash: false,
         audioReapedAt: null,
         transcriptReapedAt: null,
         summaryReapedAt: null,
@@ -59,6 +74,9 @@ describe("reapRecording", () => {
         deleteSummaryForRecording.mockResolvedValue(0);
         markKindsReaped.mockResolvedValue(undefined);
         clearReapedMarkers.mockResolvedValue(undefined);
+        claimRemoteOriginalReap.mockResolvedValue(true);
+        releaseRemoteOriginalReapClaim.mockResolvedValue(undefined);
+        movePlaudRecordingToTrash.mockResolvedValue(undefined);
     });
 
     it("removes the audio blob and stamps only that kind", async () => {
@@ -66,14 +84,19 @@ describe("reapRecording", () => {
 
         const result = await reapRecording(
             s.provider,
-            policy({ audio: true }),
+            policy({ audioDays: 30 }),
             candidate(),
             NOW,
         );
 
         expect(s.deleteFile).toHaveBeenCalledWith("user-1/Board meeting.mp3");
         expect(result.reaped).toEqual(["audio"]);
-        expect(markKindsReaped).toHaveBeenCalledWith("rec-1", ["audio"], NOW);
+        expect(markKindsReaped).toHaveBeenCalledWith(
+            "rec-1",
+            "user-1",
+            ["audio"],
+            NOW,
+        );
         expect(deleteTranscriptsForRecording).not.toHaveBeenCalled();
         expect(deleteSummaryForRecording).not.toHaveBeenCalled();
     });
@@ -83,7 +106,7 @@ describe("reapRecording", () => {
 
         await reapRecording(
             s.provider,
-            policy({ audio: true, transcript: true, summary: true }),
+            policy({ audioDays: 30, transcriptDays: 30, summaryDays: 30 }),
             candidate(),
             NOW,
         );
@@ -101,7 +124,7 @@ describe("reapRecording", () => {
 
         const result = await reapRecording(
             s.provider,
-            policy({ audio: true }),
+            policy({ audioDays: 30 }),
             candidate(),
             NOW,
         );
@@ -115,7 +138,7 @@ describe("reapRecording", () => {
 
         const result = await reapRecording(
             s.provider,
-            policy({ audio: true, summary: true }),
+            policy({ audioDays: 30, summaryDays: 30 }),
             candidate({
                 audioReapedAt: new Date("2026-08-01T00:00:00.000Z"),
                 summaryReapedAt: new Date("2026-08-01T00:00:00.000Z"),
@@ -134,7 +157,7 @@ describe("reapRecording", () => {
 
         const result = await reapRecording(
             s.provider,
-            policy({ transcript: true }),
+            policy({ transcriptDays: 30 }),
             candidate(),
             NOW,
         );
@@ -143,7 +166,12 @@ describe("reapRecording", () => {
         // auto-transcribe for a recording that simply never had a run.
         expect(result.reaped).toEqual([]);
         expect(result.skipped.transcript).toBe("no transcript to remove");
-        expect(markKindsReaped).toHaveBeenCalledWith("rec-1", [], NOW);
+        expect(markKindsReaped).toHaveBeenCalledWith(
+            "rec-1",
+            "user-1",
+            [],
+            NOW,
+        );
     });
 
     it("stamps transcript and summary when rows were actually removed", async () => {
@@ -153,7 +181,7 @@ describe("reapRecording", () => {
 
         const result = await reapRecording(
             s.provider,
-            policy({ transcript: true, summary: true }),
+            policy({ transcriptDays: 30, summaryDays: 30 }),
             candidate(),
             NOW,
         );
@@ -176,7 +204,7 @@ describe("reapRecording", () => {
 
         const result = await reapRecording(
             s.provider,
-            policy({ audio: true, transcript: true, summary: true }),
+            policy({ audioDays: 30, transcriptDays: 30, summaryDays: 30 }),
             candidate(),
             NOW,
         );
@@ -184,9 +212,27 @@ describe("reapRecording", () => {
         expect(result.reaped).toEqual(["audio", "transcript", "summary"]);
         expect(markKindsReaped).toHaveBeenCalledWith(
             "rec-1",
+            "user-1",
             ["audio", "transcript", "summary"],
             NOW,
         );
+    });
+
+    it("applies each kind's retention period independently", async () => {
+        deleteSummaryForRecording.mockResolvedValue(1);
+        const s = storage();
+
+        const result = await reapRecording(
+            s.provider,
+            policy({ audioDays: 10, summaryDays: 30 }),
+            candidate({
+                startTime: new Date("2026-08-25T00:00:00.000Z"),
+            }),
+            NOW,
+        );
+
+        expect(result.reaped).toEqual(["audio"]);
+        expect(deleteSummaryForRecording).not.toHaveBeenCalled();
     });
 
     it("does nothing at all when the policy selects nothing", async () => {
@@ -204,14 +250,97 @@ describe("reapRecording", () => {
         expect(deleteTranscriptsForRecording).not.toHaveBeenCalled();
         expect(deleteSummaryForRecording).not.toHaveBeenCalled();
     });
+
+    it("moves the remote original to Trash only after a local download", async () => {
+        const s = storage();
+
+        const result = await reapRecording(
+            s.provider,
+            policy({ remoteOriginalDays: 30 }),
+            candidate(),
+            NOW,
+        );
+
+        expect(s.exists).not.toHaveBeenCalled();
+        expect(claimRemoteOriginalReap).toHaveBeenCalledWith(
+            "rec-1",
+            "user-1",
+            NOW,
+        );
+        expect(movePlaudRecordingToTrash).toHaveBeenCalledWith(
+            "user-1",
+            "rec-1",
+        );
+        expect(releaseRemoteOriginalReapClaim).toHaveBeenCalledWith(
+            "rec-1",
+            "user-1",
+            NOW,
+        );
+        expect(result.reaped).toEqual(["remoteOriginal"]);
+    });
+
+    it("keeps the remote original until a local download has completed", async () => {
+        const s = storage();
+
+        const result = await reapRecording(
+            s.provider,
+            policy({ remoteOriginalDays: 30 }),
+            candidate({ downloadedAt: null }),
+            NOW,
+        );
+
+        expect(claimRemoteOriginalReap).not.toHaveBeenCalled();
+        expect(movePlaudRecordingToTrash).not.toHaveBeenCalled();
+        expect(result.skipped.remoteOriginal).toBe(
+            "audio has not been downloaded locally",
+        );
+    });
+
+    it("allows remote cleanup after local audio was later reaped", async () => {
+        const s = storage(false);
+
+        const result = await reapRecording(
+            s.provider,
+            policy({ remoteOriginalDays: 30 }),
+            candidate({
+                audioReapedAt: new Date("2026-08-01T00:00:00.000Z"),
+            }),
+            NOW,
+        );
+
+        expect(s.exists).not.toHaveBeenCalled();
+        expect(movePlaudRecordingToTrash).toHaveBeenCalledWith(
+            "user-1",
+            "rec-1",
+        );
+        expect(result.reaped).toEqual(["remoteOriginal"]);
+    });
+
+    it("continues with independent local retention after a remote failure", async () => {
+        const remoteError = new Error("remote unavailable");
+        movePlaudRecordingToTrash.mockRejectedValue(remoteError);
+        deleteTranscriptsForRecording.mockResolvedValue(1);
+        const s = storage();
+
+        const result = await reapRecording(
+            s.provider,
+            policy({ remoteOriginalDays: 30, transcriptDays: 30 }),
+            candidate(),
+            NOW,
+        );
+
+        expect(result.failed.remoteOriginal).toBe(remoteError);
+        expect(result.reaped).toEqual(["transcript"]);
+        expect(deleteTranscriptsForRecording).toHaveBeenCalled();
+    });
 });
 
 describe("unmarkReaped", () => {
     beforeEach(() => vi.clearAllMocks());
 
     it("clears the markers for data that came back", async () => {
-        await unmarkReaped("rec-1", ["transcript"]);
-        expect(clearReapedMarkers).toHaveBeenCalledWith("rec-1", [
+        await unmarkReaped("user-1", "rec-1", ["transcript"]);
+        expect(clearReapedMarkers).toHaveBeenCalledWith("rec-1", "user-1", [
             "transcript",
         ]);
     });

@@ -42,6 +42,22 @@ const ENUM_FIELD_SETS: Record<string, ReadonlySet<string>> = Object.fromEntries(
     Object.entries(ENUM_FIELDS).map(([k, v]) => [k, new Set(v)]),
 );
 
+const RETENTION_FIELDS = [
+    "retentionRemoteOriginalDays",
+    "retentionLocalAudioDays",
+    "retentionLocalTranscriptDays",
+    "retentionLocalSummaryDays",
+] as const;
+type RetentionField = (typeof RETENTION_FIELDS)[number];
+type RetentionSettings = Record<RetentionField, number | null>;
+const RETENTION_FIELD_SET = new Set<string>(RETENTION_FIELDS);
+const EMPTY_RETENTION_SETTINGS: RetentionSettings = {
+    retentionRemoteOriginalDays: null,
+    retentionLocalAudioDays: null,
+    retentionLocalTranscriptDays: null,
+    retentionLocalSummaryDays: null,
+};
+
 const DEFAULT_SETTINGS = {
     autoTranscribe: false,
     autoSummarize: false,
@@ -65,11 +81,7 @@ const DEFAULT_SETTINGS = {
     itemsPerPage: 50,
     listDensity: "comfortable" as const,
     theme: "system" as const,
-    autoDeleteRecordings: false,
-    retentionDays: null,
-    retentionDeleteAudio: false,
-    retentionDeleteTranscript: false,
-    retentionDeleteSummary: false,
+    ...EMPTY_RETENTION_SETTINGS,
     browserNotifications: true,
     emailNotifications: false,
     barkNotifications: false,
@@ -113,11 +125,7 @@ const SETTINGS_FIELDS = [
     "itemsPerPage",
     "listDensity",
     "theme",
-    "autoDeleteRecordings",
-    "retentionDays",
-    "retentionDeleteAudio",
-    "retentionDeleteTranscript",
-    "retentionDeleteSummary",
+    ...RETENTION_FIELDS,
     "browserNotifications",
     "emailNotifications",
     "barkNotifications",
@@ -138,11 +146,56 @@ const SETTINGS_FIELDS = [
     "preferredTranscriptSource",
 ] as const;
 
+function validRetentionDays(value: unknown): value is number | null {
+    return (
+        value === null ||
+        (typeof value === "number" &&
+            Number.isInteger(value) &&
+            value >= 1 &&
+            value <= 365)
+    );
+}
+
+function effectiveRetentionSettings(
+    settings: typeof userSettings.$inferSelect,
+): RetentionSettings {
+    const independent: RetentionSettings = {
+        retentionRemoteOriginalDays: settings.retentionRemoteOriginalDays,
+        retentionLocalAudioDays: settings.retentionLocalAudioDays,
+        retentionLocalTranscriptDays: settings.retentionLocalTranscriptDays,
+        retentionLocalSummaryDays: settings.retentionLocalSummaryDays,
+    };
+    if (Object.values(independent).some((days) => days !== null)) {
+        return independent;
+    }
+
+    const legacyDays =
+        settings.autoDeleteRecordings &&
+        validRetentionDays(settings.retentionDays)
+            ? settings.retentionDays
+            : null;
+    if (legacyDays === null) return independent;
+
+    return {
+        retentionRemoteOriginalDays: null,
+        retentionLocalAudioDays: settings.retentionDeleteAudio
+            ? legacyDays
+            : null,
+        retentionLocalTranscriptDays: settings.retentionDeleteTranscript
+            ? legacyDays
+            : null,
+        retentionLocalSummaryDays: settings.retentionDeleteSummary
+            ? legacyDays
+            : null,
+    };
+}
+
 function extractSettings(settings: typeof userSettings.$inferSelect) {
     const result: Record<string, unknown> = {};
     for (const field of SETTINGS_FIELDS) {
         result[field] = settings[field];
     }
+    Object.assign(result, effectiveRetentionSettings(settings));
     result.barkPushUrl = settings.barkPushUrl || null;
     result.barkPushUrlSet = !!settings.barkPushUrl;
     return result;
@@ -213,8 +266,12 @@ export const PUT = apiHandler(async (request: Request) => {
     const insertData: Record<string, unknown> = {
         userId: session.user.id,
     };
+    const hasRetentionUpdate = RETENTION_FIELDS.some(
+        (field) => body[field] !== undefined,
+    );
 
     for (const field of SETTINGS_FIELDS) {
+        if (RETENTION_FIELD_SET.has(field)) continue;
         let value = body[field];
         if (
             field in ENUM_FIELDS &&
@@ -256,6 +313,43 @@ export const PUT = apiHandler(async (request: Request) => {
             insertData[field] = value;
         } else if (!existing) {
             insertData[field] = DEFAULT_SETTINGS[field];
+        }
+    }
+
+    if (hasRetentionUpdate) {
+        const current = existing
+            ? effectiveRetentionSettings(existing)
+            : EMPTY_RETENTION_SETTINGS;
+        for (const field of RETENTION_FIELDS) {
+            const value =
+                body[field] === undefined ? current[field] : body[field];
+            if (!validRetentionDays(value)) {
+                throw new AppError(
+                    ErrorCode.INVALID_INPUT,
+                    `${field} must be null or an integer between 1 and 365`,
+                    400,
+                    { field },
+                );
+            }
+            updateData[field] = value;
+            insertData[field] = value;
+        }
+
+        // One independent-policy write retires the legacy shared policy so
+        // turning every new toggle off cannot make old settings reappear.
+        updateData.autoDeleteRecordings = false;
+        updateData.retentionDays = null;
+        updateData.retentionDeleteAudio = false;
+        updateData.retentionDeleteTranscript = false;
+        updateData.retentionDeleteSummary = false;
+        insertData.autoDeleteRecordings = false;
+        insertData.retentionDays = null;
+        insertData.retentionDeleteAudio = false;
+        insertData.retentionDeleteTranscript = false;
+        insertData.retentionDeleteSummary = false;
+    } else if (!existing) {
+        for (const field of RETENTION_FIELDS) {
+            insertData[field] = null;
         }
     }
 

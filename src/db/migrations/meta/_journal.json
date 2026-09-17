@@ -351,6 +351,13 @@
       "when": 1789623503058,
       "tag": "0049_glamorous_kate_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1789675614991,
+      "tag": "0050_bizarre_deadpool",
+      "breakpoints": true
     }
   ]
 }
