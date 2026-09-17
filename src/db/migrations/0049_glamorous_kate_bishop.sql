@@ -1,0 +1,1 @@
+ALTER TABLE "recording_folders" ADD COLUMN "sort_order" integer DEFAULT 0 NOT NULL;

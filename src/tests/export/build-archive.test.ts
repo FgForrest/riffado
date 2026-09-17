@@ -37,6 +37,7 @@ vi.mock("@/db/schema", () => ({
         parentId: "recordingFolders.parentId",
         name: "recordingFolders.name",
         kind: "recordingFolders.kind",
+        sortOrder: "recordingFolders.sortOrder",
         createdAt: "recordingFolders.createdAt",
     },
     recordingFolderAssignments: {
@@ -259,6 +260,7 @@ describe("buildAndUploadExportArchive", () => {
                     parentId: null,
                     name: "enc-Private",
                     kind: "private",
+                    sortOrder: 0,
                     createdAt: new Date("2026-01-01T00:00:00Z"),
                 },
                 {
@@ -266,6 +268,7 @@ describe("buildAndUploadExportArchive", () => {
                     parentId: "folder-private",
                     name: "enc-Meetings",
                     kind: "custom",
+                    sortOrder: 2000,
                     createdAt: new Date("2026-01-02T00:00:00Z"),
                 },
             ],
@@ -292,6 +295,7 @@ describe("buildAndUploadExportArchive", () => {
         );
         expect(organization.folders).toHaveLength(2);
         expect(organization.folders[1].name).toBe("decrypted:enc-Meetings");
+        expect(organization.folders[1].sortOrder).toBe(2000);
         expect(organization.assignments).toEqual([
             { recordingId: "rec-1", folderId: "folder-meetings" },
         ]);

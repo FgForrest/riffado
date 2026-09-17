@@ -14,7 +14,7 @@ import {
     Trash2,
     X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { type DragEvent, useMemo, useState } from "react";
 import { useConfirm } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,6 +47,13 @@ type FolderAction =
     | { kind: "move"; folder: RecordingFolder }
     | null;
 
+type DropPlacement = "before" | "inside" | "after";
+
+interface DropTarget {
+    folderId: string;
+    placement: DropPlacement;
+}
+
 interface FolderTreeProps {
     folders: RecordingFolder[];
     assignments: RecordingFolderAssignment[];
@@ -56,7 +63,11 @@ interface FolderTreeProps {
     onSelectFolder: (folder: RecordingFolder) => void;
     onCreateFolder: (parentId: string, name: string) => Promise<void>;
     onRenameFolder: (folderId: string, name: string) => Promise<void>;
-    onMoveFolder: (folderId: string, parentId: string) => Promise<void>;
+    onMoveFolder: (
+        folderId: string,
+        parentId: string,
+        beforeId?: string | null,
+    ) => Promise<void>;
     onDeleteFolder: (folderId: string) => Promise<void>;
 }
 
@@ -81,7 +92,8 @@ export function FolderTree({
     const [draft, setDraft] = useState("");
     const [moveParentId, setMoveParentId] = useState("");
     const [saving, setSaving] = useState(false);
-    const [dragOverId, setDragOverId] = useState<string | null>(null);
+    const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
+    const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 
     const childrenByParent = useMemo(() => {
         const result = new Map<string | null, RecordingFolder[]>();
@@ -94,7 +106,11 @@ export function FolderTree({
             children.sort((left, right) => {
                 const rootOrder = { private: 0, public: 1, custom: 2 };
                 const kindDiff = rootOrder[left.kind] - rootOrder[right.kind];
-                return kindDiff || left.name.localeCompare(right.name);
+                return (
+                    kindDiff ||
+                    left.sortOrder - right.sortOrder ||
+                    left.name.localeCompare(right.name)
+                );
             });
         }
         return result;
@@ -179,6 +195,47 @@ export function FolderTree({
         }
     };
 
+    const dropPlacementFor = (
+        event: DragEvent<HTMLButtonElement>,
+        target: RecordingFolder,
+    ): DropPlacement => {
+        const dragged = folders.find((folder) => folder.id === draggedFolderId);
+        if (!dragged || target.kind !== "custom") return "inside";
+        const bounds = event.currentTarget.getBoundingClientRect();
+        const position = (event.clientY - bounds.top) / bounds.height;
+        if (dragged.parentId === target.parentId) {
+            return position < 0.5 ? "before" : "after";
+        }
+        if (position < 0.25) return "before";
+        if (position > 0.75) return "after";
+        return "inside";
+    };
+
+    const dropFolder = (
+        draggedId: string,
+        target: RecordingFolder,
+        placement: DropPlacement,
+    ) => {
+        if (draggedId === target.id) return;
+        if (placement === "inside") {
+            void onMoveFolder(draggedId, target.id, null).catch(() => {});
+            return;
+        }
+        if (!target.parentId) return;
+        const siblings = (childrenByParent.get(target.parentId) ?? []).filter(
+            (folder) => folder.id !== draggedId,
+        );
+        const targetIndex = siblings.findIndex(
+            (folder) => folder.id === target.id,
+        );
+        if (targetIndex < 0) return;
+        const beforeId =
+            placement === "before"
+                ? target.id
+                : (siblings[targetIndex + 1]?.id ?? null);
+        void onMoveFolder(draggedId, target.parentId, beforeId).catch(() => {});
+    };
+
     const renderFolder = (folder: RecordingFolder, depth: number) => {
         if (matchingIds && !matchingIds.has(folder.id)) return null;
         const children = childrenByParent.get(folder.id) ?? [];
@@ -191,62 +248,86 @@ export function FolderTree({
                         "group/folder flex items-center rounded-md border border-transparent pr-1 transition-colors",
                         selectedFolderId === folder.id &&
                             "border-primary/20 bg-primary/10",
-                        dragOverId === folder.id &&
+                        dropTarget?.folderId === folder.id &&
+                            dropTarget.placement === "inside" &&
                             "border-primary bg-primary/10",
+                        dropTarget?.folderId === folder.id &&
+                            dropTarget.placement === "before" &&
+                            "border-t-primary",
+                        dropTarget?.folderId === folder.id &&
+                            dropTarget.placement === "after" &&
+                            "border-b-primary",
                     )}
                     style={{ paddingLeft: `${depth * 20 + 4}px` }}
                 >
-                    <button
-                        type="button"
-                        className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
-                        aria-label={
-                            isExpanded ? "Collapse folder" : "Expand folder"
-                        }
-                        onClick={() => {
-                            if (!canExpand) return;
-                            setExpanded((current) => {
-                                const next = new Set(current);
-                                if (next.has(folder.id)) next.delete(folder.id);
-                                else next.add(folder.id);
-                                return next;
-                            });
-                        }}
-                    >
-                        {canExpand ? (
-                            isExpanded ? (
+                    {canExpand ? (
+                        <button
+                            type="button"
+                            className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+                            aria-label={
+                                isExpanded ? "Collapse folder" : "Expand folder"
+                            }
+                            onClick={() => {
+                                setExpanded((current) => {
+                                    const next = new Set(current);
+                                    if (next.has(folder.id)) {
+                                        next.delete(folder.id);
+                                    } else {
+                                        next.add(folder.id);
+                                    }
+                                    return next;
+                                });
+                            }}
+                        >
+                            {isExpanded ? (
                                 <ChevronDown className="size-4" />
                             ) : (
                                 <ChevronRight className="size-4" />
-                            )
-                        ) : (
-                            <span className="size-4" />
-                        )}
-                    </button>
+                            )}
+                        </button>
+                    ) : (
+                        <span className="size-7 shrink-0" aria-hidden="true" />
+                    )}
                     <button
                         type="button"
                         draggable={folder.kind === "custom"}
                         onDragStart={(event) => {
+                            setDraggedFolderId(folder.id);
                             event.dataTransfer.setData(
                                 "application/x-riffado-folder",
                                 folder.id,
                             );
                             event.dataTransfer.effectAllowed = "move";
                         }}
-                        onDragOver={(event) => {
-                            event.preventDefault();
-                            setDragOverId(folder.id);
+                        onDragEnd={() => {
+                            setDraggedFolderId(null);
+                            setDropTarget(null);
                         }}
-                        onDragLeave={() => setDragOverId(null)}
+                        onDragOver={(event) => {
+                            if (!draggedFolderId) return;
+                            event.preventDefault();
+                            event.dataTransfer.dropEffect = "move";
+                            setDropTarget({
+                                folderId: folder.id,
+                                placement: dropPlacementFor(event, folder),
+                            });
+                        }}
+                        onDragLeave={() => setDropTarget(null)}
                         onDrop={(event) => {
                             event.preventDefault();
-                            setDragOverId(null);
-                            const draggedId = event.dataTransfer.getData(
-                                "application/x-riffado-folder",
-                            );
-                            if (draggedId && draggedId !== folder.id) {
-                                void onMoveFolder(draggedId, folder.id).catch(
-                                    () => {},
+                            const draggedId =
+                                draggedFolderId ||
+                                event.dataTransfer.getData(
+                                    "application/x-riffado-folder",
                                 );
+                            const placement =
+                                dropTarget?.folderId === folder.id
+                                    ? dropTarget.placement
+                                    : dropPlacementFor(event, folder);
+                            setDropTarget(null);
+                            setDraggedFolderId(null);
+                            if (draggedId) {
+                                dropFolder(draggedId, folder, placement);
                             }
                         }}
                         onClick={() => onSelectFolder(folder)}

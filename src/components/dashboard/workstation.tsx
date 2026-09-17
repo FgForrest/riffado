@@ -462,18 +462,64 @@ export function Workstation({
     );
 
     const handleMoveFolder = useCallback(
-        async (folderId: string, parentId: string) => {
+        async (
+            folderId: string,
+            parentId: string,
+            beforeId?: string | null,
+        ) => {
             const previous = folderOrganization;
-            setFolderOrganization((current) => ({
-                ...current,
-                folders: current.folders.map((folder) =>
-                    folder.id === folderId ? { ...folder, parentId } : folder,
-                ),
-            }));
+            setFolderOrganization((current) => {
+                const moved = current.folders.find(
+                    (folder) => folder.id === folderId,
+                );
+                if (!moved) return current;
+                const siblings = current.folders
+                    .filter(
+                        (folder) =>
+                            folder.parentId === parentId &&
+                            folder.id !== folderId,
+                    )
+                    .sort(
+                        (left, right) =>
+                            left.sortOrder - right.sortOrder ||
+                            left.name.localeCompare(right.name),
+                    );
+                const beforeIndex =
+                    beforeId == null
+                        ? siblings.length
+                        : siblings.findIndex(
+                              (folder) => folder.id === beforeId,
+                          );
+                const insertionIndex =
+                    beforeIndex < 0 ? siblings.length : beforeIndex;
+                siblings.splice(insertionIndex, 0, {
+                    ...moved,
+                    parentId,
+                });
+                const orderById = new Map(
+                    siblings.map((folder, index) => [folder.id, index * 1000]),
+                );
+                return {
+                    ...current,
+                    folders: current.folders.map((folder) => {
+                        const sortOrder = orderById.get(folder.id);
+                        return sortOrder === undefined
+                            ? folder
+                            : {
+                                  ...folder,
+                                  parentId:
+                                      folder.id === folderId
+                                          ? parentId
+                                          : folder.parentId,
+                                  sortOrder,
+                              };
+                    }),
+                };
+            });
             const response = await fetch(`/api/folders/${folderId}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ parentId }),
+                body: JSON.stringify({ parentId, beforeId }),
             });
             if (!response.ok) {
                 setFolderOrganization(previous);

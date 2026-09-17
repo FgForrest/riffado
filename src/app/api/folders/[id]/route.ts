@@ -11,6 +11,7 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
     const body = (await request.json().catch(() => null)) as {
         name?: unknown;
         parentId?: unknown;
+        beforeId?: unknown;
     } | null;
     if (!body) {
         throw new AppError(ErrorCode.INVALID_INPUT, "Invalid request", 400);
@@ -34,10 +35,23 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
     }
 
     if (typeof body.parentId === "string") {
+        if (
+            body.beforeId !== undefined &&
+            body.beforeId !== null &&
+            typeof body.beforeId !== "string"
+        ) {
+            throw new AppError(
+                ErrorCode.INVALID_INPUT,
+                "Folder position must be a folder id or null",
+                400,
+                { field: "beforeId" },
+            );
+        }
         const folder = await moveFolder({
             userId: session.user.id,
             folderId: id,
             parentId: body.parentId,
+            beforeId: body.beforeId as string | null | undefined,
         });
         return NextResponse.json({ folder });
     }
