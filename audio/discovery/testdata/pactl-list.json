@@ -1,0 +1,122 @@
+{
+  "clients": [
+    {
+      "index": 100,
+      "properties": {
+        "pipewire.access.portal.app_id": "com.google.Chrome",
+        "application.name": "Google Chrome input",
+        "application.process.binary": "chrome"
+      }
+    },
+    {
+      "index": 101,
+      "properties": {
+        "application.name": "Music Player",
+        "application.process.binary": "music-player"
+      }
+    },
+    {
+      "index": 102,
+      "properties": {
+        "pipewire.access.portal.app_id": "com.example.Chat",
+        "application.name": "Chromium input",
+        "application.process.binary": "chat-client"
+      }
+    }
+  ],
+  "source_outputs": [
+    {
+      "index": 400,
+      "client": "100",
+      "source": 10,
+      "corked": false,
+      "properties": {
+        "media.name": "WebRTC VoiceEngine",
+        "media.role": "phone"
+      }
+    },
+    {
+      "index": 401,
+      "client": "102",
+      "source": 11,
+      "corked": false,
+      "properties": {
+        "application.name": "Chromium input",
+        "media.name": "Voice call"
+      }
+    }
+  ],
+  "sink_inputs": [
+    {
+      "index": 500,
+      "client": "100",
+      "sink": 30,
+      "corked": false,
+      "properties": {
+        "media.name": "WebRTC VoiceEngine",
+        "media.role": "phone"
+      }
+    },
+    {
+      "index": 501,
+      "client": "101",
+      "sink": 31,
+      "corked": false,
+      "properties": {
+        "media.name": "Music"
+      }
+    }
+  ],
+  "sources": [
+    {
+      "index": 10,
+      "state": "RUNNING",
+      "name": "alsa_input.device-a.mono",
+      "description": "Conference Microphone",
+      "monitor_source": "",
+      "properties": {"device.class": "sound"}
+    },
+    {
+      "index": 11,
+      "state": "SUSPENDED",
+      "name": "alsa_input.device-b.stereo",
+      "description": "Laptop Microphone",
+      "monitor_source": "",
+      "properties": {"device.class": "sound"}
+    },
+    {
+      "index": 20,
+      "state": "RUNNING",
+      "name": "alsa_output.device-a.stereo.monitor",
+      "description": "Monitor of Conference Output",
+      "monitor_source": "alsa_output.device-a.stereo",
+      "properties": {"device.class": "monitor"}
+    },
+    {
+      "index": 21,
+      "state": "SUSPENDED",
+      "name": "alsa_output.device-b.stereo.monitor",
+      "description": "Monitor of Laptop Output",
+      "monitor_source": "alsa_output.device-b.stereo",
+      "properties": {"device.class": "monitor"}
+    }
+  ],
+  "sinks": [
+    {
+      "index": 30,
+      "state": "RUNNING",
+      "name": "alsa_output.device-a.stereo",
+      "description": "Conference Output",
+      "monitor_source": "alsa_output.device-a.stereo.monitor",
+      "properties": {"device.class": "sound"}
+    },
+    {
+      "index": 31,
+      "state": "SUSPENDED",
+      "name": "alsa_output.device-b.stereo",
+      "description": "Laptop Output",
+      "monitor_source": "alsa_output.device-b.stereo.monitor",
+      "properties": {"device.class": "sound"}
+    }
+  ]
+}
