@@ -47,6 +47,7 @@ const recording = {
     audioReapedAt: null,
     transcriptReapedAt: null,
     summaryReapedAt: null,
+    remoteRetentionClaimedAt: null,
     createdAt: now,
     updatedAt: now,
 };

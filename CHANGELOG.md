@@ -18,6 +18,7 @@
 - Changing the default summary prompt in Settings → Summary wiped any custom summary prompts on every save, since the request always sent `customPrompts: []` instead of the current list ([#199](https://github.com/riffado/riffado/issues/199)).
 
 ### Changed
+- Migration `0050_bizarre_deadpool` adds nullable per-data retention periods to `user_settings` and a nullable remote-retention claim timestamp to `recordings`. Existing shared retention settings remain effective until replaced in Settings.
 - Migration `0046_misty_forgotten_one` adds nullable `ai_enhancements.transcription_id` provenance and scopes summary uniqueness by recording, user, and source. Existing summary rows remain custom summaries.
 - Migration `0045_cultured_gwen_stacy` adds nullable `recordings.storage_filename` tracking and a per-user unique filename-stem index. Existing and newly uploaded recording audio, transcript, and summary files are reconciled to readable title-based names with numeric collision suffixes.
 - Migration `0041_slippery_mongu` adds `multi_pass_rounds`, `multi_pass_passes_used` and `multi_pass_merged` to `ai_enhancements`. All nullable; NULL means a single-pass summary, which is also how every existing row reads.

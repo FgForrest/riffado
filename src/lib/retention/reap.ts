@@ -1,4 +1,5 @@
 import {
+    claimRemoteOriginalReap,
     clearReapedMarkers,
     deleteSummaryForRecording,
     deleteTranscriptsForRecording,
@@ -6,7 +7,9 @@ import {
     type ReapCandidate,
     type RetentionKind,
     type RetentionPolicy,
+    releaseRemoteOriginalReapClaim,
 } from "@/db/queries/retention";
+import { movePlaudRecordingToTrash } from "@/lib/recordings/erase";
 import type { StorageProvider } from "@/lib/storage/types";
 
 export type { RetentionKind } from "@/db/queries/retention";
@@ -16,6 +19,16 @@ export interface ReapOutcome {
     reaped: RetentionKind[];
     /** Kind -> why it was skipped, for the worker's log line. */
     skipped: Partial<Record<RetentionKind, string>>;
+    /** Kind -> operational error. Other independent kinds still run. */
+    failed: Partial<Record<RetentionKind, unknown>>;
+}
+
+function isDue(startTime: Date, retentionDays: number | null, now: Date) {
+    if (retentionDays === null) return false;
+    return (
+        startTime.getTime() <
+        now.getTime() - retentionDays * 24 * 60 * 60 * 1000
+    );
 }
 
 /**
@@ -42,21 +55,67 @@ export async function reapRecording(
 ): Promise<ReapOutcome> {
     const reaped: RetentionKind[] = [];
     const skipped: Partial<Record<RetentionKind, string>> = {};
+    const failed: Partial<Record<RetentionKind, unknown>> = {};
+    let audioPresent: boolean | undefined;
 
-    if (policy.audio && recording.audioReapedAt === null) {
+    const hasLocalAudio = async () => {
+        if (audioPresent === undefined) {
+            audioPresent = await storage.exists(recording.storagePath);
+        }
+        return audioPresent;
+    };
+
+    if (
+        isDue(recording.startTime, policy.remoteOriginalDays, now) &&
+        recording.deviceSn !== "local" &&
+        !recording.isTrash
+    ) {
+        if (recording.downloadedAt === null) {
+            skipped.remoteOriginal = "audio has not been downloaded locally";
+        } else if (
+            !(await claimRemoteOriginalReap(recording.id, policy.userId, now))
+        ) {
+            skipped.remoteOriginal = "claimed by another worker";
+        } else {
+            try {
+                await movePlaudRecordingToTrash(policy.userId, recording.id);
+                reaped.push("remoteOriginal");
+            } catch (error) {
+                failed.remoteOriginal = error;
+            } finally {
+                try {
+                    await releaseRemoteOriginalReapClaim(
+                        recording.id,
+                        policy.userId,
+                        now,
+                    );
+                } catch (error) {
+                    failed.remoteOriginal ??= error;
+                }
+            }
+        }
+    }
+
+    if (
+        isDue(recording.startTime, policy.audioDays, now) &&
+        recording.audioReapedAt === null
+    ) {
         // `deleteFile` throws on a key that isn't there, and "already
         // gone" is a perfectly ordinary state here (a failed stamp on an
         // earlier tick, a manual cleanup). Check first so a missing blob
         // settles the marker instead of retrying forever, and a genuine
         // storage failure still surfaces as a failure.
-        const present = await storage.exists(recording.storagePath);
+        const present = await hasLocalAudio();
         if (present) {
             await storage.deleteFile(recording.storagePath);
         }
         reaped.push("audio");
     }
 
-    if (policy.transcript && recording.transcriptReapedAt === null) {
+    if (
+        isDue(recording.startTime, policy.transcriptDays, now) &&
+        recording.transcriptReapedAt === null
+    ) {
         const removed = await deleteTranscriptsForRecording(
             recording.id,
             policy.userId,
@@ -68,7 +127,10 @@ export async function reapRecording(
         }
     }
 
-    if (policy.summary && recording.summaryReapedAt === null) {
+    if (
+        isDue(recording.startTime, policy.summaryDays, now) &&
+        recording.summaryReapedAt === null
+    ) {
         const removed = await deleteSummaryForRecording(
             recording.id,
             policy.userId,
@@ -80,9 +142,10 @@ export async function reapRecording(
         }
     }
 
-    await markKindsReaped(recording.id, reaped, now);
+    const localKinds = reaped.filter((kind) => kind !== "remoteOriginal");
+    await markKindsReaped(recording.id, policy.userId, localKinds, now);
 
-    return { reaped, skipped };
+    return { reaped, skipped, failed };
 }
 
 /**
@@ -92,8 +155,9 @@ export async function reapRecording(
  * never outlives the condition it describes.
  */
 export async function unmarkReaped(
+    userId: string,
     recordingId: string,
     kinds: readonly RetentionKind[],
 ): Promise<void> {
-    await clearReapedMarkers(recordingId, kinds);
+    await clearReapedMarkers(recordingId, userId, kinds);
 }

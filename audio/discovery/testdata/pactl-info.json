@@ -1,0 +1,6 @@
+{
+  "server_name": "PulseAudio (on PipeWire 1.6.8)",
+  "server_version": "15.0.0",
+  "default_sink_name": "alsa_output.device-b.stereo",
+  "default_source_name": "alsa_input.device-b.stereo"
+}

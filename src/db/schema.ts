@@ -293,9 +293,8 @@ export const recordings = pgTable(
         scene: integer("scene"),
         isTrash: boolean("is_trash").notNull().default(false),
         // Coarse amplitude peaks for the audio waveform, generated
-        // client-side on first listen and POSTed back via
-        // /api/recordings/[id]/peaks. Null until the first successful
-        // decode; idempotent thereafter (write-once). Stored as a JSON
+        // Generated during audio ingest, with a lazy client fallback for
+        // existing recordings. Stored as a JSON
         // array of N normalized floats in [0, 1] (typically N=500),
         // so payload is ~3–6 KB. Used purely for visualization — no
         // audio reconstruction is possible from these values.
@@ -322,6 +321,10 @@ export const recordings = pgTable(
         audioReapedAt: timestamp("audio_reaped_at"),
         transcriptReapedAt: timestamp("transcript_reaped_at"),
         summaryReapedAt: timestamp("summary_reaped_at"),
+        // DB-backed claim for the external remote-trash operation. The
+        // retention worker runs in every app process, so this prevents two
+        // processes from moving the same remote original concurrently.
+        remoteRetentionClaimedAt: timestamp("remote_retention_claimed_at"),
         createdAt: timestamp("created_at").notNull().defaultNow(),
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
@@ -769,6 +772,8 @@ export const userSettings = pgTable("user_settings", {
         .default("comfortable"),
     theme: varchar("theme", { length: 20 }).notNull().default("system"), // 'light', 'dark', 'system'
     // Storage settings
+    // Legacy shared retention policy. Kept as deploy-surface compatibility;
+    // new writes use the independent nullable day fields below.
     autoDeleteRecordings: boolean("auto_delete_recordings")
         .notNull()
         .default(false),
@@ -778,13 +783,8 @@ export const userSettings = pgTable("user_settings", {
     // summary and dropping the audio and transcript is a legitimate policy,
     // as is keeping the text and reclaiming the (much larger) audio.
     //
-    // All three default to false, audio included. `auto_delete_recordings`
-    // existed for a long time with nothing acting on it, so an instance may
-    // well have it switched on from a user who saw no effect and moved on.
-    // Defaulting audio to true would turn that dormant toggle into real
-    // deletion on the first boot after upgrading. Instead the sweep no-ops
-    // until a kind is explicitly selected, and the UI pre-ticks audio when
-    // the toggle is first enabled so arming it is a deliberate act.
+    // Legacy kinds default false so older dormant policies cannot begin
+    // deleting data when the retention worker starts.
     retentionDeleteAudio: boolean("retention_delete_audio")
         .notNull()
         .default(false),
@@ -794,6 +794,12 @@ export const userSettings = pgTable("user_settings", {
     retentionDeleteSummary: boolean("retention_delete_summary")
         .notNull()
         .default(false),
+    // Null means unlimited retention. Existing shared policies are translated
+    // at read time until the user saves the independent policy once.
+    retentionRemoteOriginalDays: integer("retention_remote_original_days"),
+    retentionLocalAudioDays: integer("retention_local_audio_days"),
+    retentionLocalTranscriptDays: integer("retention_local_transcript_days"),
+    retentionLocalSummaryDays: integer("retention_local_summary_days"),
     // Notification settings
     browserNotifications: boolean("browser_notifications")
         .notNull()

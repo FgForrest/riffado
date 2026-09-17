@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import {
     countReapCandidates,
     type RetentionPolicy,
-    retentionCutoff,
 } from "@/db/queries/retention";
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
@@ -21,31 +20,38 @@ export const GET = apiHandler(async (request: Request) => {
     const session = await requireApiSession(request);
     const { searchParams } = new URL(request.url);
 
-    const days = Number(searchParams.get("days"));
-    if (!Number.isInteger(days) || days < 1 || days > 365) {
-        throw new AppError(
-            ErrorCode.INVALID_INPUT,
-            "days must be an integer between 1 and 365",
-            400,
-        );
-    }
+    const readDays = (name: string): number | null => {
+        const raw = searchParams.get(name);
+        if (raw === null || raw === "") return null;
+        const days = Number(raw);
+        if (!Number.isInteger(days) || days < 1 || days > 365) {
+            throw new AppError(
+                ErrorCode.INVALID_INPUT,
+                `${name} must be an integer between 1 and 365`,
+                400,
+            );
+        }
+        return days;
+    };
 
     const policy: RetentionPolicy = {
         userId: session.user.id,
-        retentionDays: days,
-        audio: searchParams.get("audio") === "true",
-        transcript: searchParams.get("transcript") === "true",
-        summary: searchParams.get("summary") === "true",
+        remoteOriginalDays: readDays("remoteOriginalDays"),
+        audioDays: readDays("localAudioDays"),
+        transcriptDays: readDays("localTranscriptDays"),
+        summaryDays: readDays("localSummaryDays"),
     };
 
-    if (!policy.audio && !policy.transcript && !policy.summary) {
+    if (
+        policy.remoteOriginalDays === null &&
+        policy.audioDays === null &&
+        policy.transcriptDays === null &&
+        policy.summaryDays === null
+    ) {
         return NextResponse.json({ count: 0 });
     }
 
-    const count = await countReapCandidates(
-        policy,
-        retentionCutoff(policy.retentionDays),
-    );
+    const count = await countReapCandidates(policy);
 
     return NextResponse.json({ count });
 });
