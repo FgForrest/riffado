@@ -152,7 +152,7 @@ async function generate(): Promise<unknown> {
     return settled;
 }
 
-describe("per-call retry inside summary generation", () => {
+describe("per-call retry and repair inside summary generation", () => {
     beforeEach(() => {
         createMock.mockReset();
         selectResults.clear();
@@ -186,6 +186,69 @@ describe("per-call retry inside summary generation", () => {
 
         expect(result.ok).toBe(true);
         expect(createMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("repairs invalid JSON through a follow-up conversation", async () => {
+        stage();
+        const invalid = '{"summary":"unfinished"';
+        createMock
+            .mockResolvedValueOnce(reply(invalid))
+            .mockResolvedValueOnce(
+                reply('{"summary":"repaired","keyPoints":[],"actionItems":[]}'),
+            );
+
+        const result = (await generate()) as {
+            ok: boolean;
+            value?: { summary: string };
+        };
+
+        expect(result.ok).toBe(true);
+        expect(result.value?.summary).toBe("repaired");
+        expect(createMock).toHaveBeenCalledTimes(2);
+
+        const repairRequest = createMock.mock.calls[1]?.[0] as {
+            messages: Array<{ role: string; content: string }>;
+            max_tokens: number;
+        };
+        expect(repairRequest.messages).toHaveLength(3);
+        expect(repairRequest.messages[1]).toEqual({
+            role: "assistant",
+            content: invalid,
+        });
+        expect(repairRequest.messages[2]?.content).toContain("JSON.parse");
+        expect(repairRequest.messages[2]?.content).toContain("position");
+        expect(JSON.stringify(repairRequest.messages)).not.toContain(
+            "a transcript",
+        );
+        expect(repairRequest.max_tokens).toBe(3000);
+    });
+
+    it("repairs an invalid merge instead of degrading the run", async () => {
+        stage({ summaryMultiPass: true, summaryMultiPassRounds: 3 });
+        createMock
+            .mockResolvedValueOnce(reply())
+            .mockResolvedValueOnce(reply())
+            .mockResolvedValueOnce(reply())
+            .mockResolvedValueOnce(reply('{"summary":"unfinished"'))
+            .mockResolvedValueOnce(
+                reply('{"summary":"merged","keyPoints":[],"actionItems":[]}'),
+            );
+
+        const result = (await generate()) as {
+            ok: boolean;
+            value?: {
+                summary: string;
+                multiPass?: { merged: boolean; passesUsed: number };
+            };
+        };
+
+        expect(result.ok).toBe(true);
+        expect(result.value?.summary).toBe("merged");
+        expect(result.value?.multiPass).toMatchObject({
+            merged: true,
+            passesUsed: 3,
+        });
+        expect(createMock).toHaveBeenCalledTimes(5);
     });
 
     it("does not retry a transcript past the context window", async () => {

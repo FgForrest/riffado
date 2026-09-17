@@ -91,6 +91,7 @@ describe("folder navigation", () => {
                     onRenameFolder={vi.fn()}
                     onMoveFolder={vi.fn()}
                     onDeleteFolder={vi.fn()}
+                    onAssignRecording={vi.fn()}
                 />
             </ConfirmDialogProvider>,
         );
@@ -128,6 +129,7 @@ describe("folder navigation", () => {
                     onRenameFolder={vi.fn()}
                     onMoveFolder={onMoveFolder}
                     onDeleteFolder={vi.fn()}
+                    onAssignRecording={vi.fn()}
                 />
             </ConfirmDialogProvider>,
         );
@@ -168,6 +170,48 @@ describe("folder navigation", () => {
         );
     });
 
+    it("assigns a dropped recording to a folder", () => {
+        const onAssignRecording = vi.fn().mockResolvedValue(undefined);
+        render(
+            <ConfirmDialogProvider>
+                <FolderTree
+                    folders={folders}
+                    assignments={[]}
+                    recordings={recordings}
+                    selectedFolderId={null}
+                    onRecent={vi.fn()}
+                    onSelectFolder={vi.fn()}
+                    onCreateFolder={vi.fn()}
+                    onRenameFolder={vi.fn()}
+                    onMoveFolder={vi.fn()}
+                    onDeleteFolder={vi.fn()}
+                    onAssignRecording={onAssignRecording}
+                />
+            </ConfirmDialogProvider>,
+        );
+
+        const meetings = screen.getByRole("button", {
+            name: "Meetings, 0 recordings",
+        });
+        const dataTransfer = {
+            effectAllowed: "copy",
+            dropEffect: "none",
+            types: ["application/x-riffado-recording"],
+            setData: vi.fn(),
+            getData: vi
+                .fn()
+                .mockImplementation((type: string) =>
+                    type === "application/x-riffado-recording" ? "rec-1" : "",
+                ),
+        };
+
+        fireEvent.dragOver(meetings, { dataTransfer });
+        expect(dataTransfer.dropEffect).toBe("copy");
+        fireEvent.drop(meetings, { dataTransfer });
+
+        expect(onAssignRecording).toHaveBeenCalledWith("rec-1", "meetings");
+    });
+
     it("returns to the recent-recordings mode", () => {
         const onRecent = vi.fn();
         render(
@@ -183,6 +227,7 @@ describe("folder navigation", () => {
                     onRenameFolder={vi.fn()}
                     onMoveFolder={vi.fn()}
                     onDeleteFolder={vi.fn()}
+                    onAssignRecording={vi.fn()}
                 />
             </ConfirmDialogProvider>,
         );

@@ -49,6 +49,8 @@ type FolderAction =
 
 type DropPlacement = "before" | "inside" | "after";
 
+const RECORDING_DRAG_TYPE = "application/x-riffado-recording";
+
 interface DropTarget {
     folderId: string;
     placement: DropPlacement;
@@ -69,6 +71,7 @@ interface FolderTreeProps {
         beforeId?: string | null,
     ) => Promise<void>;
     onDeleteFolder: (folderId: string) => Promise<void>;
+    onAssignRecording: (recordingId: string, folderId: string) => Promise<void>;
 }
 
 export function FolderTree({
@@ -82,6 +85,7 @@ export function FolderTree({
     onRenameFolder,
     onMoveFolder,
     onDeleteFolder,
+    onAssignRecording,
 }: FolderTreeProps) {
     const confirm = useConfirm();
     const [query, setQuery] = useState("");
@@ -94,6 +98,9 @@ export function FolderTree({
     const [saving, setSaving] = useState(false);
     const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
     const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+    const [recordingDropFolderId, setRecordingDropFolderId] = useState<
+        string | null
+    >(null);
 
     const childrenByParent = useMemo(() => {
         const result = new Map<string | null, RecordingFolder[]>();
@@ -257,6 +264,8 @@ export function FolderTree({
                         dropTarget?.folderId === folder.id &&
                             dropTarget.placement === "after" &&
                             "border-b-primary",
+                        recordingDropFolderId === folder.id &&
+                            "border-primary bg-primary/10 ring-1 ring-primary/30",
                     )}
                     style={{ paddingLeft: `${depth * 20 + 4}px` }}
                 >
@@ -304,16 +313,50 @@ export function FolderTree({
                             setDropTarget(null);
                         }}
                         onDragOver={(event) => {
+                            const isRecordingDrag = Array.from(
+                                event.dataTransfer.types ?? [],
+                            ).includes(RECORDING_DRAG_TYPE);
+                            if (isRecordingDrag) {
+                                if (folder.kind === "private") return;
+                                event.preventDefault();
+                                event.dataTransfer.dropEffect = "copy";
+                                setDropTarget(null);
+                                setRecordingDropFolderId(folder.id);
+                                return;
+                            }
                             if (!draggedFolderId) return;
                             event.preventDefault();
                             event.dataTransfer.dropEffect = "move";
+                            setRecordingDropFolderId(null);
                             setDropTarget({
                                 folderId: folder.id,
                                 placement: dropPlacementFor(event, folder),
                             });
                         }}
-                        onDragLeave={() => setDropTarget(null)}
+                        onDragLeave={() => {
+                            setDropTarget(null);
+                            setRecordingDropFolderId(null);
+                        }}
                         onDrop={(event) => {
+                            const recordingId = Array.from(
+                                event.dataTransfer.types ?? [],
+                            ).includes(RECORDING_DRAG_TYPE)
+                                ? event.dataTransfer.getData(
+                                      RECORDING_DRAG_TYPE,
+                                  )
+                                : "";
+                            if (recordingId) {
+                                event.preventDefault();
+                                setDropTarget(null);
+                                setRecordingDropFolderId(null);
+                                if (folder.kind !== "private") {
+                                    void onAssignRecording(
+                                        recordingId,
+                                        folder.id,
+                                    ).catch(() => {});
+                                }
+                                return;
+                            }
                             event.preventDefault();
                             const draggedId =
                                 draggedFolderId ||

@@ -47,6 +47,8 @@ import type { Recording } from "@/types/recording";
 type RecordingSortColumn = "title" | "date" | "duration" | "size";
 type SortDirection = "asc" | "desc";
 
+const RECORDING_DRAG_TYPE = "application/x-riffado-recording";
+
 interface FolderRecordingPaneProps {
     folder: RecordingFolder;
     folders: RecordingFolder[];
@@ -130,6 +132,19 @@ export function FolderRecordingPane({
         }
         return result;
     }, [folder, folders]);
+
+    const assignedFoldersByRecording = useMemo(() => {
+        const foldersById = new Map(folders.map((item) => [item.id, item]));
+        const result = new Map<string, RecordingFolder[]>();
+        for (const assignment of assignments) {
+            const assignedFolder = foldersById.get(assignment.folderId);
+            if (!assignedFolder || assignedFolder.kind === "private") continue;
+            const assigned = result.get(assignment.recordingId) ?? [];
+            assigned.push(assignedFolder);
+            result.set(assignment.recordingId, assigned);
+        }
+        return result;
+    }, [assignments, folders]);
 
     const submitRename = async () => {
         if (!draft.trim()) return;
@@ -298,15 +313,46 @@ export function FolderRecordingPane({
                             >
                                 <button
                                     type="button"
+                                    draggable
+                                    onDragStart={(event) => {
+                                        event.dataTransfer.setData(
+                                            RECORDING_DRAG_TYPE,
+                                            recording.id,
+                                        );
+                                        event.dataTransfer.effectAllowed =
+                                            "copy";
+                                    }}
                                     onClick={() => onSelectRecording(recording)}
                                     aria-label={`Open ${recording.filename}`}
-                                    className="flex min-w-0 items-center gap-3 text-left"
+                                    className="flex min-w-0 cursor-grab items-center gap-3 text-left active:cursor-grabbing"
                                 >
                                     <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
                                         <Play className="ml-0.5 size-4 fill-current" />
                                     </span>
-                                    <span className="truncate text-sm font-medium">
-                                        {recording.filename}
+                                    <span className="min-w-0">
+                                        <span className="block truncate text-sm font-medium">
+                                            {recording.filename}
+                                        </span>
+                                        {(assignedFoldersByRecording.get(
+                                            recording.id,
+                                        )?.length ?? 0) > 0 && (
+                                            <span className="mt-1 flex flex-wrap gap-1">
+                                                {assignedFoldersByRecording
+                                                    .get(recording.id)
+                                                    ?.map((assignedFolder) => (
+                                                        <span
+                                                            key={
+                                                                assignedFolder.id
+                                                            }
+                                                            className="rounded-full border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] font-normal leading-none text-muted-foreground"
+                                                        >
+                                                            {
+                                                                assignedFolder.name
+                                                            }
+                                                        </span>
+                                                    ))}
+                                            </span>
+                                        )}
                                     </span>
                                 </button>
                                 <span className="text-xs text-muted-foreground max-md:hidden">
@@ -367,8 +413,9 @@ export function FolderRecordingPane({
                                 This folder is empty
                             </p>
                             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                                Add a recording from its detail view. Recordings
-                                can appear in more than one folder.
+                                Drag a recording onto this folder, or add it
+                                from its detail view. Recordings can appear in
+                                more than one folder.
                             </p>
                         </div>
                     )}
