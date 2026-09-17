@@ -1,7 +1,10 @@
 "use client";
 
 import {
+    ArrowDown,
     ArrowLeft,
+    ArrowUp,
+    ArrowUpDown,
     Download,
     Folder,
     MoreHorizontal,
@@ -41,6 +44,9 @@ import type {
 } from "@/types/folder";
 import type { Recording } from "@/types/recording";
 
+type RecordingSortColumn = "title" | "date" | "duration" | "size";
+type SortDirection = "asc" | "desc";
+
 interface FolderRecordingPaneProps {
     folder: RecordingFolder;
     folders: RecordingFolder[];
@@ -70,16 +76,49 @@ export function FolderRecordingPane({
     const [renameOpen, setRenameOpen] = useState(false);
     const [draft, setDraft] = useState(folder.name);
     const [saving, setSaving] = useState(false);
+    const [sort, setSort] = useState<{
+        column: RecordingSortColumn;
+        direction: SortDirection;
+    }>({ column: "date", direction: "desc" });
 
     const folderRecordings = useMemo(() => {
-        if (folder.kind === "private") return recordings;
-        const ids = new Set(
-            assignments
-                .filter((assignment) => assignment.folderId === folder.id)
-                .map((assignment) => assignment.recordingId),
-        );
-        return recordings.filter((recording) => ids.has(recording.id));
-    }, [assignments, folder, recordings]);
+        const matching =
+            folder.kind === "private"
+                ? recordings
+                : (() => {
+                      const ids = new Set(
+                          assignments
+                              .filter(
+                                  (assignment) =>
+                                      assignment.folderId === folder.id,
+                              )
+                              .map((assignment) => assignment.recordingId),
+                      );
+                      return recordings.filter((recording) =>
+                          ids.has(recording.id),
+                      );
+                  })();
+        const direction = sort.direction === "asc" ? 1 : -1;
+        return [...matching].sort((left, right) => {
+            let difference: number;
+            switch (sort.column) {
+                case "title":
+                    difference = left.filename.localeCompare(right.filename);
+                    break;
+                case "duration":
+                    difference = left.duration - right.duration;
+                    break;
+                case "size":
+                    difference = left.filesize - right.filesize;
+                    break;
+                default:
+                    difference =
+                        Date.parse(left.startTime) -
+                        Date.parse(right.startTime);
+            }
+            return difference * direction || left.id.localeCompare(right.id);
+        });
+    }, [assignments, folder, recordings, sort]);
 
     const path = useMemo(() => {
         const byId = new Map(folders.map((item) => [item.id, item]));
@@ -103,6 +142,48 @@ export function FolderRecordingPane({
         } finally {
             setSaving(false);
         }
+    };
+
+    const changeSort = (column: RecordingSortColumn) => {
+        setSort((current) =>
+            current.column === column
+                ? {
+                      column,
+                      direction: current.direction === "asc" ? "desc" : "asc",
+                  }
+                : {
+                      column,
+                      direction: column === "title" ? "asc" : "desc",
+                  },
+        );
+    };
+
+    const sortHeader = (
+        column: RecordingSortColumn,
+        label: string,
+        className?: string,
+    ) => {
+        const active = sort.column === column;
+        const Icon = active
+            ? sort.direction === "asc"
+                ? ArrowUp
+                : ArrowDown
+            : ArrowUpDown;
+        return (
+            <button
+                type="button"
+                className={cn(
+                    "inline-flex items-center gap-1 text-left transition-colors hover:text-foreground",
+                    active && "text-foreground",
+                    className,
+                )}
+                onClick={() => changeSort(column)}
+                aria-label={`Sort by ${label}${active ? `, ${sort.direction === "asc" ? "ascending" : "descending"}` : ""}`}
+            >
+                {label}
+                <Icon className="size-3" />
+            </button>
+        );
     };
 
     return (
@@ -203,10 +284,10 @@ export function FolderRecordingPane({
             <Card hasNoPadding>
                 <CardContent className="p-0">
                     <div className="grid grid-cols-[minmax(0,1fr)_9rem_6rem_6rem_2.5rem] gap-4 border-b bg-muted/20 px-5 py-3 text-xs font-medium text-muted-foreground max-md:grid-cols-[minmax(0,1fr)_5rem_2.5rem]">
-                        <span>Title</span>
-                        <span className="max-md:hidden">Date</span>
-                        <span>Duration</span>
-                        <span className="max-md:hidden">Size</span>
+                        {sortHeader("title", "Title")}
+                        {sortHeader("date", "Date", "max-md:hidden")}
+                        {sortHeader("duration", "Duration")}
+                        {sortHeader("size", "Size", "max-md:hidden")}
                         <span />
                     </div>
                     <div className="divide-y">
@@ -218,6 +299,7 @@ export function FolderRecordingPane({
                                 <button
                                     type="button"
                                     onClick={() => onSelectRecording(recording)}
+                                    aria-label={`Open ${recording.filename}`}
                                     className="flex min-w-0 items-center gap-3 text-left"
                                 >
                                     <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">

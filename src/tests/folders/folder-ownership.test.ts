@@ -25,9 +25,11 @@ import {
     recordingFolders,
     recordings,
 } from "@/db/schema";
+import { encryptText } from "@/lib/encryption/fields";
 import {
     addRecordingToFolder,
     deleteFolder,
+    moveFolder,
     removeRecordingFromFolder,
 } from "@/lib/folders/folders";
 import { exprBindsValue, exprReferencesColumn } from "../fixtures/drizzle-expr";
@@ -144,5 +146,80 @@ describe("folder ownership", () => {
                 recordingFolderAssignments.folderId,
             ),
         ).toBe(true);
+    });
+
+    it("persists sibling order and scopes every reorder query by userId", async () => {
+        const selectWheres: unknown[] = [];
+        const updateWheres: unknown[] = [];
+        const updates: Array<{ parentId: string; sortOrder: number }> = [];
+        const folderRows = [
+            {
+                id: "private",
+                parentId: null,
+                name: encryptText("Private"),
+                kind: "private" as const,
+                sortOrder: 0,
+            },
+            {
+                id: "first",
+                parentId: "private",
+                name: encryptText("First"),
+                kind: "custom" as const,
+                sortOrder: 0,
+            },
+            {
+                id: "last",
+                parentId: "private",
+                name: encryptText("Last"),
+                kind: "custom" as const,
+                sortOrder: 1000,
+            },
+        ];
+        const tx = {
+            select: vi.fn().mockReturnValue({
+                from: vi.fn().mockReturnValue({
+                    where: vi.fn((expression: unknown) => {
+                        selectWheres.push(expression);
+                        return Promise.resolve(folderRows);
+                    }),
+                }),
+            }),
+            update: vi.fn().mockReturnValue({
+                set: vi.fn(
+                    (values: { parentId: string; sortOrder: number }) => {
+                        updates.push(values);
+                        return {
+                            where: vi.fn((expression: unknown) => {
+                                updateWheres.push(expression);
+                                return Promise.resolve();
+                            }),
+                        };
+                    },
+                ),
+            }),
+        };
+        (db.transaction as Mock).mockImplementation(
+            (callback: (transaction: typeof tx) => Promise<unknown>) =>
+                callback(tx),
+        );
+
+        const moved = await moveFolder({
+            userId: "user-1",
+            folderId: "last",
+            parentId: "private",
+            beforeId: "first",
+        });
+
+        expect(moved.sortOrder).toBe(0);
+        expect(updates.map((update) => update.sortOrder)).toEqual([0, 1000]);
+        expect(
+            exprReferencesColumn(selectWheres[0], recordingFolders.userId),
+        ).toBe(true);
+        for (const where of updateWheres) {
+            expect(exprReferencesColumn(where, recordingFolders.userId)).toBe(
+                true,
+            );
+            expect(exprBindsValue(where, "user-1")).toBe(true);
+        }
     });
 });

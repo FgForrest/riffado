@@ -5,6 +5,7 @@ export interface RecordingFolder {
     parentId: string | null;
     name: string;
     kind: FolderKind;
+    sortOrder: number;
 }
 
 export interface RecordingFolderAssignment {
