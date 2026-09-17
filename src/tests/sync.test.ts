@@ -21,6 +21,10 @@ vi.mock("@/lib/plaud/client-factory", () => ({
     createPlaudClient: vi.fn(),
 }));
 
+vi.mock("@/lib/audio/ingest-waveform", () => ({
+    generateIngestWaveform: vi.fn().mockResolvedValue([0.25, 1]),
+}));
+
 vi.mock("@/lib/storage/factory", () => ({
     createUserStorageProvider: vi.fn().mockResolvedValue({
         uploadFile: vi.fn().mockResolvedValue(undefined),
@@ -58,6 +62,7 @@ vi.mock("@/lib/posthog-server", () => ({
 }));
 
 import { db } from "@/db";
+import { generateIngestWaveform } from "@/lib/audio/ingest-waveform";
 import { createPlaudClient } from "@/lib/plaud/client-factory";
 import { captureServerException } from "@/lib/posthog-server";
 import { resetAutoTranscribeStateForTests } from "@/lib/sync/auto-transcribe-state";
@@ -428,6 +433,9 @@ describe("Sync", () => {
             // Stub the tx so the inner select returns a non-tombstoned row
             // and the inner update resolves; cb returns true so the caller
             // proceeds to emit `recording.updated`.
+            const set = vi.fn().mockReturnValue({
+                where: vi.fn().mockResolvedValue(undefined),
+            });
             (db.transaction as Mock).mockImplementation(
                 async (cb: (tx: unknown) => Promise<boolean>) => {
                     const tx = {
@@ -445,9 +453,7 @@ describe("Sync", () => {
                             }),
                         }),
                         update: vi.fn().mockReturnValue({
-                            set: vi.fn().mockReturnValue({
-                                where: vi.fn().mockResolvedValue(undefined),
-                            }),
+                            set,
                         }),
                     };
                     return cb(tx);
@@ -458,6 +464,12 @@ describe("Sync", () => {
 
             expect(result.newRecordings).toBe(0);
             expect(result.updatedRecordings).toBe(1);
+            expect(generateIngestWaveform).toHaveBeenCalledWith(
+                Buffer.from("audio"),
+            );
+            expect(set).toHaveBeenCalledWith(
+                expect.objectContaining({ waveformPeaks: [0.25, 1] }),
+            );
         });
 
         it("should return error when sync fails", async () => {

@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { nanoid } from "nanoid";
 import { db } from "@/db";
 import { recordings } from "@/db/schema";
+import { generateIngestWaveform } from "@/lib/audio/ingest-waveform";
 import { encryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
 import { AppError, ErrorCode } from "@/lib/errors";
@@ -55,7 +56,10 @@ export async function saveUploadedAudio(
     const md5 = createHash("md5").update(input.buffer).digest("hex");
     const now = new Date();
 
-    await input.storage.uploadFile(storageKey, input.buffer, contentType);
+    const [waveformPeaks] = await Promise.all([
+        generateIngestWaveform(input.buffer),
+        input.storage.uploadFile(storageKey, input.buffer, contentType),
+    ]);
 
     try {
         const [recording] = await db
@@ -73,6 +77,7 @@ export async function saveUploadedAudio(
                 fileMd5: md5,
                 storageType: env.DEFAULT_STORAGE_TYPE,
                 storagePath: storageKey,
+                waveformPeaks,
                 downloadedAt: now,
                 plaudVersion: "1",
                 isTrash: false,

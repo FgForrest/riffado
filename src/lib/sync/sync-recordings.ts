@@ -9,6 +9,7 @@ import {
     userSettings,
     users,
 } from "@/db/schema";
+import { generateIngestWaveform } from "@/lib/audio/ingest-waveform";
 import { sniffAudio } from "@/lib/audio/sniff";
 import { encryptText } from "@/lib/encryption/fields";
 import { isHostedLockedOut } from "@/lib/entitlements";
@@ -428,7 +429,10 @@ async function processRecording(
             recordingId,
         );
         const contentType = sniffed.contentType;
-        await storage.uploadFile(storageKey, audioBuffer, contentType);
+        const [waveformPeaks] = await Promise.all([
+            generateIngestWaveform(audioBuffer),
+            storage.uploadFile(storageKey, audioBuffer, contentType),
+        ]);
 
         const recordingData = {
             userId: context.userId,
@@ -442,6 +446,7 @@ async function processRecording(
             fileMd5: plaudRecording.file_md5,
             storageType: env.DEFAULT_STORAGE_TYPE,
             storagePath: storageKey,
+            waveformPeaks,
             downloadedAt: new Date(),
             plaudVersion: versionKey,
             timezone: plaudRecording.timezone,
