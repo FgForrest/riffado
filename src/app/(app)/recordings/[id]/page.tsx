@@ -5,6 +5,7 @@ import { db } from "@/db";
 import { recordings, transcriptions, userSettings } from "@/db/schema";
 import { requireAuth, requireCompletedOnboarding } from "@/lib/auth-server";
 import { decryptText } from "@/lib/encryption/fields";
+import { listFolderOrganization } from "@/lib/folders/folders";
 import { readTranscriptTurns } from "@/lib/transcription/read-turns";
 import { resolvePrimaryTranscript } from "@/lib/v1/serialize";
 
@@ -44,29 +45,31 @@ export default async function RecordingDetailPage({
     // 75 / 1x / false defaults regardless of what the user picked
     // in Settings → Playback (the dashboard route already plumbs
     // these through Workstation).
-    const [transcriptRows, [settingsRow]] = await Promise.all([
-        db
-            .select()
-            .from(transcriptions)
-            .where(
-                and(
-                    eq(transcriptions.recordingId, id),
-                    eq(transcriptions.userId, session.user.id),
+    const [transcriptRows, [settingsRow], folderOrganization] =
+        await Promise.all([
+            db
+                .select()
+                .from(transcriptions)
+                .where(
+                    and(
+                        eq(transcriptions.recordingId, id),
+                        eq(transcriptions.userId, session.user.id),
+                    ),
                 ),
-            ),
-        db
-            .select({
-                defaultPlaybackSpeed: userSettings.defaultPlaybackSpeed,
-                defaultVolume: userSettings.defaultVolume,
-                autoPlayNext: userSettings.autoPlayNext,
-                playerScrubber: userSettings.playerScrubber,
-                preferredTranscriptSource:
-                    userSettings.preferredTranscriptSource,
-            })
-            .from(userSettings)
-            .where(eq(userSettings.userId, session.user.id))
-            .limit(1),
-    ]);
+            db
+                .select({
+                    defaultPlaybackSpeed: userSettings.defaultPlaybackSpeed,
+                    defaultVolume: userSettings.defaultVolume,
+                    autoPlayNext: userSettings.autoPlayNext,
+                    playerScrubber: userSettings.playerScrubber,
+                    preferredTranscriptSource:
+                        userSettings.preferredTranscriptSource,
+                })
+                .from(userSettings)
+                .where(eq(userSettings.userId, session.user.id))
+                .limit(1),
+            listFolderOrganization(session.user.id),
+        ]);
 
     // Order primary-first (per the user's preferred source) so the switcher
     // defaults to it, then decrypt for the client component.
@@ -111,6 +114,7 @@ export default async function RecordingDetailPage({
             initialAutoPlayNext={settingsRow?.autoPlayNext ?? false}
             scrubberStyle={scrubberStyle}
             transcripts={transcriptOptions}
+            initialFolderOrganization={folderOrganization}
         />
     );
 }

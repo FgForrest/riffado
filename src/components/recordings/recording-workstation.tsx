@@ -15,9 +15,12 @@ import {
 } from "@/components/dashboard/transcription-panel";
 import { LocalTime } from "@/components/local-time";
 import { EraseRecordingMenu } from "@/components/recordings/erase-recording-menu";
+import { RecordingFolderTags } from "@/components/recordings/recording-folder-tags";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useTranscribeQueue } from "@/hooks/use-transcribe-queue";
+import { getApiErrorMessage } from "@/lib/api-errors";
+import type { FolderOrganization } from "@/types/folder";
 import type { Recording } from "@/types/recording";
 
 interface Transcription {
@@ -42,6 +45,7 @@ interface RecordingWorkstationProps {
     initialVolume?: number;
     initialAutoPlayNext?: boolean;
     scrubberStyle?: "waveform" | "slider";
+    initialFolderOrganization: FolderOrganization;
 }
 
 export function RecordingWorkstation({
@@ -52,9 +56,12 @@ export function RecordingWorkstation({
     initialVolume,
     initialAutoPlayNext,
     scrubberStyle,
+    initialFolderOrganization,
 }: RecordingWorkstationProps) {
     const { push, refresh } = useRouter();
     const [filename, setFilename] = useState(recording.filename);
+    const [folderOrganization, setFolderOrganization] =
+        useState<FolderOrganization>(initialFolderOrganization);
     const playerRef = useRef<RecordingPlayerHandle>(null);
     const { inFlightActions, observeTranscriptionById, transcribeById } =
         useTranscribeQueue({ onTranscribeComplete: refresh });
@@ -63,6 +70,10 @@ export function RecordingWorkstation({
     useEffect(() => {
         setFilename(recording.filename);
     }, [recording.filename]);
+
+    useEffect(() => {
+        setFolderOrganization(initialFolderOrganization);
+    }, [initialFolderOrganization]);
 
     useEffect(() => {
         void observeTranscriptionById(recording.id);
@@ -106,6 +117,46 @@ export function RecordingWorkstation({
         refresh();
     }, [recording.id, refresh, push]);
 
+    const handleFolderAssignment = useCallback(
+        async (folderId: string, assigned: boolean) => {
+            const previous = folderOrganization.assignments;
+            setFolderOrganization((current) => ({
+                ...current,
+                assignments: assigned
+                    ? [
+                          ...current.assignments,
+                          { recordingId: recording.id, folderId },
+                      ]
+                    : current.assignments.filter(
+                          (item) =>
+                              item.recordingId !== recording.id ||
+                              item.folderId !== folderId,
+                      ),
+            }));
+            const response = await fetch(
+                `/api/recordings/${recording.id}/folders`,
+                {
+                    method: assigned ? "POST" : "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ folderId }),
+                },
+            );
+            if (!response.ok) {
+                setFolderOrganization((current) => ({
+                    ...current,
+                    assignments: previous,
+                }));
+                toast.error(
+                    await getApiErrorMessage(
+                        response,
+                        "Could not update folder assignment",
+                    ),
+                );
+            }
+        },
+        [folderOrganization.assignments, recording.id],
+    );
+
     return (
         <div className="bg-background">
             <div className="container mx-auto max-w-6xl px-4 py-6">
@@ -131,6 +182,22 @@ export function RecordingWorkstation({
                                 onDeleteLocal={handleDelete}
                                 onChanged={refresh}
                             />
+                        }
+                    />
+                    <RecordingFolderTags
+                        recordingId={recording.id}
+                        folders={folderOrganization.folders}
+                        assignments={folderOrganization.assignments}
+                        onSelectFolder={(folder) =>
+                            push(
+                                `/dashboard?folder=${encodeURIComponent(folder.id)}`,
+                            )
+                        }
+                        onAdd={(_recordingId, folderId) =>
+                            handleFolderAssignment(folderId, true)
+                        }
+                        onRemove={(_recordingId, folderId) =>
+                            handleFolderAssignment(folderId, false)
                         }
                     />
                     {!displayRecording.audioReaped && (
