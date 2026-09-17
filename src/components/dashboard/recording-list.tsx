@@ -15,7 +15,6 @@ import {
     PendingUploadRow,
 } from "@/components/dashboard/pending-upload-row";
 import {
-    type ListDensity,
     RecordingListToolbar,
     type SortOrder,
 } from "@/components/dashboard/recording-list-toolbar";
@@ -26,10 +25,7 @@ import type { DateTimeFormat } from "@/types/common";
 import type { Recording } from "@/types/recording";
 
 export type { PendingUpload } from "@/components/dashboard/pending-upload-row";
-export type {
-    ListDensity,
-    SortOrder,
-} from "@/components/dashboard/recording-list-toolbar";
+export type { SortOrder } from "@/components/dashboard/recording-list-toolbar";
 
 interface TranscriptionData {
     text?: string;
@@ -46,8 +42,8 @@ interface RecordingListProps {
     onDelete: (recording: Recording) => Promise<void>;
     initialDateTimeFormat: DateTimeFormat;
     initialSortOrder: SortOrder;
-    initialDensity: ListDensity;
     initialChunkSize: number;
+    onOrganize: () => void;
 }
 
 export interface RecordingListHandle {
@@ -89,13 +85,12 @@ export function RecordingList({
     onDelete,
     initialDateTimeFormat,
     initialSortOrder,
-    initialDensity,
     initialChunkSize,
+    onOrganize,
     ref,
 }: RecordingListProps & { ref?: React.Ref<RecordingListHandle> }) {
     const [dateTimeFormat] = useState<DateTimeFormat>(initialDateTimeFormat);
     const [sortOrder, setSortOrder] = useState<SortOrder>(initialSortOrder);
-    const [density, setDensity] = useState<ListDensity>(initialDensity);
     const [query, setQuery] = useState("");
     const [visibleCount, setVisibleCount] = useState(initialChunkSize);
     const searchRef = useRef<HTMLInputElement>(null);
@@ -105,11 +100,6 @@ export function RecordingList({
     const setSortOrderPersisted = useCallback((next: SortOrder) => {
         setSortOrder(next);
         persistSetting("recordingListSortOrder", next);
-    }, []);
-
-    const setDensityPersisted = useCallback((next: ListDensity) => {
-        setDensity(next);
-        persistSetting("listDensity", next);
     }, []);
 
     const registerRowRef = useCallback(
@@ -242,8 +232,7 @@ export function RecordingList({
         [filtered, currentRecording, onSelect],
     );
 
-    const isCompact = density === "compact";
-    const rowPadding = isCompact ? "px-4 py-2" : "px-4 py-3";
+    const rowPadding = "px-4 py-3";
 
     return (
         <Card hasNoPadding>
@@ -259,8 +248,7 @@ export function RecordingList({
                     totalCount={recordings.length}
                     sortOrder={sortOrder}
                     onSortOrderChange={setSortOrderPersisted}
-                    density={density}
-                    onDensityChange={setDensityPersisted}
+                    onOrganize={onOrganize}
                 />
 
                 {pendingUploads.length > 0 && (
@@ -301,7 +289,7 @@ export function RecordingList({
                                             transcriptions.get(recording.id)
                                                 ?.text,
                                         )}
-                                        isCompact={isCompact}
+                                        isCompact={false}
                                         rowPadding={rowPadding}
                                         dateTimeFormat={dateTimeFormat}
                                         onSelect={onSelect}

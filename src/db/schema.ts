@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+    type AnyPgColumn,
     bigint,
     boolean,
     date,
@@ -349,6 +350,67 @@ export const recordings = pgTable(
             .where(
                 sql`${table.storageFilename} is not null and ${table.deletedAt} is null`,
             ),
+    }),
+);
+
+export const recordingFolders = pgTable(
+    "recording_folders",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        parentId: text("parent_id").references(
+            (): AnyPgColumn => recordingFolders.id,
+            { onDelete: "cascade" },
+        ),
+        name: text("name").notNull(),
+        nameHash: varchar("name_hash", { length: 64 }).notNull(),
+        kind: varchar("kind", { length: 16 })
+            .$type<"private" | "public" | "custom">()
+            .notNull()
+            .default("custom"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        userIdIdx: index("recording_folders_user_id_idx").on(table.userId),
+        parentIdIdx: index("recording_folders_parent_id_idx").on(
+            table.parentId,
+        ),
+        siblingNameUnique: uniqueIndex(
+            "recording_folders_user_parent_name_unique",
+        ).on(table.userId, table.parentId, table.nameHash),
+        rootKindUnique: uniqueIndex("recording_folders_user_root_kind_unique")
+            .on(table.userId, table.kind)
+            .where(sql`${table.kind} in ('private', 'public')`),
+    }),
+);
+
+export const recordingFolderAssignments = pgTable(
+    "recording_folder_assignments",
+    {
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        recordingId: text("recording_id")
+            .notNull()
+            .references(() => recordings.id, { onDelete: "cascade" }),
+        folderId: text("folder_id")
+            .notNull()
+            .references(() => recordingFolders.id, { onDelete: "cascade" }),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        pk: primaryKey({ columns: [table.recordingId, table.folderId] }),
+        userIdIdx: index("recording_folder_assignments_user_id_idx").on(
+            table.userId,
+        ),
+        folderIdIdx: index("recording_folder_assignments_folder_id_idx").on(
+            table.folderId,
+        ),
     }),
 );
 

@@ -22,6 +22,10 @@ vi.mock("@/components/recordings/erase-recording-menu", () => ({
     EraseRecordingMenu: () => null,
 }));
 
+vi.mock("@/components/recordings/recording-folder-tags", () => ({
+    RecordingFolderTags: () => <div data-testid="folder-tags" />,
+}));
+
 import { WorkstationDetailPane } from "@/components/dashboard/workstation-detail-pane";
 
 const recording: Recording = {
@@ -48,6 +52,11 @@ const sharedProps = {
     initialVolume: 75,
     initialAutoPlayNext: false,
     scrubberStyle: "waveform" as const,
+    folders: [],
+    folderAssignments: [],
+    onSelectFolder: vi.fn(),
+    onAddToFolder: vi.fn(),
+    onRemoveFromFolder: vi.fn(),
 };
 
 describe("recording detail layout", () => {

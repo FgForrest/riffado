@@ -12,10 +12,15 @@ import {
     type TranscriptOption,
 } from "@/components/dashboard/transcription-panel";
 import { EraseRecordingMenu } from "@/components/recordings/erase-recording-menu";
+import { RecordingFolderTags } from "@/components/recordings/recording-folder-tags";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
 import { cn } from "@/lib/utils";
+import type {
+    RecordingFolder,
+    RecordingFolderAssignment,
+} from "@/types/folder";
 import type { Recording } from "@/types/recording";
 
 interface TranscriptionData {
@@ -47,6 +52,14 @@ interface Props {
     initialVolume: number | undefined;
     initialAutoPlayNext: boolean | undefined;
     scrubberStyle: "waveform" | "slider" | undefined;
+    folders: RecordingFolder[];
+    folderAssignments: RecordingFolderAssignment[];
+    onSelectFolder: (folder: RecordingFolder) => void;
+    onAddToFolder: (recordingId: string, folderId: string) => Promise<void>;
+    onRemoveFromFolder: (
+        recordingId: string,
+        folderId: string,
+    ) => Promise<void>;
 }
 
 /**
@@ -77,6 +90,11 @@ export function WorkstationDetailPane({
     initialVolume,
     initialAutoPlayNext,
     scrubberStyle,
+    folders,
+    folderAssignments,
+    onSelectFolder,
+    onAddToFolder,
+    onRemoveFromFolder,
 }: Props) {
     const playerRef = useRef<RecordingPlayerHandle>(null);
     const hasTranscript =
@@ -120,6 +138,14 @@ export function WorkstationDetailPane({
                                 onChanged={onArtifactsChanged}
                             />
                         }
+                    />
+                    <RecordingFolderTags
+                        recordingId={currentRecording.id}
+                        folders={folders}
+                        assignments={folderAssignments}
+                        onSelectFolder={onSelectFolder}
+                        onAdd={onAddToFolder}
+                        onRemove={onRemoveFromFolder}
                     />
                     {!currentRecording.audioReaped && (
                         <RecordingPlayer

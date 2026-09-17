@@ -5,6 +5,8 @@ import posthog from "posthog-js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CommandPalette } from "@/components/dashboard/command-palette";
+import { FolderRecordingPane } from "@/components/dashboard/folder-recording-pane";
+import { FolderTree } from "@/components/dashboard/folder-tree";
 import { PlaudReconnectBanner } from "@/components/dashboard/plaud-reconnect-banner";
 import {
     RecordingList,
@@ -23,6 +25,7 @@ import { useListKeyboardNav } from "@/hooks/use-list-keyboard-nav";
 import { useTheme } from "@/hooks/use-theme";
 import { useTranscribeQueue } from "@/hooks/use-transcribe-queue";
 import { useUploadQueue } from "@/hooks/use-upload-queue";
+import { getApiErrorMessage } from "@/lib/api-errors";
 import {
     requestNotificationPermission,
     showNewRecordingNotification,
@@ -35,6 +38,7 @@ import {
 import type { InitialSettings } from "@/lib/settings/initial-settings";
 import { SYNC_CONFIG } from "@/lib/sync-config";
 import { cn } from "@/lib/utils";
+import type { FolderOrganization, RecordingFolder } from "@/types/folder";
 import type { Recording } from "@/types/recording";
 
 interface TranscriptionData {
@@ -90,6 +94,7 @@ interface WorkstationProps {
      * hosted-mode behavior by forgetting to thread the value through.
      */
     isHosted: boolean;
+    initialFolderOrganization: FolderOrganization;
 }
 
 /**
@@ -117,6 +122,7 @@ export function Workstation({
     initialSettings,
     plaudNeedsReconnect,
     isHosted,
+    initialFolderOrganization,
 }: WorkstationProps) {
     const { refresh } = useRouter();
     const [currentRecording, setCurrentRecording] = useState<Recording | null>(
@@ -141,9 +147,40 @@ export function Workstation({
     // state entirely (both panes render via the grid).
     const [mobileView, setMobileView] = useState<"list" | "detail">("list");
     const [providers, setProviders] = useState<Provider[]>(EMPTY_PROVIDERS);
+    const [libraryMode, setLibraryMode] = useState<"recent" | "organize">(
+        "recent",
+    );
+    const [folderOrganization, setFolderOrganization] =
+        useState<FolderOrganization>(initialFolderOrganization);
+    const [selectedFolderId, setSelectedFolderId] = useState<string | null>(
+        null,
+    );
 
     const { theme, setTheme } = useTheme(initialSettings.theme);
     const listRef = useRef<RecordingListHandle>(null);
+    const initialFolderQueryHandled = useRef(false);
+
+    useEffect(() => {
+        if (initialFolderQueryHandled.current) return;
+        initialFolderQueryHandled.current = true;
+        const folderId = new URLSearchParams(window.location.search).get(
+            "folder",
+        );
+        if (
+            folderId &&
+            initialFolderOrganization.folders.some(
+                (folder) => folder.id === folderId,
+            )
+        ) {
+            setLibraryMode("organize");
+            setSelectedFolderId(folderId);
+            setMobileView("detail");
+        }
+    }, [initialFolderOrganization.folders]);
+
+    useEffect(() => {
+        setFolderOrganization(initialFolderOrganization);
+    }, [initialFolderOrganization]);
 
     // Filter out optimistically-hidden (deleted) rows.
     const visibleRecordings = useMemo(
@@ -165,6 +202,11 @@ export function Workstation({
     const selectedRecording = currentRecording
         ? (visibleRecordings.find((r) => r.id === currentRecording.id) ??
           currentRecording)
+        : null;
+    const selectedFolder = selectedFolderId
+        ? (folderOrganization.folders.find(
+              (folder) => folder.id === selectedFolderId,
+          ) ?? null)
         : null;
 
     // Keep currentRecording in sync with the recordings prop (updated
@@ -361,6 +403,189 @@ export function Workstation({
         [currentRecording?.id, refresh],
     );
 
+    const handleCreateFolder = useCallback(
+        async (parentId: string, name: string) => {
+            const response = await fetch("/api/folders", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ parentId, name }),
+            });
+            if (!response.ok) {
+                toast.error(
+                    await getApiErrorMessage(
+                        response,
+                        "Could not create folder",
+                    ),
+                );
+                throw new Error("Could not create folder");
+            }
+            const { folder } = (await response.json()) as {
+                folder: RecordingFolder;
+            };
+            setFolderOrganization((current) => ({
+                ...current,
+                folders: [...current.folders, folder],
+            }));
+            toast.success("Folder created");
+        },
+        [],
+    );
+
+    const handleRenameFolder = useCallback(
+        async (folderId: string, name: string) => {
+            const response = await fetch(`/api/folders/${folderId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name }),
+            });
+            if (!response.ok) {
+                toast.error(
+                    await getApiErrorMessage(
+                        response,
+                        "Could not rename folder",
+                    ),
+                );
+                throw new Error("Could not rename folder");
+            }
+            const { folder } = (await response.json()) as {
+                folder: RecordingFolder;
+            };
+            setFolderOrganization((current) => ({
+                ...current,
+                folders: current.folders.map((item) =>
+                    item.id === folder.id ? folder : item,
+                ),
+            }));
+            toast.success("Folder renamed");
+        },
+        [],
+    );
+
+    const handleMoveFolder = useCallback(
+        async (folderId: string, parentId: string) => {
+            const previous = folderOrganization;
+            setFolderOrganization((current) => ({
+                ...current,
+                folders: current.folders.map((folder) =>
+                    folder.id === folderId ? { ...folder, parentId } : folder,
+                ),
+            }));
+            const response = await fetch(`/api/folders/${folderId}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ parentId }),
+            });
+            if (!response.ok) {
+                setFolderOrganization(previous);
+                toast.error(
+                    await getApiErrorMessage(response, "Could not move folder"),
+                );
+                throw new Error("Could not move folder");
+            }
+            toast.success("Folder moved");
+        },
+        [folderOrganization],
+    );
+
+    const handleDeleteFolder = useCallback(
+        async (folderId: string) => {
+            const deletedIds = new Set<string>([folderId]);
+            let foundChild = true;
+            while (foundChild) {
+                foundChild = false;
+                for (const folder of folderOrganization.folders) {
+                    if (
+                        folder.parentId &&
+                        deletedIds.has(folder.parentId) &&
+                        !deletedIds.has(folder.id)
+                    ) {
+                        deletedIds.add(folder.id);
+                        foundChild = true;
+                    }
+                }
+            }
+            const response = await fetch(`/api/folders/${folderId}`, {
+                method: "DELETE",
+            });
+            if (!response.ok) {
+                toast.error(
+                    await getApiErrorMessage(
+                        response,
+                        "Could not delete folder",
+                    ),
+                );
+                throw new Error("Could not delete folder");
+            }
+            setFolderOrganization((current) => {
+                return {
+                    folders: current.folders.filter(
+                        (folder) => !deletedIds.has(folder.id),
+                    ),
+                    assignments: current.assignments.filter(
+                        (assignment) => !deletedIds.has(assignment.folderId),
+                    ),
+                };
+            });
+            setSelectedFolderId((current) => {
+                if (!current || !deletedIds.has(current)) return current;
+                return (
+                    folderOrganization.folders.find(
+                        (folder) => folder.kind === "private",
+                    )?.id ?? null
+                );
+            });
+            toast.success("Folder deleted");
+        },
+        [folderOrganization.folders],
+    );
+
+    const handleFolderAssignment = useCallback(
+        async (recordingId: string, folderId: string, assigned: boolean) => {
+            const assignment = { recordingId, folderId };
+            const previous = folderOrganization.assignments;
+            setFolderOrganization((current) => ({
+                ...current,
+                assignments: assigned
+                    ? current.assignments.some(
+                          (item) =>
+                              item.recordingId === recordingId &&
+                              item.folderId === folderId,
+                      )
+                        ? current.assignments
+                        : [...current.assignments, assignment]
+                    : current.assignments.filter(
+                          (item) =>
+                              item.recordingId !== recordingId ||
+                              item.folderId !== folderId,
+                      ),
+            }));
+            const response = await fetch(
+                `/api/recordings/${recordingId}/folders`,
+                {
+                    method: assigned ? "POST" : "DELETE",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ folderId }),
+                },
+            );
+            if (!response.ok) {
+                setFolderOrganization((current) => ({
+                    ...current,
+                    assignments: previous,
+                }));
+                toast.error(
+                    await getApiErrorMessage(
+                        response,
+                        assigned
+                            ? "Could not add recording to folder"
+                            : "Could not remove recording from folder",
+                    ),
+                );
+                throw new Error("Could not update folder assignment");
+            }
+        },
+        [folderOrganization.assignments],
+    );
+
     // Keyboard shortcuts (global). Disabled while any modal is open
     // so the modal owns keyboard focus exclusively. The shortcuts
     // dialog itself uses these very keys to navigate its rows.
@@ -429,57 +654,137 @@ export function Workstation({
                                     mobileView === "detail" && "hidden",
                                 )}
                             >
-                                <RecordingList
-                                    ref={listRef}
-                                    recordings={visibleRecordings}
-                                    transcriptions={transcriptions}
-                                    currentRecording={currentRecording}
-                                    pendingUploads={pendingUploads}
-                                    inFlightActions={inFlightActions}
-                                    onSelect={(r) => {
-                                        setCurrentRecording(r);
-                                        // Tapping a row on mobile
-                                        // reveals the detail pane.
-                                        // Desktop ignores this state.
-                                        setMobileView("detail");
-                                    }}
-                                    onDelete={handleDelete}
-                                    initialDateTimeFormat={
-                                        initialSettings.dateTimeFormat
-                                    }
-                                    initialSortOrder={
-                                        initialSettings.recordingListSortOrder
-                                    }
-                                    initialDensity={initialSettings.listDensity}
-                                    initialChunkSize={
-                                        initialSettings.itemsPerPage
-                                    }
-                                />
+                                {libraryMode === "recent" ? (
+                                    <RecordingList
+                                        ref={listRef}
+                                        recordings={visibleRecordings}
+                                        transcriptions={transcriptions}
+                                        currentRecording={currentRecording}
+                                        pendingUploads={pendingUploads}
+                                        inFlightActions={inFlightActions}
+                                        onSelect={(r) => {
+                                            setCurrentRecording(r);
+                                            setMobileView("detail");
+                                        }}
+                                        onDelete={handleDelete}
+                                        onOrganize={() => {
+                                            setLibraryMode("organize");
+                                            setSelectedFolderId(null);
+                                        }}
+                                        initialDateTimeFormat={
+                                            initialSettings.dateTimeFormat
+                                        }
+                                        initialSortOrder={
+                                            initialSettings.recordingListSortOrder
+                                        }
+                                        initialChunkSize={
+                                            initialSettings.itemsPerPage
+                                        }
+                                    />
+                                ) : (
+                                    <FolderTree
+                                        folders={folderOrganization.folders}
+                                        assignments={
+                                            folderOrganization.assignments
+                                        }
+                                        recordings={visibleRecordings}
+                                        selectedFolderId={selectedFolderId}
+                                        onRecent={() => {
+                                            setLibraryMode("recent");
+                                            setSelectedFolderId(null);
+                                            setCurrentRecording(
+                                                visibleRecordings[0] ?? null,
+                                            );
+                                            setMobileView("list");
+                                        }}
+                                        onSelectFolder={(folder) => {
+                                            setSelectedFolderId(folder.id);
+                                            setMobileView("detail");
+                                        }}
+                                        onCreateFolder={handleCreateFolder}
+                                        onRenameFolder={handleRenameFolder}
+                                        onMoveFolder={handleMoveFolder}
+                                        onDeleteFolder={handleDeleteFolder}
+                                    />
+                                )}
                             </div>
 
-                            <WorkstationDetailPane
-                                currentRecording={selectedRecording}
-                                currentTranscription={currentTranscription}
-                                transcripts={currentTranscriptVariants}
-                                isCurrentTranscribing={isCurrentTranscribing}
-                                visibleRecordings={visibleRecordings}
-                                onTranscribe={handleTranscribe}
-                                onTranscribeComplete={refresh}
-                                onSelectRecording={setCurrentRecording}
-                                onRenamed={handleRenamed}
-                                onDelete={handleDelete}
-                                onArtifactsChanged={refresh}
-                                onBackToList={() => setMobileView("list")}
-                                hiddenOnMobile={mobileView === "list"}
-                                initialPlaybackSpeed={
-                                    initialSettings.defaultPlaybackSpeed
-                                }
-                                initialVolume={initialSettings.defaultVolume}
-                                initialAutoPlayNext={
-                                    initialSettings.autoPlayNext
-                                }
-                                scrubberStyle={initialSettings.playerScrubber}
-                            />
+                            {libraryMode === "organize" && selectedFolder ? (
+                                <FolderRecordingPane
+                                    folder={selectedFolder}
+                                    folders={folderOrganization.folders}
+                                    assignments={folderOrganization.assignments}
+                                    recordings={visibleRecordings}
+                                    dateTimeFormat={
+                                        initialSettings.dateTimeFormat
+                                    }
+                                    onSelectRecording={(recording) => {
+                                        setCurrentRecording(recording);
+                                        setSelectedFolderId(null);
+                                    }}
+                                    onRenameFolder={handleRenameFolder}
+                                    onDeleteFolder={handleDeleteFolder}
+                                    hiddenOnMobile={mobileView === "list"}
+                                    onBackToFolders={() =>
+                                        setMobileView("list")
+                                    }
+                                />
+                            ) : (
+                                <WorkstationDetailPane
+                                    currentRecording={selectedRecording}
+                                    currentTranscription={currentTranscription}
+                                    transcripts={currentTranscriptVariants}
+                                    isCurrentTranscribing={
+                                        isCurrentTranscribing
+                                    }
+                                    visibleRecordings={visibleRecordings}
+                                    onTranscribe={handleTranscribe}
+                                    onTranscribeComplete={refresh}
+                                    onSelectRecording={setCurrentRecording}
+                                    onRenamed={handleRenamed}
+                                    onDelete={handleDelete}
+                                    onArtifactsChanged={refresh}
+                                    onBackToList={() => setMobileView("list")}
+                                    hiddenOnMobile={mobileView === "list"}
+                                    initialPlaybackSpeed={
+                                        initialSettings.defaultPlaybackSpeed
+                                    }
+                                    initialVolume={
+                                        initialSettings.defaultVolume
+                                    }
+                                    initialAutoPlayNext={
+                                        initialSettings.autoPlayNext
+                                    }
+                                    scrubberStyle={
+                                        initialSettings.playerScrubber
+                                    }
+                                    folders={folderOrganization.folders}
+                                    folderAssignments={
+                                        folderOrganization.assignments
+                                    }
+                                    onSelectFolder={(folder) => {
+                                        setLibraryMode("organize");
+                                        setSelectedFolderId(folder.id);
+                                    }}
+                                    onAddToFolder={(recordingId, folderId) =>
+                                        handleFolderAssignment(
+                                            recordingId,
+                                            folderId,
+                                            true,
+                                        )
+                                    }
+                                    onRemoveFromFolder={(
+                                        recordingId,
+                                        folderId,
+                                    ) =>
+                                        handleFolderAssignment(
+                                            recordingId,
+                                            folderId,
+                                            false,
+                                        )
+                                    }
+                                />
+                            )}
                         </div>
                     )}
                 </div>

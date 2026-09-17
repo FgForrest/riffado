@@ -5,6 +5,8 @@ import { db } from "@/db";
 import {
     aiEnhancements,
     people,
+    recordingFolderAssignments,
+    recordingFolders,
     recordings,
     transcriptions,
     transcriptSpeakers,
@@ -221,6 +223,7 @@ export async function buildAndUploadExportArchive(input: {
         userId: string;
         recordings: ManifestRecording[];
         knowledge?: { people: number; attributions: number };
+        organization?: { folders: number; assignments: number };
     } = {
         version: "2.0",
         createdAt: new Date().toISOString(),
@@ -501,6 +504,20 @@ export async function buildAndUploadExportArchive(input: {
         };
     }
 
+    const organization = await collectFolderOrganization(
+        userId,
+        new Set(recordingIds),
+    );
+    if (organization.folders.length > 0) {
+        archive.append(Buffer.from(JSON.stringify(organization, null, 2)), {
+            name: "organization/folders.json",
+        });
+        manifest.organization = {
+            folders: organization.folders.length,
+            assignments: organization.assignments.length,
+        };
+    }
+
     archive.append(Buffer.from(JSON.stringify(manifest, null, 2)), {
         name: "manifest.json",
     });
@@ -513,6 +530,55 @@ export async function buildAndUploadExportArchive(input: {
     }
 
     return { recordingCount: userRecordings.length, fileSize };
+}
+
+interface ArchivedFolderOrganization {
+    folders: {
+        id: string;
+        parentId: string | null;
+        name: string;
+        kind: string;
+        createdAt: string;
+    }[];
+    assignments: { recordingId: string; folderId: string }[];
+}
+
+async function collectFolderOrganization(
+    userId: string,
+    activeRecordingIds: Set<string>,
+): Promise<ArchivedFolderOrganization> {
+    const [folderRows, assignmentRows] = await Promise.all([
+        db
+            .select({
+                id: recordingFolders.id,
+                parentId: recordingFolders.parentId,
+                name: recordingFolders.name,
+                kind: recordingFolders.kind,
+                createdAt: recordingFolders.createdAt,
+            })
+            .from(recordingFolders)
+            .where(eq(recordingFolders.userId, userId)),
+        db
+            .select({
+                recordingId: recordingFolderAssignments.recordingId,
+                folderId: recordingFolderAssignments.folderId,
+            })
+            .from(recordingFolderAssignments)
+            .where(eq(recordingFolderAssignments.userId, userId)),
+    ]);
+
+    return {
+        folders: folderRows.map((row) => ({
+            id: row.id,
+            parentId: row.parentId,
+            name: decryptText(row.name),
+            kind: row.kind,
+            createdAt: row.createdAt.toISOString(),
+        })),
+        assignments: assignmentRows.filter((row) =>
+            activeRecordingIds.has(row.recordingId),
+        ),
+    };
 }
 
 interface ArchivedKnowledgeBase {

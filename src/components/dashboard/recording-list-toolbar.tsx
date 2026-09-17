@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowDownAZ, Rows3, Search, X } from "lucide-react";
+import { ArrowDownAZ, FolderTree, Search, X } from "lucide-react";
 import type * as React from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +14,6 @@ import {
 import { Input } from "@/components/ui/input";
 
 export type SortOrder = "newest" | "oldest" | "name";
-export type ListDensity = "comfortable" | "compact";
 
 export function RecordingListToolbar({
     query,
@@ -25,8 +24,7 @@ export function RecordingListToolbar({
     totalCount,
     sortOrder,
     onSortOrderChange,
-    density,
-    onDensityChange,
+    onOrganize,
 }: {
     query: string;
     onQueryChange: (next: string) => void;
@@ -36,8 +34,7 @@ export function RecordingListToolbar({
     totalCount: number;
     sortOrder: SortOrder;
     onSortOrderChange: (next: SortOrder) => void;
-    density: ListDensity;
-    onDensityChange: (next: ListDensity) => void;
+    onOrganize: () => void;
 }) {
     return (
         <div className="flex flex-col gap-2 border-b p-3">
@@ -113,39 +110,15 @@ export function RecordingListToolbar({
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2 text-xs"
-                                aria-label="Density"
-                            >
-                                <Rows3 className="size-3.5" />
-                                <span>
-                                    {density === "compact"
-                                        ? "Compact"
-                                        : "Comfortable"}
-                                </span>
-                            </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Density</DropdownMenuLabel>
-                            <DropdownMenuRadioGroup
-                                value={density}
-                                onValueChange={(v) =>
-                                    onDensityChange(v as ListDensity)
-                                }
-                            >
-                                <DropdownMenuRadioItem value="comfortable">
-                                    Comfortable
-                                </DropdownMenuRadioItem>
-                                <DropdownMenuRadioItem value="compact">
-                                    Compact
-                                </DropdownMenuRadioItem>
-                            </DropdownMenuRadioGroup>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
+                    <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs"
+                        onClick={onOrganize}
+                    >
+                        <FolderTree className="size-3.5" />
+                        Organize
+                    </Button>
                 </div>
             </div>
         </div>

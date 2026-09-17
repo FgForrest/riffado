@@ -11,6 +11,7 @@ import {
 import { requireAuth } from "@/lib/auth-server";
 import { decryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
+import { listFolderOrganization } from "@/lib/folders/folders";
 import { isAdminEmail } from "@/lib/hosted/admin/guard";
 import { initialSettingsFromRow } from "@/lib/settings/initial-settings";
 import { readTranscriptTurns } from "@/lib/transcription/read-turns";
@@ -25,6 +26,7 @@ export default async function DashboardPage() {
         userSummaryRows,
         [settingsRow],
         [connectionRow],
+        folderOrganization,
     ] = await Promise.all([
         db
             .select({
@@ -91,6 +93,7 @@ export default async function DashboardPage() {
             .from(plaudConnections)
             .where(eq(plaudConnections.userId, session.user.id))
             .limit(1),
+        listFolderOrganization(session.user.id),
     ]);
     const summaryIds = new Set(userSummaryRows.map((r) => r.recordingId));
     const transcriptIds = new Set(userTranscriptions.map((t) => t.recordingId));
@@ -169,6 +172,7 @@ export default async function DashboardPage() {
             initialSettings={initialSettings}
             plaudNeedsReconnect={connectionRow?.invalidatedAt != null}
             isHosted={env.IS_HOSTED}
+            initialFolderOrganization={folderOrganization}
         />
     );
 }

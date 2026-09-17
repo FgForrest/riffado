@@ -29,6 +29,13 @@ vi.mock("@/lib/hosted/admin/guard", () => ({
     isAdminEmail: vi.fn().mockReturnValue(false),
 }));
 
+vi.mock("@/lib/folders/folders", () => ({
+    listFolderOrganization: vi.fn().mockResolvedValue({
+        folders: [],
+        assignments: [],
+    }),
+}));
+
 vi.mock("@/lib/encryption/fields", () => ({
     decryptText: (value: string | null) => value,
     decryptJsonField: (value: unknown) => value,

@@ -50,6 +50,23 @@ export default async function DemoDashboardPage() {
             initialSettings={DEMO_INITIAL_SETTINGS}
             plaudNeedsReconnect={false}
             isHosted={env.IS_HOSTED}
+            initialFolderOrganization={{
+                folders: [
+                    {
+                        id: "demo-private",
+                        parentId: null,
+                        name: "Private",
+                        kind: "private",
+                    },
+                    {
+                        id: "demo-public",
+                        parentId: null,
+                        name: "Public",
+                        kind: "public",
+                    },
+                ],
+                assignments: [],
+            }}
         />
     );
 }

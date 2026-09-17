@@ -31,6 +31,19 @@ vi.mock("@/db/schema", () => ({
         confidence: "transcriptSpeakers.confidence",
         evidenceStartMs: "transcriptSpeakers.evidenceStartMs",
     },
+    recordingFolders: {
+        id: "recordingFolders.id",
+        userId: "recordingFolders.userId",
+        parentId: "recordingFolders.parentId",
+        name: "recordingFolders.name",
+        kind: "recordingFolders.kind",
+        createdAt: "recordingFolders.createdAt",
+    },
+    recordingFolderAssignments: {
+        userId: "recordingFolderAssignments.userId",
+        recordingId: "recordingFolderAssignments.recordingId",
+        folderId: "recordingFolderAssignments.folderId",
+    },
 }));
 vi.mock("@/lib/encryption/fields", () => ({
     decryptText: (v: string | null) => (v == null ? v : `decrypted:${v}`),
@@ -219,6 +232,74 @@ describe("buildAndUploadExportArchive", () => {
             entries.get("manifest.json")?.buffer.toString("utf-8") ?? "{}",
         );
         expect(manifest.knowledge).toEqual({ people: 1, attributions: 1 });
+    });
+
+    it("carries folder organization and recording assignments", async () => {
+        mockSelectSequence([
+            [
+                {
+                    id: "rec-1",
+                    userId: "user-1",
+                    filename: "enc-recording",
+                    startTime: new Date("2026-01-03T00:00:00Z"),
+                    endTime: new Date("2026-01-03T00:01:00Z"),
+                    duration: 60_000,
+                    filesize: 0,
+                    deviceSn: "SN1",
+                    storagePath: "audio/missing.mp3",
+                },
+            ],
+            [],
+            [],
+            [],
+            [],
+            [
+                {
+                    id: "folder-private",
+                    parentId: null,
+                    name: "enc-Private",
+                    kind: "private",
+                    createdAt: new Date("2026-01-01T00:00:00Z"),
+                },
+                {
+                    id: "folder-meetings",
+                    parentId: "folder-private",
+                    name: "enc-Meetings",
+                    kind: "custom",
+                    createdAt: new Date("2026-01-02T00:00:00Z"),
+                },
+            ],
+            [
+                {
+                    recordingId: "rec-1",
+                    folderId: "folder-meetings",
+                },
+            ],
+        ]);
+
+        await buildAndUploadExportArchive({
+            userId: "user-1",
+            sourceStorage: storage,
+            destinationStorage: storage,
+            storageKey: "exports/user-1/folders.zip",
+        });
+
+        const entries = await readZipEntries(storage.uploaded as Buffer);
+        const organization = JSON.parse(
+            entries
+                .get("organization/folders.json")
+                ?.buffer.toString("utf-8") ?? "{}",
+        );
+        expect(organization.folders).toHaveLength(2);
+        expect(organization.folders[1].name).toBe("decrypted:enc-Meetings");
+        expect(organization.assignments).toEqual([
+            { recordingId: "rec-1", folderId: "folder-meetings" },
+        ]);
+
+        const manifest = JSON.parse(
+            entries.get("manifest.json")?.buffer.toString("utf-8") ?? "{}",
+        );
+        expect(manifest.organization).toEqual({ folders: 2, assignments: 1 });
     });
 
     it("carries the transcription ids the attributions are keyed on", async () => {
