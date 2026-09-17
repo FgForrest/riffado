@@ -84,6 +84,27 @@ describe("folder recording pane", () => {
         expect(screen.getByText("Direct meeting")).toBeTruthy();
         expect(screen.getByText("Child meeting")).toBeTruthy();
         expect(screen.getByText("2 recordings")).toBeTruthy();
+        expect(screen.getByText("Meetings")).toBeTruthy();
+        expect(screen.getByText("Planning")).toBeTruthy();
+    });
+
+    it("makes recording titles draggable as folder assignments", () => {
+        renderPane(privateRoot);
+        const dataTransfer = {
+            effectAllowed: "none",
+            setData: vi.fn(),
+        };
+
+        fireEvent.dragStart(
+            screen.getByRole("button", { name: "Open Direct meeting" }),
+            { dataTransfer },
+        );
+
+        expect(dataTransfer.setData).toHaveBeenCalledWith(
+            "application/x-riffado-recording",
+            "rec-direct",
+        );
+        expect(dataTransfer.effectAllowed).toBe("copy");
     });
 
     it("renders synchronization as unavailable in this phase", () => {

@@ -751,6 +751,16 @@ export function Workstation({
                                         onRenameFolder={handleRenameFolder}
                                         onMoveFolder={handleMoveFolder}
                                         onDeleteFolder={handleDeleteFolder}
+                                        onAssignRecording={(
+                                            recordingId,
+                                            folderId,
+                                        ) =>
+                                            handleFolderAssignment(
+                                                recordingId,
+                                                folderId,
+                                                true,
+                                            )
+                                        }
                                     />
                                 )}
                             </div>
