@@ -23,12 +23,24 @@ export function audioExtension(storageFilename: string | null): string {
     return /^\.[a-z0-9]{1,10}$/.test(extension) ? extension : ".audio";
 }
 
-export function recordingDirectory(title: string, recordingId: string): string {
-    return `${safePathSegment(title, "recording")}--${safePathSegment(recordingId, "id")}`;
+export function recordingDirectory(title: string): string {
+    return safePathSegment(title, "recording");
 }
 
-export function folderDirectory(name: string, folderId: string): string {
-    return `${safePathSegment(name, "folder")}--${safePathSegment(folderId, "id")}`;
+export function folderDirectory(name: string): string {
+    return safePathSegment(name, "folder");
+}
+
+export function allocateDirectoryName(
+    preferred: string,
+    occupied: ReadonlySet<string>,
+): string {
+    if (!occupied.has(preferred)) return preferred;
+    for (let ordinal = 2; ; ordinal += 1) {
+        const suffix = ` (${ordinal})`;
+        const candidate = `${preferred.slice(0, 120 - suffix.length)}${suffix}`;
+        if (!occupied.has(candidate)) return candidate;
+    }
 }
 
 export function sourceFilename(

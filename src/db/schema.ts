@@ -471,6 +471,90 @@ export const filesystemExportSettings = pgTable(
     }),
 );
 
+export const folderExportDirectories = pgTable(
+    "folder_export_directories",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        exportConfigurationId: text("export_configuration_id")
+            .notNull()
+            .references(() => folderExportConfigurations.id, {
+                onDelete: "cascade",
+            }),
+        folderId: text("folder_id")
+            .notNull()
+            .references(() => recordingFolders.id, { onDelete: "cascade" }),
+        targetPath: text("target_path").notNull(),
+        directoryName: text("directory_name").notNull(),
+        logicalPath: text("logical_path").notNull(),
+        expected: boolean("expected").notNull().default(true),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        folderUnique: unique("folder_export_directories_folder_unique").on(
+            table.exportConfigurationId,
+            table.folderId,
+        ),
+        expectedPathUnique: uniqueIndex(
+            "folder_export_directories_expected_path_unique",
+        )
+            .on(table.exportConfigurationId, table.logicalPath)
+            .where(sql`${table.expected}`),
+        userIdIdx: index("folder_export_directories_user_id_idx").on(
+            table.userId,
+        ),
+    }),
+);
+
+export const folderExportPlacements = pgTable(
+    "folder_export_placements",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        exportConfigurationId: text("export_configuration_id")
+            .notNull()
+            .references(() => folderExportConfigurations.id, {
+                onDelete: "cascade",
+            }),
+        recordingId: text("recording_id")
+            .notNull()
+            .references(() => recordings.id, { onDelete: "cascade" }),
+        placementFolderId: text("placement_folder_id")
+            .notNull()
+            .references(() => recordingFolders.id, { onDelete: "cascade" }),
+        targetPath: text("target_path").notNull(),
+        directoryName: text("directory_name").notNull(),
+        logicalPath: text("logical_path").notNull(),
+        expected: boolean("expected").notNull().default(true),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        placementUnique: unique("folder_export_placements_placement_unique").on(
+            table.exportConfigurationId,
+            table.recordingId,
+            table.placementFolderId,
+        ),
+        expectedPathUnique: uniqueIndex(
+            "folder_export_placements_expected_path_unique",
+        )
+            .on(table.exportConfigurationId, table.logicalPath)
+            .where(sql`${table.expected}`),
+        userIdIdx: index("folder_export_placements_user_id_idx").on(
+            table.userId,
+        ),
+    }),
+);
+
 export const folderExportMaterializations = pgTable(
     "folder_export_materializations",
     {
