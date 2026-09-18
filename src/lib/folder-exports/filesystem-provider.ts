@@ -78,6 +78,55 @@ async function ensureSafeParent(
     return { root, target: path.join(parent, filename) };
 }
 
+async function resolveSafeParent(
+    configuredRoot: string,
+    relativePath: string,
+): Promise<{ root: string; target: string } | null> {
+    if (!path.isAbsolute(configuredRoot)) {
+        throw new Error("FILESYSTEM_EXPORT_ROOT must be an absolute path");
+    }
+    await mkdir(configuredRoot, { recursive: true });
+    const root = await realpath(configuredRoot);
+    const normalized = validateRelativeExportPath(relativePath);
+    const parts = normalized.split("/");
+    const name = parts.pop();
+    if (!name) throw new Error("Export path needs a directory name");
+
+    let parent = root;
+    for (const part of parts) {
+        const candidate = path.join(parent, part);
+        try {
+            const stat = await lstat(candidate);
+            if (stat.isSymbolicLink() || !stat.isDirectory()) {
+                throw new Error(
+                    "Export path crosses a non-directory or symlink",
+                );
+            }
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+            throw error;
+        }
+        parent = await realpath(candidate);
+        if (!isWithin(root, parent)) {
+            throw new Error("Export path escapes the configured root");
+        }
+    }
+    return { root, target: path.join(parent, name) };
+}
+
+async function directoryExists(target: string): Promise<boolean> {
+    try {
+        const stat = await lstat(target);
+        if (stat.isSymbolicLink() || !stat.isDirectory()) {
+            throw new Error("Export directory is not a regular directory");
+        }
+        return true;
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+    }
+}
+
 export class FilesystemExportProvider implements ExportProvider {
     private readonly root: string;
 
@@ -104,6 +153,33 @@ export class FilesystemExportProvider implements ExportProvider {
                 return false;
             throw error;
         }
+    }
+
+    async reconcileDirectory(
+        previousPath: string | null,
+        currentPath: string,
+    ): Promise<{ contentPreserved: boolean }> {
+        const current = await ensureSafeParent(this.root, currentPath);
+        const currentExists = await directoryExists(current.target);
+
+        if (previousPath && previousPath !== currentPath) {
+            const previous = await resolveSafeParent(this.root, previousPath);
+            if (previous && (await directoryExists(previous.target))) {
+                if (currentExists) {
+                    throw new Error(
+                        "Cannot rename an export directory over an existing directory",
+                    );
+                }
+                await rename(previous.target, current.target);
+                return { contentPreserved: true };
+            }
+            if (!currentExists) await mkdir(current.target);
+            return { contentPreserved: false };
+        }
+
+        if (currentExists) return { contentPreserved: true };
+        await mkdir(current.target);
+        return { contentPreserved: false };
     }
 
     async materialize(
