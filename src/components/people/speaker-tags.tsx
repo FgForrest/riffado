@@ -144,7 +144,7 @@ export function SpeakerTags({
 
     return (
         <fieldset
-            className="flex flex-wrap items-center gap-2 border-t pt-3"
+            className="flex flex-wrap items-center gap-2 pt-3"
             aria-label={i18n("Transcript speakers")}
         >
             {speakers.map((speaker, index) => {
