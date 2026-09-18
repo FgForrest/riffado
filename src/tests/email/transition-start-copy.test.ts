@@ -1,6 +1,9 @@
 import { render } from "@react-email/render";
-import React from "react";
+import React, { type ComponentType, type PropsWithChildren } from "react";
+import { IntlProvider } from "use-intl/react";
 import { describe, expect, it } from "vitest";
+import { defaultLocale } from "@/lib/i18n/config";
+import { messagesForLocale } from "@/lib/i18n/messages";
 import { TransitionStartEmail } from "@/lib/notifications/email-templates/transition-start";
 
 const baseProps = {
@@ -13,15 +16,35 @@ const baseProps = {
     selfHostUrl: "https://github.com/riffado/riffado#quick-start",
 };
 
+const EmailIntlProvider = IntlProvider as ComponentType<
+    PropsWithChildren<{
+        locale: typeof defaultLocale;
+        messages: ReturnType<typeof messagesForLocale>;
+    }>
+>;
+
+function renderTransition(
+    props: React.ComponentProps<typeof TransitionStartEmail>,
+) {
+    return render(
+        React.createElement(
+            EmailIntlProvider,
+            {
+                locale: defaultLocale,
+                messages: messagesForLocale(defaultLocale),
+            },
+            React.createElement(TransitionStartEmail, props),
+        ),
+        { plainText: true },
+    );
+}
+
 describe("TransitionStartEmail", () => {
     it("states the capacity rule without guaranteeing a founding spot", async () => {
-        const text = await render(
-            React.createElement(TransitionStartEmail, {
-                ...baseProps,
-                foundingOfferAvailable: true,
-            }),
-            { plainText: true },
-        );
+        const text = await renderTransition({
+            ...baseProps,
+            foundingOfferAvailable: true,
+        });
         expect(text).toContain("first 100 paid monthly members");
         expect(text).toContain("first-paid, first-served");
         expect(text).toContain("Claim founding price");
@@ -34,40 +57,31 @@ describe("TransitionStartEmail", () => {
     });
 
     it("shows standard pricing after founding capacity is gone", async () => {
-        const text = await render(
-            React.createElement(TransitionStartEmail, {
-                ...baseProps,
-                amountValue: "9.00",
-                foundingOfferAvailable: false,
-            }),
-            { plainText: true },
-        );
+        const text = await renderTransition({
+            ...baseProps,
+            amountValue: "9.00",
+            foundingOfferAvailable: false,
+        });
         expect(text).toContain("Monthly Hosted Pro is available for $9");
         expect(text).toContain("Choose a plan");
         expect(text).not.toContain("first 100 paid monthly members");
     });
 
     it("explains why hosted is now paid, not just what changed", async () => {
-        const text = await render(
-            React.createElement(TransitionStartEmail, {
-                ...baseProps,
-                foundingOfferAvailable: true,
-            }),
-            { plainText: true },
-        );
+        const text = await renderTransition({
+            ...baseProps,
+            foundingOfferAvailable: true,
+        });
         expect(text).toContain("real infrastructure");
         expect(text).toContain("no lock-in");
         expect(text).toContain("Self-host and Hosted Pro are the same project");
     });
 
     it("gives account-critical facts their own scannable section", async () => {
-        const text = await render(
-            React.createElement(TransitionStartEmail, {
-                ...baseProps,
-                foundingOfferAvailable: true,
-            }),
-            { plainText: true },
-        );
+        const text = await renderTransition({
+            ...baseProps,
+            foundingOfferAvailable: true,
+        });
         expect(text.toLowerCase()).toContain(
             "what this means for your account",
         );
@@ -75,13 +89,10 @@ describe("TransitionStartEmail", () => {
     });
 
     it("states the founding-capacity qualifier in the top summary too, not only in the full account section", async () => {
-        const text = await render(
-            React.createElement(TransitionStartEmail, {
-                ...baseProps,
-                foundingOfferAvailable: true,
-            }),
-            { plainText: true },
-        );
+        const text = await renderTransition({
+            ...baseProps,
+            foundingOfferAvailable: true,
+        });
         const inShortSection = text.split("In short")[1]?.split("---")[0] ?? "";
         // A skimmer who only reads the top summary must not be able to read
         // it as a guaranteed founding price -- the first-paid/first-served

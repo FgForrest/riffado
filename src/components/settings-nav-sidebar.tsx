@@ -1,6 +1,7 @@
 "use client";
 
 import { Settings as SettingsIcon } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useMemo } from "react";
 import {
     buildSettingsNav,
@@ -36,6 +37,7 @@ export function SettingsNavSidebar({
     onSectionChange,
     isHosted,
 }: Props) {
+    const i18n = useExtracted();
     const settingsNavGroups = useMemo(
         () => buildSettingsNavGroups({ isHosted }),
         [isHosted],
@@ -44,6 +46,58 @@ export function SettingsNavSidebar({
         () => buildSettingsNav({ isHosted }),
         [isHosted],
     );
+    const sectionName = (section: SettingsSection) => {
+        switch (section) {
+            case "providers":
+                return i18n("Providers");
+            case "transcription":
+                return i18n("Transcription");
+            case "summary":
+                return i18n("Summary");
+            case "plaud-account":
+                return i18n("Plaud Account");
+            case "sync":
+                return i18n("Sync");
+            case "playback":
+                return i18n("Playback");
+            case "display":
+                return i18n("Display");
+            case "notifications":
+                return i18n("Notifications");
+            case "storage":
+                return i18n("Storage");
+            case "export":
+                return i18n("Export/Backup");
+            case "api-keys":
+                return i18n("API Keys");
+            case "webhooks":
+                return i18n("Webhooks");
+            case "billing":
+                return i18n("Billing");
+            case "dev":
+                return i18n("Developer Tools");
+        }
+    };
+    const groupLabel = (label: string) => {
+        switch (label) {
+            case "AI":
+                return i18n("AI");
+            case "Plaud":
+                return i18n("Plaud");
+            case "Personalize":
+                return i18n("Personalize");
+            case "Data":
+                return i18n("Data");
+            case "Integrations":
+                return i18n("Integrations");
+            case "Advanced":
+                return i18n("Advanced");
+            case "Account":
+                return i18n("Account");
+            default:
+                return label;
+        }
+    };
     return (
         // Sidebar needs an explicit height to match <main>'s, otherwise
         // SidebarContent's overflow-y-auto has no bound to scroll against:
@@ -63,7 +117,7 @@ export function SettingsNavSidebar({
             */}
             <div className="flex h-16 shrink-0 items-center gap-2 border-b px-4">
                 <SettingsIcon className="size-5" />
-                <h2 className="text-lg font-semibold">Settings</h2>
+                <h2 className="text-lg font-semibold">{i18n("Settings")}</h2>
             </div>
             <SidebarContent className="min-h-0">
                 {/*
@@ -75,11 +129,14 @@ export function SettingsNavSidebar({
                   li nesting which is invalid HTML and confuses screen
                   readers.
                 */}
-                <nav aria-label="Settings sections" className="space-y-4">
+                <nav
+                    aria-label={i18n("Settings sections")}
+                    className="space-y-4"
+                >
                     {settingsNavGroups.map((group) => (
                         <SidebarGroup key={group.label} className="space-y-1">
                             <div className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
-                                {group.label}
+                                {groupLabel(group.label)}
                             </div>
                             <SidebarGroupContent>
                                 <SidebarMenu>
@@ -111,7 +168,15 @@ export function SettingsNavSidebar({
                                                     onClick={() =>
                                                         onSectionChange(item.id)
                                                     }
-                                                    aria-label={`${item.name} settings`}
+                                                    aria-label={i18n(
+                                                        "{section} settings",
+                                                        {
+                                                            section:
+                                                                sectionName(
+                                                                    item.id,
+                                                                ),
+                                                        },
+                                                    )}
                                                     aria-current={
                                                         activeSection ===
                                                         item.id
@@ -128,7 +193,9 @@ export function SettingsNavSidebar({
                                                         className="size-4"
                                                         aria-hidden="true"
                                                     />
-                                                    <span>{item.name}</span>
+                                                    <span>
+                                                        {sectionName(item.id)}
+                                                    </span>
                                                 </SidebarMenuButton>
                                             </SidebarMenuItem>
                                         );

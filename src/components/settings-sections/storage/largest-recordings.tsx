@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useExtracted } from "next-intl";
 import { BREAKDOWN_COLORS } from "@/components/settings-sections/storage/breakdown-bar";
 import { formatBytes } from "@/lib/format-bytes";
 import { formatDurationMs } from "@/lib/format-duration";
@@ -23,14 +24,17 @@ interface LargestRecordingsProps {
  * cleanup small and reversible (preview before delete).
  */
 export function LargestRecordings({ items }: LargestRecordingsProps) {
+    const i18n = useExtracted();
     if (items.length === 0) return null;
 
     return (
         <div className="rounded-lg border bg-card">
             <div className="px-4 pt-3 pb-2">
-                <div className="text-sm font-medium">Largest recordings</div>
+                <div className="text-sm font-medium">
+                    {i18n("Largest recordings")}
+                </div>
                 <div className="text-xs text-muted-foreground">
-                    Open a recording to preview it before deleting
+                    {i18n("Open a recording to preview it before deleting")}
                 </div>
             </div>
             <ul className="divide-y">

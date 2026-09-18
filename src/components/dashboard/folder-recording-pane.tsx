@@ -12,6 +12,7 @@ import {
     Play,
     Trash2,
 } from "lucide-react";
+import { useExtracted, useLocale } from "next-intl";
 import { useMemo, useState } from "react";
 import { useConfirm } from "@/components/confirm-dialog";
 import { FolderExportActions } from "@/components/dashboard/folder-export-actions";
@@ -77,6 +78,8 @@ export function FolderRecordingPane({
     onBackToFolders,
     filesystemExportsAvailable,
 }: FolderRecordingPaneProps) {
+    const i18n = useExtracted();
+    const locale = useLocale();
     const confirm = useConfirm();
     const [renameOpen, setRenameOpen] = useState(false);
     const [draft, setDraft] = useState(folder.name);
@@ -189,7 +192,17 @@ export function FolderRecordingPane({
                     className,
                 )}
                 onClick={() => changeSort(column)}
-                aria-label={`Sort by ${label}${active ? `, ${sort.direction === "asc" ? "ascending" : "descending"}` : ""}`}
+                aria-label={
+                    active
+                        ? i18n("Sort by {label}, {direction}", {
+                              label,
+                              direction:
+                                  sort.direction === "asc"
+                                      ? i18n("ascending")
+                                      : i18n("descending"),
+                          })
+                        : i18n("Sort by {label}", { label })
+                }
             >
                 {label}
                 <Icon className="size-3" />
@@ -211,8 +224,7 @@ export function FolderRecordingPane({
                 onClick={onBackToFolders}
                 className="-ml-2 h-9 gap-1 px-2 lg:hidden"
             >
-                <ArrowLeft />
-                Back to folders
+                <ArrowLeft /> {i18n("Back to folders")}
             </Button>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
@@ -234,8 +246,10 @@ export function FolderRecordingPane({
                         ))}
                         <span className="mx-1">·</span>
                         <span>
-                            {folderRecordings.length} recording
-                            {folderRecordings.length === 1 ? "" : "s"}
+                            {i18n(
+                                "{count, plural, one {# recording} other {# recordings}}",
+                                { count: folderRecordings.length },
+                            )}
                         </span>
                     </div>
                 </div>
@@ -257,8 +271,7 @@ export function FolderRecordingPane({
                                     setRenameOpen(true);
                                 }}
                             >
-                                <Pencil />
-                                Rename
+                                <Pencil /> {i18n("Rename")}
                             </Button>
                             <Button
                                 type="button"
@@ -267,19 +280,21 @@ export function FolderRecordingPane({
                                 className="h-9 text-destructive hover:text-destructive"
                                 onClick={() => {
                                     void confirm({
-                                        title: `Delete “${folder.name}”?`,
-                                        description:
+                                        title: i18n("Delete “{name}”?", {
+                                            name: folder.name,
+                                        }),
+                                        description: i18n(
                                             "This folder and all its subfolders will be deleted. Recordings stay intact; only their folder assignments are removed.",
-                                        confirmLabel: "Delete folder",
-                                        pendingLabel: "Deleting…",
+                                        ),
+                                        confirmLabel: i18n("Delete folder"),
+                                        pendingLabel: i18n("Deleting…"),
                                         destructive: true,
                                         onConfirm: () =>
                                             onDeleteFolder(folder.id),
                                     });
                                 }}
                             >
-                                <Trash2 />
-                                Delete
+                                <Trash2 /> {i18n("Delete")}
                             </Button>
                         </>
                     )}
@@ -289,10 +304,10 @@ export function FolderRecordingPane({
             <Card hasNoPadding>
                 <CardContent className="p-0">
                     <div className="grid grid-cols-[minmax(0,1fr)_9rem_6rem_6rem_2.5rem] gap-4 border-b bg-muted/20 px-5 py-3 text-xs font-medium text-muted-foreground max-md:grid-cols-[minmax(0,1fr)_5rem_2.5rem]">
-                        {sortHeader("title", "Title")}
-                        {sortHeader("date", "Date", "max-md:hidden")}
-                        {sortHeader("duration", "Duration")}
-                        {sortHeader("size", "Size", "max-md:hidden")}
+                        {sortHeader("title", i18n("Title"))}
+                        {sortHeader("date", i18n("Date"), "max-md:hidden")}
+                        {sortHeader("duration", i18n("Duration"))}
+                        {sortHeader("size", i18n("Size"), "max-md:hidden")}
                         <span />
                     </div>
                     <div className="divide-y">
@@ -313,7 +328,9 @@ export function FolderRecordingPane({
                                             "copy";
                                     }}
                                     onClick={() => onSelectRecording(recording)}
-                                    aria-label={`Open ${recording.filename}`}
+                                    aria-label={i18n("Open {title}", {
+                                        title: recording.filename,
+                                    })}
                                     className="flex min-w-0 cursor-grab items-center gap-3 text-left active:cursor-grabbing"
                                 >
                                     <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
@@ -349,6 +366,7 @@ export function FolderRecordingPane({
                                     {formatDateTime(
                                         recording.startTime,
                                         dateTimeFormat,
+                                        locale,
                                     )}
                                 </span>
                                 <span className="text-xs tabular-nums text-muted-foreground">
@@ -363,7 +381,10 @@ export function FolderRecordingPane({
                                             type="button"
                                             variant="ghost"
                                             size="icon-sm"
-                                            aria-label={`Actions for ${recording.filename}`}
+                                            aria-label={i18n(
+                                                "Actions for {title}",
+                                                { title: recording.filename },
+                                            )}
                                         >
                                             <MoreHorizontal />
                                         </Button>
@@ -374,8 +395,7 @@ export function FolderRecordingPane({
                                                 onSelectRecording(recording)
                                             }
                                         >
-                                            <Play />
-                                            Open
+                                            <Play /> {i18n("Open")}
                                         </DropdownMenuItem>
                                         {!recording.audioReaped && (
                                             <DropdownMenuItem
@@ -387,8 +407,8 @@ export function FolderRecordingPane({
                                                     );
                                                 }}
                                             >
-                                                <Download />
-                                                Download audio
+                                                <Download />{" "}
+                                                {i18n("Download audio")}
                                             </DropdownMenuItem>
                                         )}
                                     </DropdownMenuContent>
@@ -400,12 +420,12 @@ export function FolderRecordingPane({
                         <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
                             <Folder className="mb-3 size-9 text-muted-foreground/60" />
                             <p className="text-sm font-medium">
-                                This folder is empty
+                                {i18n("This folder is empty")}
                             </p>
                             <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-                                Drag a recording onto this folder, or add it
-                                from its detail view. Recordings can appear in
-                                more than one folder.
+                                {i18n(
+                                    "Drag a recording onto this folder, or add it from its detail view. Recordings can appear in more than one folder.",
+                                )}
                             </p>
                         </div>
                     )}
@@ -415,16 +435,16 @@ export function FolderRecordingPane({
             <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Rename folder</DialogTitle>
+                        <DialogTitle>{i18n("Rename folder")}</DialogTitle>
                         <DialogDescription>
-                            Choose a clear name for this folder.
+                            {i18n("Choose a clear name for this folder.")}
                         </DialogDescription>
                     </DialogHeader>
                     <Input
                         value={draft}
                         onChange={(event) => setDraft(event.target.value)}
                         maxLength={100}
-                        aria-label="Folder name"
+                        aria-label={i18n("Folder name")}
                         onKeyDown={(event) => {
                             if (event.key === "Enter" && draft.trim()) {
                                 event.preventDefault();
@@ -439,14 +459,14 @@ export function FolderRecordingPane({
                             disabled={saving}
                             onClick={() => setRenameOpen(false)}
                         >
-                            Cancel
+                            {i18n("Cancel")}
                         </Button>
                         <Button
                             type="button"
                             disabled={saving || !draft.trim()}
                             onClick={() => void submitRename()}
                         >
-                            {saving ? "Renaming…" : "Rename"}
+                            {saving ? i18n("Renaming…") : i18n("Rename")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

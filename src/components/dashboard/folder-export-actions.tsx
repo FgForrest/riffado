@@ -1,6 +1,7 @@
 "use client";
 
 import { Plus, RefreshCw, Settings, Trash2 } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ export function FolderExportActions({
     filesystemAvailable,
     privateTree,
 }: FolderExportActionsProps) {
+    const i18n = useExtracted();
     const [open, setOpen] = useState(false);
     const [configurations, setConfigurations] = useState<
         FolderExportConfigurationDto[]
@@ -96,13 +98,16 @@ export function FolderExportActions({
             });
             if (!response.ok) {
                 toast.error(
-                    await getApiErrorMessage(response, "Could not save export"),
+                    await getApiErrorMessage(
+                        response,
+                        i18n("Could not save export"),
+                    ),
                 );
                 return;
             }
             setForm(null);
             await load();
-            toast.success("Export saved and scheduled");
+            toast.success(i18n("Export saved and scheduled"));
         } finally {
             setSaving(false);
         }
@@ -115,12 +120,15 @@ export function FolderExportActions({
         );
         if (!response.ok) {
             toast.error(
-                await getApiErrorMessage(response, "Could not remove export"),
+                await getApiErrorMessage(
+                    response,
+                    i18n("Could not remove export"),
+                ),
             );
             return;
         }
         await load();
-        toast.success("Export removed");
+        toast.success(i18n("Export removed"));
     };
 
     const synchronize = async () => {
@@ -134,18 +142,18 @@ export function FolderExportActions({
                 toast.error(
                     await getApiErrorMessage(
                         response,
-                        "Could not schedule synchronization",
+                        i18n("Could not schedule synchronization"),
                     ),
                 );
                 return;
             }
             const { jobId } = (await response.json()) as { jobId: string };
-            toast.success("Synchronization scheduled");
+            toast.success(i18n("Synchronization scheduled"));
             const result = await followJob(jobId);
             if (result?.status === "completed") {
-                toast.success("Synchronization audit completed");
+                toast.success(i18n("Synchronization audit completed"));
             } else if (result?.status === "failed") {
-                toast.error(result.error ?? "Synchronization failed");
+                toast.error(result.error ?? i18n("Synchronization failed"));
             }
         } finally {
             setSyncing(false);
@@ -166,7 +174,7 @@ export function FolderExportActions({
                     <RefreshCw
                         className={syncing ? "animate-spin" : undefined}
                     />
-                    {syncing ? "Synchronizing…" : "Synchronize"}
+                    {syncing ? i18n("Synchronizing…") : i18n("Synchronize")}
                 </Button>
             )}
             <Button
@@ -176,33 +184,36 @@ export function FolderExportActions({
                 className="h-9"
                 onClick={() => setOpen(true)}
             >
-                <Settings />
-                Settings
+                <Settings /> {i18n("Settings")}
             </Button>
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="max-w-xl">
                     <DialogHeader>
-                        <DialogTitle>Folder export settings</DialogTitle>
+                        <DialogTitle>
+                            {i18n("Folder export settings")}
+                        </DialogTitle>
                         <DialogDescription>
-                            Exports configured on {folder.name} apply to its
-                            complete subtree.
+                            {i18n("Exports configured on")} {folder.name}{" "}
+                            {i18n("apply to its complete subtree.")}
                         </DialogDescription>
                     </DialogHeader>
                     {!filesystemAvailable ? (
                         <p className="text-sm text-muted-foreground">
-                            Filesystem export requires a self-hosted deployment
-                            with FILESYSTEM_EXPORT_ROOT configured.
+                            {i18n(
+                                "Filesystem export requires a self-hosted deployment with FILESYSTEM_EXPORT_ROOT configured.",
+                            )}
                         </p>
                     ) : !privateTree ? (
                         <p className="text-sm text-muted-foreground">
-                            Filesystem exports can only be configured for
-                            Private folders.
+                            {i18n(
+                                "Filesystem exports can only be configured for Private folders.",
+                            )}
                         </p>
                     ) : form ? (
                         <div className="space-y-5">
                             <div className="space-y-2">
                                 <Label htmlFor="folder-export-provider">
-                                    Provider
+                                    {i18n("Provider")}
                                 </Label>
                                 <Input
                                     id="folder-export-provider"
@@ -212,12 +223,14 @@ export function FolderExportActions({
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="folder-export-target">
-                                    Destination under the configured export root
+                                    {i18n(
+                                        "Destination under the configured export root",
+                                    )}
                                 </Label>
                                 <Input
                                     id="folder-export-target"
                                     value={form.targetPath}
-                                    placeholder="team-meetings"
+                                    placeholder={i18n("team-meetings")}
                                     onChange={(event) =>
                                         setForm((current) =>
                                             current
@@ -271,7 +284,7 @@ export function FolderExportActions({
                                     disabled={saving}
                                     onClick={() => setForm(null)}
                                 >
-                                    Cancel
+                                    {i18n("Cancel")}
                                 </Button>
                                 <Button
                                     type="button"
@@ -284,7 +297,9 @@ export function FolderExportActions({
                                     }
                                     onClick={() => void save()}
                                 >
-                                    {saving ? "Saving…" : "Save export"}
+                                    {saving
+                                        ? i18n("Saving…")
+                                        : i18n("Save export")}
                                 </Button>
                             </DialogFooter>
                         </div>
@@ -332,7 +347,10 @@ export function FolderExportActions({
                                         type="button"
                                         variant="ghost"
                                         size="icon-sm"
-                                        aria-label={`Remove export ${configuration.targetPath}`}
+                                        aria-label={i18n(
+                                            "Remove export {path}",
+                                            { path: configuration.targetPath },
+                                        )}
                                         onClick={() =>
                                             void remove(configuration.id)
                                         }
@@ -343,8 +361,9 @@ export function FolderExportActions({
                             ))}
                             {configurations.length === 0 && (
                                 <p className="text-sm text-muted-foreground">
-                                    No exports are configured directly on this
-                                    folder.
+                                    {i18n(
+                                        "No exports are configured directly on this folder.",
+                                    )}
                                 </p>
                             )}
                             <Button
@@ -352,8 +371,7 @@ export function FolderExportActions({
                                 variant="outline"
                                 onClick={() => setForm(EMPTY_FORM)}
                             >
-                                <Plus />
-                                Add filesystem export
+                                <Plus /> {i18n("Add filesystem export")}
                             </Button>
                         </div>
                     )}

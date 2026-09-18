@@ -17,6 +17,7 @@ import { env } from "@/lib/env";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { exportRecordingSidecarsIfEnabled } from "@/lib/export/document-sidecars";
 import { enforceStorageCap } from "@/lib/hosted/billing/storage-cap";
+import { type AppLocale, normalizeLocale } from "@/lib/i18n/config";
 import { sendNewRecordingBarkNotification } from "@/lib/notifications/bark";
 import { sendNewRecordingEmail } from "@/lib/notifications/email";
 import { createPlaudClient } from "@/lib/plaud/client-factory";
@@ -91,6 +92,7 @@ interface SyncContext {
     emailNotifications: boolean;
     barkNotifications: boolean;
     notificationEmail: string | null;
+    locale: AppLocale | null;
     barkPushUrl: string | null;
 }
 
@@ -720,6 +722,7 @@ async function runSyncRecordingsForUser(userId: string): Promise<SyncResult> {
             .select({
                 email: users.email,
                 suspendedAt: users.suspendedAt,
+                uiLocale: users.uiLocale,
             })
             .from(users)
             .where(eq(users.id, userId))
@@ -751,6 +754,7 @@ async function runSyncRecordingsForUser(userId: string): Promise<SyncResult> {
             barkNotifications: settings?.barkNotifications ?? false,
             notificationEmail:
                 settings?.notificationEmail || user?.email || null,
+            locale: normalizeLocale(user?.uiLocale),
             barkPushUrl: settings?.barkPushUrl || null,
         };
 
@@ -894,6 +898,7 @@ async function runSyncRecordingsForUser(userId: string): Promise<SyncResult> {
                     context.notificationEmail,
                     result.newRecordings,
                     allNewRecordingNames,
+                    context.locale,
                 );
             } catch (error) {
                 console.error("Failed to send email notification:", error);

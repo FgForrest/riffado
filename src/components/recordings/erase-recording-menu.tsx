@@ -11,6 +11,7 @@ import {
     Sparkles,
     Trash2,
 } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -48,54 +49,6 @@ interface EraseRecordingMenuProps {
     onChanged: () => void;
 }
 
-const OPERATION_COPY: Record<
-    Exclude<EraseOperation, "restore-audio">,
-    { title: string; description: string; action: string; success: string }
-> = {
-    audio: {
-        title: "Erase local audio for this recording?",
-        description:
-            "Only the locally stored audio for the selected recording will be removed. Its transcripts and summaries stay available, and all other recordings remain unchanged. Riffado will not download this audio again automatically.",
-        action: "Erase audio",
-        success: "Local audio erased",
-    },
-    transcript: {
-        title: "Erase all transcripts for this recording?",
-        description:
-            "All Plaud and custom transcripts, speaker assignments, and exported transcript files for the selected recording will be removed. Its existing summaries and all other recordings remain unchanged.",
-        action: "Erase transcripts",
-        success: "Transcripts erased",
-    },
-    summary: {
-        title: "Erase all summaries for this recording?",
-        description:
-            "All Plaud and custom summaries and exported summary files for the selected recording will be removed. Its transcripts and all other recordings remain unchanged.",
-        action: "Erase summaries",
-        success: "Summaries erased",
-    },
-    local: {
-        title: "Delete all local data for this recording?",
-        description:
-            "All data stored by Riffado for the selected recording will be removed: audio, transcripts, summaries, metadata, speaker assignments, and exported files. All other recordings remain unchanged. The Plaud original stays in your account and will not be synced back automatically.",
-        action: "Delete all local data",
-        success: "All local data deleted",
-    },
-    plaud: {
-        title: "Move this recording's Plaud original to Trash?",
-        description:
-            "Only the Plaud original for the selected recording will be moved to Trash. Its local Riffado data and all other recordings remain unchanged. Plaud requires a separate action in its Trash to delete the recording permanently.",
-        action: "Move Plaud original to Trash",
-        success: "Moved Plaud original to Trash",
-    },
-    everywhere: {
-        title: "Delete this recording everywhere?",
-        description:
-            "Only the selected recording will be affected. Its Plaud original will be moved to Trash, then all of its local data and exported files will be removed from Riffado. All other recordings remain unchanged. This cannot be undone from Riffado.",
-        action: "Delete everywhere",
-        success: "Recording deleted everywhere",
-    },
-};
-
 async function postOperation(
     recordingId: string,
     scope: "audio" | "transcript" | "summary" | "plaud" | "restore-audio",
@@ -118,10 +71,64 @@ export function EraseRecordingMenu({
     onDeleteLocal,
     onChanged,
 }: EraseRecordingMenuProps) {
+    const i18n = useExtracted();
     const [operation, setOperation] = useState<EraseOperation | null>(null);
     const [confirmText, setConfirmText] = useState("");
     const [working, setWorking] = useState(false);
     const isPlaudRecording = recording.deviceSn !== "local";
+    const operationCopy: Record<
+        Exclude<EraseOperation, "restore-audio">,
+        { title: string; description: string; action: string; success: string }
+    > = {
+        audio: {
+            title: i18n("Erase local audio for this recording?"),
+            description: i18n(
+                "Only the locally stored audio for the selected recording will be removed. Its transcripts and summaries stay available, and all other recordings remain unchanged. Riffado will not download this audio again automatically.",
+            ),
+            action: i18n("Erase audio"),
+            success: i18n("Local audio erased"),
+        },
+        transcript: {
+            title: i18n("Erase all transcripts for this recording?"),
+            description: i18n(
+                "All Plaud and custom transcripts, speaker assignments, and exported transcript files for the selected recording will be removed. Its existing summaries and all other recordings remain unchanged.",
+            ),
+            action: i18n("Erase transcripts"),
+            success: i18n("Transcripts erased"),
+        },
+        summary: {
+            title: i18n("Erase all summaries for this recording?"),
+            description: i18n(
+                "All Plaud and custom summaries and exported summary files for the selected recording will be removed. Its transcripts and all other recordings remain unchanged.",
+            ),
+            action: i18n("Erase summaries"),
+            success: i18n("Summaries erased"),
+        },
+        local: {
+            title: i18n("Delete all local data for this recording?"),
+            description: i18n(
+                "All data stored by Riffado for the selected recording will be removed: audio, transcripts, summaries, metadata, speaker assignments, and exported files. All other recordings remain unchanged. The Plaud original stays in your account and will not be synced back automatically.",
+            ),
+            action: i18n("Delete all local data"),
+            success: i18n("All local data deleted"),
+        },
+        plaud: {
+            title: i18n("Move this recording's Plaud original to Trash?"),
+            description: i18n(
+                "Only the Plaud original for the selected recording will be moved to Trash. Its local Riffado data and all other recordings remain unchanged. Plaud requires a separate action in its Trash to delete the recording permanently.",
+            ),
+            action: i18n("Move Plaud original to Trash"),
+            success: i18n("Moved Plaud original to Trash"),
+        },
+        everywhere: {
+            title: i18n("Delete this recording everywhere?"),
+            description: i18n(
+                "Only the selected recording will be affected. Its Plaud original will be moved to Trash, then all of its local data and exported files will be removed from Riffado. All other recordings remain unchanged. This cannot be undone from Riffado.",
+            ),
+            action: i18n("Delete everywhere"),
+            success: i18n("Recording deleted everywhere"),
+        },
+    };
 
     const selectOperation = (next: EraseOperation) => {
         setConfirmText("");
@@ -132,11 +139,13 @@ export function EraseRecordingMenu({
         setWorking(true);
         try {
             await postOperation(recording.id, "restore-audio");
-            toast.success("Audio restored from Plaud");
+            toast.success(i18n("Audio restored from Plaud"));
             onChanged();
         } catch (error) {
             toast.error(
-                error instanceof Error ? error.message : "Audio restore failed",
+                error instanceof Error
+                    ? error.message
+                    : i18n("Audio restore failed"),
             );
         } finally {
             setWorking(false);
@@ -154,7 +163,7 @@ export function EraseRecordingMenu({
                 await onDeleteLocal(recording);
             } else {
                 await postOperation(recording.id, operation);
-                toast.success(OPERATION_COPY[operation].success);
+                toast.success(operationCopy[operation].success);
                 onChanged();
             }
             setOperation(null);
@@ -162,7 +171,7 @@ export function EraseRecordingMenu({
             toast.error(
                 error instanceof Error
                     ? error.message
-                    : "Erase operation failed",
+                    : i18n("Erase operation failed"),
             );
         } finally {
             setWorking(false);
@@ -171,7 +180,7 @@ export function EraseRecordingMenu({
 
     const copy =
         operation && operation !== "restore-audio"
-            ? OPERATION_COPY[operation]
+            ? operationCopy[operation]
             : null;
     const requiresTitle = operation === "everywhere";
     const confirmed = !requiresTitle || confirmText === recording.filename;
@@ -184,67 +193,71 @@ export function EraseRecordingMenu({
                         variant="outline"
                         className="h-11 gap-2.5 rounded-lg px-4 text-muted-foreground hover:text-destructive"
                         disabled={working}
-                        aria-label="Erase recording artifacts"
+                        aria-label={i18n("Erase recording artifacts")}
                     >
                         {working ? (
                             <Loader2 className="size-4 animate-spin" />
                         ) : (
                             <Trash2 className="size-4" />
                         )}
-                        <span className="hidden sm:inline">Erase</span>
+                        <span className="hidden sm:inline">
+                            {i18n("Erase")}
+                        </span>
                         <ChevronDown className="hidden size-4 sm:block" />
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-64">
-                    <DropdownMenuLabel>Local artifacts</DropdownMenuLabel>
+                    <DropdownMenuLabel>
+                        {i18n("Local artifacts")}
+                    </DropdownMenuLabel>
                     {recording.audioReaped && isPlaudRecording ? (
                         <DropdownMenuItem onSelect={() => void restoreAudio()}>
-                            <RotateCcw className="size-4" />
-                            Restore audio from Plaud
+                            <RotateCcw className="size-4" />{" "}
+                            {i18n("Restore audio from Plaud")}
                         </DropdownMenuItem>
                     ) : (
                         <DropdownMenuItem
                             disabled={recording.audioReaped}
                             onSelect={() => selectOperation("audio")}
                         >
-                            <FileAudio className="size-4" />
-                            Erase local audio
+                            <FileAudio className="size-4" />{" "}
+                            {i18n("Erase local audio")}
                         </DropdownMenuItem>
                     )}
                     <DropdownMenuItem
                         disabled={recording.hasTranscript === false}
                         onSelect={() => selectOperation("transcript")}
                     >
-                        <FileText className="size-4" />
-                        Erase transcripts
+                        <FileText className="size-4" />{" "}
+                        {i18n("Erase transcripts")}
                     </DropdownMenuItem>
                     <DropdownMenuItem
                         disabled={recording.hasSummary === false}
                         onSelect={() => selectOperation("summary")}
                     >
-                        <Sparkles className="size-4" />
-                        Erase summaries
+                        <Sparkles className="size-4" />{" "}
+                        {i18n("Erase summaries")}
                     </DropdownMenuItem>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onSelect={() => selectOperation("local")}>
-                        <FolderX className="size-4" />
-                        Delete all local data
+                        <FolderX className="size-4" />{" "}
+                        {i18n("Delete all local data")}
                     </DropdownMenuItem>
                     {isPlaudRecording && (
                         <>
                             <DropdownMenuItem
                                 onSelect={() => selectOperation("plaud")}
                             >
-                                <CloudOff className="size-4" />
-                                Move Plaud original to Trash
+                                <CloudOff className="size-4" />{" "}
+                                {i18n("Move Plaud original to Trash")}
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                                 variant="destructive"
                                 onSelect={() => selectOperation("everywhere")}
                             >
-                                <Trash2 className="size-4" />
-                                Delete everywhere
+                                <Trash2 className="size-4" />{" "}
+                                {i18n("Delete everywhere")}
                             </DropdownMenuItem>
                         </>
                     )}
@@ -269,9 +282,9 @@ export function EraseRecordingMenu({
                             {requiresTitle && (
                                 <div className="space-y-2">
                                     <p className="text-sm text-muted-foreground">
-                                        Type{" "}
-                                        <strong>{recording.filename}</strong> to
-                                        confirm.
+                                        {i18n("Type")}{" "}
+                                        <strong>{recording.filename}</strong>{" "}
+                                        {i18n("to confirm.")}
                                     </p>
                                     <Input
                                         value={confirmText}
@@ -279,7 +292,9 @@ export function EraseRecordingMenu({
                                             setConfirmText(event.target.value)
                                         }
                                         autoComplete="off"
-                                        aria-label="Recording title confirmation"
+                                        aria-label={i18n(
+                                            "Recording title confirmation",
+                                        )}
                                     />
                                 </div>
                             )}
@@ -289,7 +304,7 @@ export function EraseRecordingMenu({
                                     onClick={() => setOperation(null)}
                                     disabled={working}
                                 >
-                                    Cancel
+                                    {i18n("Cancel")}
                                 </Button>
                                 <Button
                                     variant="destructive"

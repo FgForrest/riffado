@@ -2,12 +2,18 @@
 
 import { Slot } from "@radix-ui/react-slot";
 import { ChevronRight } from "lucide-react";
+import { useExtracted } from "next-intl";
 import type * as React from "react";
 import { cn } from "@/lib/utils";
 
 function Breadcrumb({ className, ...props }: React.ComponentProps<"nav">) {
+    const i18n = useExtracted();
     return (
-        <nav aria-label="breadcrumb" className={cn("", className)} {...props} />
+        <nav
+            aria-label={i18n("breadcrumb")}
+            className={cn("", className)}
+            {...props}
+        />
     );
 }
 

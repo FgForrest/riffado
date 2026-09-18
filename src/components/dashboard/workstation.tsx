@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { useExtracted } from "next-intl";
 import posthog from "posthog-js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -126,6 +127,7 @@ export function Workstation({
     filesystemExportsAvailable,
     initialFolderOrganization,
 }: WorkstationProps) {
+    const i18n = useExtracted();
     const { refresh } = useRouter();
     const [currentRecording, setCurrentRecording] = useState<Recording | null>(
         recordings.length > 0 ? recordings[0] : null,
@@ -252,10 +254,10 @@ export function Workstation({
             if (initialSettings.syncNotifications !== false) {
                 if (newRecordings > 0) {
                     toast.success(
-                        `Synced ${newRecordings} new recording${newRecordings !== 1 ? "s" : ""}`,
+                        `Synced ${newRecordings} new recording${newRecordings !== 1 ? i18n("s") : ""}`,
                     );
                 } else {
-                    toast.success("Sync complete - no new recordings");
+                    toast.success(i18n("Sync complete - no new recordings"));
                 }
             }
             if (initialSettings.browserNotifications) {
@@ -375,11 +377,11 @@ export function Workstation({
                 const res = await fetch(`/api/recordings/${id}`, {
                     method: "DELETE",
                 });
-                if (!res.ok) throw new Error("Delete failed");
+                if (!res.ok) throw new Error(i18n("Delete failed"));
                 if (posthog.__loaded) {
                     posthog.capture("recording_deleted");
                 }
-                toast.success("Recording deleted");
+                toast.success(i18n("Recording deleted"));
                 refresh();
             } catch (err) {
                 // Rollback
@@ -392,7 +394,7 @@ export function Workstation({
                 throw err;
             }
         },
-        [currentRecording, visibleRecordings, refresh],
+        [currentRecording, visibleRecordings, refresh, i18n],
     );
 
     const handleRenamed = useCallback(
@@ -416,10 +418,10 @@ export function Workstation({
                 toast.error(
                     await getApiErrorMessage(
                         response,
-                        "Could not create folder",
+                        i18n("Could not create folder"),
                     ),
                 );
-                throw new Error("Could not create folder");
+                throw new Error(i18n("Could not create folder"));
             }
             const { folder } = (await response.json()) as {
                 folder: RecordingFolder;
@@ -428,9 +430,9 @@ export function Workstation({
                 ...current,
                 folders: [...current.folders, folder],
             }));
-            toast.success("Folder created");
+            toast.success(i18n("Folder created"));
         },
-        [],
+        [i18n],
     );
 
     const handleRenameFolder = useCallback(
@@ -444,10 +446,10 @@ export function Workstation({
                 toast.error(
                     await getApiErrorMessage(
                         response,
-                        "Could not rename folder",
+                        i18n("Could not rename folder"),
                     ),
                 );
-                throw new Error("Could not rename folder");
+                throw new Error(i18n("Could not rename folder"));
             }
             const { folder } = (await response.json()) as {
                 folder: RecordingFolder;
@@ -458,9 +460,9 @@ export function Workstation({
                     item.id === folder.id ? folder : item,
                 ),
             }));
-            toast.success("Folder renamed");
+            toast.success(i18n("Folder renamed"));
         },
-        [],
+        [i18n],
     );
 
     const handleMoveFolder = useCallback(
@@ -526,13 +528,16 @@ export function Workstation({
             if (!response.ok) {
                 setFolderOrganization(previous);
                 toast.error(
-                    await getApiErrorMessage(response, "Could not move folder"),
+                    await getApiErrorMessage(
+                        response,
+                        i18n("Could not move folder"),
+                    ),
                 );
-                throw new Error("Could not move folder");
+                throw new Error(i18n("Could not move folder"));
             }
-            toast.success("Folder moved");
+            toast.success(i18n("Folder moved"));
         },
-        [folderOrganization],
+        [folderOrganization, i18n],
     );
 
     const handleDeleteFolder = useCallback(
@@ -559,10 +564,10 @@ export function Workstation({
                 toast.error(
                     await getApiErrorMessage(
                         response,
-                        "Could not delete folder",
+                        i18n("Could not delete folder"),
                     ),
                 );
-                throw new Error("Could not delete folder");
+                throw new Error(i18n("Could not delete folder"));
             }
             setFolderOrganization((current) => {
                 return {
@@ -582,9 +587,9 @@ export function Workstation({
                     )?.id ?? null
                 );
             });
-            toast.success("Folder deleted");
+            toast.success(i18n("Folder deleted"));
         },
-        [folderOrganization.folders],
+        [folderOrganization.folders, i18n],
     );
 
     const handleFolderAssignment = useCallback(
@@ -624,14 +629,14 @@ export function Workstation({
                     await getApiErrorMessage(
                         response,
                         assigned
-                            ? "Could not add recording to folder"
-                            : "Could not remove recording from folder",
+                            ? i18n("Could not add recording to folder")
+                            : i18n("Could not remove recording from folder"),
                     ),
                 );
-                throw new Error("Could not update folder assignment");
+                throw new Error(i18n("Could not update folder assignment"));
             }
         },
-        [folderOrganization.assignments],
+        [folderOrganization.assignments, i18n],
     );
 
     // Keyboard shortcuts (global). Disabled while any modal is open

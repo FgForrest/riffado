@@ -1,4 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
+import { useExtracted, useLocale } from "next-intl";
 import { EmailLayout } from "./_layout";
 import { formatEmailPrice } from "./format-price";
 import { emailStyles } from "./styles";
@@ -37,60 +38,83 @@ export function WelcomeHostedProEmail({
     recordingCount,
     totalDurationMs,
 }: Props) {
+    const i18n = useExtracted();
+    const locale = useLocale();
     const hours = Math.round(totalDurationMs / 3_600_000);
     const isFoundingMonthly = foundingMember && interval === "month";
     return (
         <EmailLayout
-            previewText="You're on Riffado Hosted Pro: 50 GB storage, 15 hours of Mynah transcription, unlimited devices."
-            footerLink={{ href: settingsUrl, label: "Manage subscription" }}
+            previewText={i18n(
+                "You're on Riffado Hosted Pro: 50 GB storage, 15 hours of Mynah transcription, unlimited devices.",
+            )}
+            footerLink={{
+                href: settingsUrl,
+                label: i18n("Manage subscription"),
+            }}
         >
-            <Heading style={emailStyles.h1}>You're on Hosted Pro.</Heading>
+            <Heading style={emailStyles.h1}>
+                {i18n("You're on Hosted Pro.")}
+            </Heading>
             {recordingCount > 0 ? (
                 <Text style={emailStyles.text}>
-                    Thanks for upgrading. You've already synced {recordingCount}{" "}
-                    recording{recordingCount === 1 ? "" : "s"}
-                    {hours > 0
-                        ? ` (about ${hours} hour${hours === 1 ? "" : "s"} of audio)`
-                        : ""}
-                    . Sync and transcription keep running without interruption,
-                    and your Pro entitlements are live:
+                    {i18n(
+                        "Thanks for upgrading. You've already synced {recordings, plural, one {# recording} other {# recordings}}{hours, plural, =0 {} one { (about # hour of audio)} other { (about # hours of audio)}}. Sync and transcription keep running without interruption, and your Pro entitlements are live:",
+                        { recordings: recordingCount, hours },
+                    )}
                 </Text>
             ) : (
                 <Text style={emailStyles.text}>
-                    Thanks for upgrading. Your subscription is active and your
-                    Pro entitlements are live:
+                    {i18n(
+                        "Thanks for upgrading. Your subscription is active and your Pro entitlements are live:",
+                    )}
                 </Text>
             )}
             <Text style={{ ...emailStyles.text, margin: "0 0 6px 0" }}>
-                &bull; 50 GB storage
+                {i18n("• 50 GB storage")}
             </Text>
             <Text style={{ ...emailStyles.text, margin: "0 0 6px 0" }}>
-                &bull; 15 hours of Mynah transcription, refreshed every 30 days
+                {i18n(
+                    "• 15 hours of Mynah transcription, refreshed every 30 days",
+                )}
             </Text>
             <Text style={{ ...emailStyles.text, margin: "0 0 16px 0" }}>
-                &bull; Unlimited devices, background sync
+                {i18n("• Unlimited devices, background sync")}
             </Text>
             {isFoundingMonthly ? (
                 <Text style={emailStyles.text}>
                     {foundingRank
-                        ? `You're founding member #${foundingRank} of ${foundingCapacity}.`
-                        : "You subscribed during the founding-member window."}{" "}
-                    Your monthly price is locked at{" "}
-                    {formatEmailPrice(amountValue, amountCurrency)} for as long
-                    as your subscription stays active. Thanks for being early.
+                        ? i18n(
+                              "You're founding member #{rank} of {capacity}.",
+                              {
+                                  rank: String(foundingRank),
+                                  capacity: String(foundingCapacity),
+                              },
+                          )
+                        : i18n(
+                              "You subscribed during the founding-member window.",
+                          )}{" "}
+                    {i18n("Your monthly price is locked at")}{" "}
+                    {formatEmailPrice(
+                        amountValue,
+                        amountCurrency,
+                        undefined,
+                        locale,
+                    )}{" "}
+                    {i18n(
+                        "for as long as your subscription stays active. Thanks for being early.",
+                    )}
                 </Text>
             ) : null}
             <Section style={emailStyles.buttonSection}>
                 <Button style={emailStyles.button} href={dashboardUrl}>
-                    Open Riffado
+                    {i18n("Open Riffado")}
                 </Button>
             </Section>
             <Text style={emailStyles.text}>
-                "Email support" isn't a ticket queue here. Reply to this email
-                if anything's off or you have a question. It reaches me
-                directly.
-                <br />
-                Kacper, building Riffado
+                {i18n(
+                    "\"Email support\" isn't a ticket queue here. Reply to this email if anything's off or you have a question. It reaches me directly.",
+                )}{" "}
+                <br /> {i18n("Kacper, building Riffado")}
             </Text>
         </EmailLayout>
     );

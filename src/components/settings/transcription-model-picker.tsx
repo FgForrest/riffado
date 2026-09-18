@@ -1,5 +1,6 @@
 "use client";
 
+import { useExtracted } from "next-intl";
 /**
  * Transcription model picker shared by the Add/Edit provider dialogs.
  *
@@ -52,6 +53,7 @@ export function TranscriptionModelPicker({
     onChange,
     disabled,
 }: Props) {
+    const i18n = useExtracted();
     // Live fetch for `fetchAudioModels: true` presets.
     const [audioModels, setAudioModels] = useState<ModelOption[]>([]);
     const [audioModelsLoading, setAudioModelsLoading] = useState(false);
@@ -180,7 +182,7 @@ export function TranscriptionModelPicker({
 
     return (
         <div className="space-y-2">
-            <Label htmlFor="defaultModel">Default Model</Label>
+            <Label htmlFor="defaultModel">{i18n("Default Model")}</Label>
             {hasOptions && !useCustom ? (
                 <Select
                     value={value || undefined}
@@ -188,7 +190,9 @@ export function TranscriptionModelPicker({
                     disabled={disabled}
                 >
                     <SelectTrigger>
-                        <SelectValue placeholder="Pick a transcription model" />
+                        <SelectValue
+                            placeholder={i18n("Pick a transcription model")}
+                        />
                     </SelectTrigger>
                     <SelectContent>
                         {options.map((m) => (
@@ -197,7 +201,7 @@ export function TranscriptionModelPicker({
                             </SelectItem>
                         ))}
                         <SelectItem value={CUSTOM_SENTINEL}>
-                            Custom (type model name)…
+                            {i18n("Custom (type model name)…")}
                         </SelectItem>
                     </SelectContent>
                 </Select>
@@ -205,7 +209,7 @@ export function TranscriptionModelPicker({
                 <Input
                     id="defaultModel"
                     type="text"
-                    placeholder="whisper-1, gpt-4o, etc."
+                    placeholder={i18n("whisper-1, gpt-4o, etc.")}
                     value={value}
                     onChange={(e) => onChange(e.target.value)}
                     disabled={disabled}
@@ -221,7 +225,7 @@ export function TranscriptionModelPicker({
                         onChange(options[0]?.id ?? "");
                     }}
                 >
-                    Back to suggested models
+                    {i18n("Back to suggested models")}
                 </button>
             )}
             {helper && (

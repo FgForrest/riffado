@@ -1,4 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
+import { useExtracted } from "next-intl";
 import { EmailLayout } from "./_layout";
 import { emailStyles } from "./styles";
 
@@ -15,23 +16,31 @@ export function EmailChangeConfirmEmail({
     newEmail,
     expiresInHours,
 }: Props) {
+    const i18n = useExtracted();
     return (
-        <EmailLayout previewText="Confirm the email change on your Riffado account.">
-            <Heading style={emailStyles.h1}>Confirm email change.</Heading>
+        <EmailLayout
+            previewText={i18n(
+                "Confirm the email change on your Riffado account.",
+            )}
+        >
+            <Heading style={emailStyles.h1}>
+                {i18n("Confirm email change.")}
+            </Heading>
             <Text style={emailStyles.text}>
-                A change request was made to update the email on your Riffado
-                account to <strong>{newEmail}</strong>. Click below to confirm.
-                The link expires in {expiresInHours}{" "}
-                {expiresInHours === 1 ? "hour" : "hours"}.
+                {i18n(
+                    "A change request was made to update the email on your Riffado account to {newEmail}. Click below to confirm. The link expires in {hours, plural, one {# hour} other {# hours}}.",
+                    { newEmail, hours: expiresInHours },
+                )}
             </Text>
             <Section style={emailStyles.buttonSection}>
                 <Button style={emailStyles.button} href={confirmUrl}>
-                    Confirm new email
+                    {i18n("Confirm new email")}
                 </Button>
             </Section>
             <Text style={emailStyles.text}>
-                If you did not request this change, ignore this message and
-                consider rotating your password.
+                {i18n(
+                    "If you did not request this change, ignore this message and consider rotating your password.",
+                )}
             </Text>
         </EmailLayout>
     );

@@ -1,3 +1,4 @@
+import { getExtracted } from "next-intl/server";
 import {
     HostedAuthChrome,
     SelfHostAuthChrome,
@@ -8,6 +9,7 @@ import { env } from "@/lib/env";
 import { isSmtpConfigured } from "@/lib/smtp";
 
 export default async function LoginPage() {
+    const i18n = await getExtracted();
     await redirectIfAuthenticated();
 
     const formProps = {
@@ -18,8 +20,8 @@ export default async function LoginPage() {
     if (env.IS_HOSTED) {
         return (
             <HostedAuthChrome
-                title="Sign in"
-                subtitle="Welcome back to Riffado."
+                title={i18n("Sign in")}
+                subtitle={i18n("Welcome back to Riffado.")}
             >
                 <LoginForm {...formProps} />
             </HostedAuthChrome>
@@ -28,8 +30,8 @@ export default async function LoginPage() {
 
     return (
         <SelfHostAuthChrome
-            title="Sign in"
-            subtitle="Sign in to your Riffado instance."
+            title={i18n("Sign in")}
+            subtitle={i18n("Sign in to your Riffado instance.")}
         >
             <LoginForm {...formProps} />
         </SelfHostAuthChrome>

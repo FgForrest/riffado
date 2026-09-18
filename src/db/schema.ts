@@ -43,6 +43,7 @@ export const users = pgTable("users", {
     email: text("email").notNull().unique(),
     emailVerified: boolean("email_verified").notNull().default(false),
     name: text("name"),
+    uiLocale: varchar("ui_locale", { length: 10 }),
     // Hosted-mode operator action: when set, the user is suspended.
     // - `/api/v1/*` and the web app return a suspension state on next request
     //   (cooperative; existing in-flight requests are not interrupted).
@@ -1285,6 +1286,7 @@ export const newsletterSubscriptions = pgTable(
             .$defaultFn(() => nanoid()),
         email: text("email").notNull().unique(),
         source: varchar("source", { length: 20 }).notNull(), // 'landing' | 'install' | 'admin'
+        locale: varchar("locale", { length: 10 }).notNull().default("en"),
         consentedAt: timestamp("consented_at").notNull().defaultNow(),
         confirmedAt: timestamp("confirmed_at"),
         unsubscribedAt: timestamp("unsubscribed_at"),

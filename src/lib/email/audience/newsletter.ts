@@ -14,6 +14,7 @@ export async function* newsletterAudience(): AsyncGenerator<
             email: sub.email,
             name: null,
             marketingConsent: null,
+            locale: sub.locale,
         };
     }
 }

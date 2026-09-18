@@ -1,6 +1,7 @@
 "use client";
 
 import { Download } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { Button } from "@/components/ui/button";
 import {
     Tooltip,
@@ -10,6 +11,7 @@ import {
 import { recordingAudioDownloadPath } from "@/lib/recordings/filename";
 
 export function DownloadAudioButton({ recordingId }: { recordingId: string }) {
+    const i18n = useExtracted();
     return (
         <Tooltip>
             <TooltipTrigger asChild>
@@ -18,14 +20,14 @@ export function DownloadAudioButton({ recordingId }: { recordingId: string }) {
                         href={recordingAudioDownloadPath(recordingId)}
                         download
                         rel="nofollow noreferrer"
-                        aria-label="Download original audio"
+                        aria-label={i18n("Download original audio")}
                     >
                         <Download className="size-4" />
                     </a>
                 </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-                Download original audio
+                {i18n("Download original audio")}
             </TooltipContent>
         </Tooltip>
     );

@@ -21,8 +21,10 @@ function trimAmount(amount: string): string {
 export function formatEmailPrice(
     amountValue: string,
     amountCurrency: string,
-    suffix = "/month",
+    suffix?: string,
+    locale = "en",
 ): string {
     const symbol = CURRENCY_SYMBOLS[amountCurrency.toLowerCase()] ?? "";
-    return `${symbol}${trimAmount(amountValue)}${suffix}`;
+    const resolvedSuffix = suffix ?? (locale === "cs-CZ" ? "/měsíc" : "/month");
+    return `${symbol}${trimAmount(amountValue)}${resolvedSuffix}`;
 }

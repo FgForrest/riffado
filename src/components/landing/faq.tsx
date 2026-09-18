@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useExtracted } from "next-intl";
 import {
     Accordion,
     AccordionContent,
@@ -69,37 +70,6 @@ function formatCatalogPrice(price: PublicPrice, suffix: string): string {
         ? trimDisplayAmount(price.displayAmount)
         : null;
     return amount ? `${symbol}${amount}${suffix}` : "";
-}
-
-function hostedCostAnswer(
-    availability: FoundingMemberAvailabilityRow,
-    monthlyCurrency: BillingCurrency,
-    annualCurrency: BillingCurrency,
-): string {
-    const catalog = billingPriceCatalog(availability);
-    const founding = pickDisplayPrice(
-        catalog.monthly.founding,
-        monthlyCurrency,
-    );
-    const standard = pickDisplayPrice(
-        catalog.monthly.standard,
-        monthlyCurrency,
-    );
-    const monthly =
-        availability.remaining > 0 && founding ? founding : standard;
-    const monthlySuffix =
-        availability.remaining > 0 && founding
-            ? "/month founding"
-            : "/month standard";
-    const annual = pickDisplayPrice(catalog.annual, annualCurrency);
-    const monthlySentence = monthly
-        ? `Hosted Pro costs ${formatCatalogPrice(monthly, monthlySuffix)}.`
-        : "Hosted billing is not configured on this instance.";
-    const annualSentence = annual
-        ? ` Prefer to pay yearly? Annual billing is available at ${formatCatalogPrice(annual, "/year")}.`
-        : "";
-
-    return `${monthlySentence}${annualSentence} Stripe Checkout shows the final total and applicable tax before you pay. You start with a ${env.BILLING_TRIAL_DAYS}-day free trial, no card required, and the full Pro experience: 50 GB encrypted storage, ${INCLUDED_TRANSCRIPTION_HOURS} hours of cloud transcription per month, unlimited devices, background sync, email support. Off-site encrypted backups are coming soon. If you decide it's not for you, you walk away; if you want to keep it, you add a card. If you want Riffado free, self-host it: same code, your machine, AGPL-3.0, free forever.`;
 }
 
 const GROUPS: FaqGroup[] = [
@@ -241,21 +211,157 @@ export function FAQ({
     monthlyCurrency: BillingCurrency;
     annualCurrency: BillingCurrency;
 }) {
-    const costAnswer = hostedCostAnswer(
-        availability,
+    const i18n = useExtracted();
+    const catalog = billingPriceCatalog(availability);
+    const founding = pickDisplayPrice(
+        catalog.monthly.founding,
         monthlyCurrency,
-        annualCurrency,
     );
-    const groups = GROUPS.map((group, groupIndex) =>
-        groupIndex === 0
-            ? {
-                  ...group,
-                  items: group.items.map((item, itemIndex) =>
-                      itemIndex === 0 ? { ...item, a: costAnswer } : item,
-                  ),
-              }
-            : group,
+    const standard = pickDisplayPrice(
+        catalog.monthly.standard,
+        monthlyCurrency,
     );
+    const monthly =
+        availability.remaining > 0 && founding ? founding : standard;
+    const annual = pickDisplayPrice(catalog.annual, annualCurrency);
+    const monthlySentence = monthly
+        ? availability.remaining > 0 && founding
+            ? i18n("Hosted Pro costs {price}/month at the founding rate.", {
+                  price: formatCatalogPrice(monthly, ""),
+              })
+            : i18n("Hosted Pro costs {price}/month at the standard rate.", {
+                  price: formatCatalogPrice(monthly, ""),
+              })
+        : i18n("Hosted billing is not configured on this instance.");
+    const annualSentence = annual
+        ? i18n(
+              "Prefer to pay yearly? Annual billing is available at {price}/year.",
+              { price: formatCatalogPrice(annual, "") },
+          )
+        : "";
+    const costAnswer = `${monthlySentence} ${annualSentence} ${i18n(
+        "Stripe Checkout shows the final total and applicable tax before you pay. You start with a {trialDays}-day free trial, no card required, and the full Pro experience: 50 GB encrypted storage, {hours} hours of cloud transcription per month, unlimited devices, background sync, email support. Off-site encrypted backups are coming soon. If you decide it's not for you, you walk away; if you want to keep it, you add a card. If you want Riffado free, self-host it: same code, your machine, AGPL-3.0, free forever.",
+        {
+            trialDays: String(env.BILLING_TRIAL_DAYS),
+            hours: String(INCLUDED_TRANSCRIPTION_HOURS),
+        },
+    )}`.trim();
+    const labels = [
+        i18n("Getting started"),
+        i18n("How it works"),
+        i18n("Your data, your exit"),
+    ];
+    const questions = [
+        [
+            i18n("What does hosted Riffado cost?"),
+            i18n("Do I need to pay for an AI provider to try this?"),
+            i18n("Which voice recorders does Riffado work with?"),
+            i18n("Is Riffado really open source? What does that mean for me?"),
+            i18n("How long does setup take?"),
+        ],
+        [
+            i18n("Which AI providers can I use?"),
+            i18n(
+                "Does this affect my recorder's warranty or break the official app?",
+            ),
+            i18n("What happens if Plaud changes their API?"),
+        ],
+        [
+            i18n("Can I move between hosted and self-host later?"),
+            i18n("Where does my data live on the hosted version?"),
+            i18n(
+                "What about HIPAA, privileged legal work, or regulated financial data?",
+            ),
+        ],
+    ];
+    const answers = [
+        [
+            costAnswer,
+            i18n(
+                "No. Riffado transcribes right in your browser by default using Whisper, with no API keys, extra accounts, or per-minute cost. If you want faster or higher-quality transcripts later, plug in OpenAI or Groq, or run a local model with Ollama. Hosted Pro also includes {hours} hours per month of cloud transcription on our keys, so you don't have to bring your own. Browser-based Whisper stays free forever, hosted or self-hosted.",
+                { hours: String(INCLUDED_TRANSCRIPTION_HOURS) },
+            ),
+            i18n(
+                "Today, the Plaud Note family: Note, Note Pro, and NotePin. Support for more recorders is on the roadmap. If you own a Plaud, you can sign in with your existing account and your recordings start syncing in under a minute.",
+            ),
+            i18n(
+                "Yes. The full source is on GitHub under AGPL-3.0. In practice: you can read every line, run it on your own machine, fork it, and leave whenever you want. The AGPL only adds obligations if you offer Riffado as a service to other people. For personal or team use, it's just free, forever, with the code in the open.",
+            ),
+            i18n(
+                "Hosted: about sixty seconds. Sign up, connect your Plaud account, and recordings start syncing. Self-host: one docker compose command against the published image. Postgres is included. No build step, no manual schema work.",
+            ),
+        ],
+        [
+            i18n(
+                "Hosted Pro includes Mynah for {hours} hours of cloud transcription every month. You can also connect OpenAI or Groq for cloud transcription. Use Ollama or LM Studio if you want a model running entirely on your own machine, so nothing leaves your laptop. Browser-based Whisper works if you don't want to configure anything at all. Pick per recording; change your mind any time. For summaries, any OpenAI-compatible endpoint works, including OpenAI, Anthropic via OpenRouter, Groq, Together, Azure, and others.",
+                { hours: String(INCLUDED_TRANSCRIPTION_HOURS) },
+            ),
+            i18n(
+                "No. Riffado signs into your Plaud account the same way the official web app does, through Plaud's existing API. Nothing about the hardware changes, and the official Plaud app keeps working alongside Riffado.",
+            ),
+            i18n(
+                "Worst case, new syncs pause until we ship an update. Historically that means hours to days, because the project is open source and actively maintained. Your existing recordings are unaffected: once a recording has synced, it lives on storage you control and never depends on Plaud's servers again.",
+            ),
+        ],
+        [
+            i18n(
+                "Yes, in one click. The full-backup export gives you a single archive with every recording, transcript, and summary. Restore it into a self-hosted instance, or back into the hosted version, with nothing lost. Easy to leave is the whole point, so you don't have to overthink which one to start with.",
+            ),
+            i18n(
+                "Encrypted at rest on storage we operate. You can export everything, any time, no questions. If you need a specific jurisdiction or your own bucket, self-hosting points the same code at infrastructure you fully control.",
+            ),
+            i18n(
+                "We don't self-attest HIPAA compliance, and you should be skeptical of any transcription product that does. The meaningful privacy claim belongs to your AI provider, not to us. For regulated work, the right setup is self-hosting Riffado and plugging in a provider that signs a BAA you've reviewed (OpenAI Enterprise, Azure Speech, Deepgram), or running a local Whisper model so nothing leaves your machine. We give you the knobs; you own the compliance story.",
+            ),
+        ],
+    ];
+    const bodies: Array<Array<React.ReactNode | undefined>> = [
+        [
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            <p key="setup">
+                <strong className="text-foreground font-medium">
+                    {i18n("Hosted:")}
+                </strong>{" "}
+                {i18n(
+                    "about sixty seconds. Sign up, connect your Plaud account, and recordings start syncing.",
+                )}{" "}
+                <strong className="text-foreground font-medium">
+                    {i18n("Self-host:")}
+                </strong>{" "}
+                {i18n("one")}{" "}
+                <code className="font-mono text-[0.9em] text-foreground/90 bg-muted/60 rounded px-1.5 py-0.5">
+                    docker compose up
+                </code>{" "}
+                {i18n(
+                    "against the published image. Postgres is included. No build step, no manual schema work.",
+                )}
+            </p>,
+        ],
+        [
+            <div key="providers">
+                <p>{answers[1]?.[0]}</p>
+                <p className="mt-3 text-sm text-muted-foreground/80">
+                    {i18n(
+                        "You can change providers per recording and use any OpenAI-compatible endpoint for summaries.",
+                    )}
+                </p>
+            </div>,
+        ],
+        [],
+    ];
+    const groups = GROUPS.map((group, groupIndex) => ({
+        ...group,
+        label: labels[groupIndex] ?? group.label,
+        items: group.items.map((item, itemIndex) => ({
+            ...item,
+            q: questions[groupIndex]?.[itemIndex] ?? item.q,
+            a: answers[groupIndex]?.[itemIndex] ?? item.a,
+            body: bodies[groupIndex]?.[itemIndex],
+        })),
+    }));
 
     return (
         <section id="faq" className="py-24 md:py-32 border-t border-border/40">
@@ -272,13 +378,13 @@ export function FAQ({
             <div className="container mx-auto px-4">
                 <div className="max-w-3xl mx-auto">
                     <p className="text-sm font-mono text-muted-foreground uppercase tracking-wider mb-4">
-                        FAQ
+                        {i18n("FAQ")}
                     </p>
                     <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-3 text-balance">
-                        Questions before you sign up.
+                        {i18n("Questions before you sign up.")}
                     </h2>
                     <p className="text-muted-foreground leading-relaxed mb-10 md:mb-12 max-w-2xl">
-                        The honest answers, including the boring ones.
+                        {i18n("The honest answers, including the boring ones.")}
                     </p>
 
                     <div className="rounded-2xl border border-border/60 bg-card/50 px-6 md:px-8 py-2 md:py-3">
@@ -318,23 +424,23 @@ export function FAQ({
                     </div>
 
                     <p className="text-sm text-muted-foreground mt-8 text-center">
-                        Didn't see yours?{" "}
+                        {i18n("Didn't see yours?")}{" "}
                         <Link
                             href="https://github.com/riffado/riffado"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-foreground underline-offset-4 hover:underline"
                         >
-                            Read the code
+                            {i18n("Read the code")}
                         </Link>{" "}
-                        or{" "}
+                        {i18n("or")}{" "}
                         <Link
                             href="https://github.com/riffado/riffado/issues/new/choose"
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-foreground underline-offset-4 hover:underline"
                         >
-                            open an issue
+                            {i18n("open an issue")}
                         </Link>
                         .
                     </p>

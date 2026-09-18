@@ -1,5 +1,6 @@
 "use client";
 
+import { useExtracted } from "next-intl";
 import { useMemo } from "react";
 import { buildSettingsNav } from "@/components/settings-nav-config";
 import {
@@ -27,11 +28,44 @@ export function SettingsNavMobile({
     onSectionChange,
     isHosted,
 }: Props) {
+    const i18n = useExtracted();
     const settingsNav = useMemo(
         () => buildSettingsNav({ isHosted }),
         [isHosted],
     );
     const activeNavItem = settingsNav.find((item) => item.id === activeSection);
+    const sectionName = (section: SettingsSection) => {
+        switch (section) {
+            case "providers":
+                return i18n("Providers");
+            case "transcription":
+                return i18n("Transcription");
+            case "summary":
+                return i18n("Summary");
+            case "plaud-account":
+                return i18n("Plaud Account");
+            case "sync":
+                return i18n("Sync");
+            case "playback":
+                return i18n("Playback");
+            case "display":
+                return i18n("Display");
+            case "notifications":
+                return i18n("Notifications");
+            case "storage":
+                return i18n("Storage");
+            case "export":
+                return i18n("Export/Backup");
+            case "api-keys":
+                return i18n("API Keys");
+            case "webhooks":
+                return i18n("Webhooks");
+            case "billing":
+                return i18n("Billing");
+            case "dev":
+                return i18n("Developer Tools");
+        }
+    };
 
     return (
         <div className="md:hidden">
@@ -43,10 +77,12 @@ export function SettingsNavMobile({
             >
                 <SelectTrigger
                     className="w-[180px]"
-                    aria-label="Select settings section"
+                    aria-label={i18n("Select settings section")}
                 >
                     <SelectValue>
-                        {activeNavItem?.name || "Settings"}
+                        {activeNavItem
+                            ? sectionName(activeNavItem.id)
+                            : i18n("Settings")}
                     </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
@@ -54,7 +90,7 @@ export function SettingsNavMobile({
                         <SelectItem key={item.id} value={item.id}>
                             <div className="flex items-center gap-2">
                                 <item.icon className="size-4" />
-                                <span>{item.name}</span>
+                                <span>{sectionName(item.id)}</span>
                             </div>
                         </SelectItem>
                     ))}

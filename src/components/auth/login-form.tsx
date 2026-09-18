@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useExtracted } from "next-intl";
 import posthog from "posthog-js";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -38,6 +39,7 @@ export function LoginForm({
     registrationEnabled = true,
     smtpConfigured = false,
 }: LoginFormProps) {
+    const i18n = useExtracted();
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
     const [isLoading, setIsLoading] = useState(false);
@@ -55,7 +57,7 @@ export function LoginForm({
 
             if (result.error) {
                 toast.error(
-                    result.error.message || "Invalid email or password",
+                    result.error.message || i18n("Invalid email or password"),
                 );
                 return;
             }
@@ -66,7 +68,7 @@ export function LoginForm({
                 posthog.capture("user_signed_in");
             }
 
-            toast.success("Logged in successfully");
+            toast.success(i18n("Logged in successfully"));
             push("/dashboard");
             refresh();
         } catch (error) {
@@ -84,11 +86,11 @@ export function LoginForm({
         <div className="space-y-6">
             <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
+                    <Label htmlFor="email">{i18n("Email")}</Label>
                     <Input
                         id="email"
                         type="email"
-                        placeholder="you@example.com"
+                        placeholder={i18n("you@example.com")}
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
                         required
@@ -99,13 +101,13 @@ export function LoginForm({
 
                 <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                        <Label htmlFor="password">Password</Label>
+                        <Label htmlFor="password">{i18n("Password")}</Label>
                         {smtpConfigured ? (
                             <Link
                                 href="/forgot-password"
                                 className="text-xs text-muted-foreground hover:text-accent-cyan hover:underline"
                             >
-                                Forgot password?
+                                {i18n("Forgot password?")}
                             </Link>
                         ) : null}
                     </div>
@@ -127,20 +129,20 @@ export function LoginForm({
                     variant="cyan"
                     disabled={isLoading}
                 >
-                    {isLoading ? "Signing in..." : "Sign In"}
+                    {isLoading ? i18n("Signing in...") : i18n("Sign In")}
                 </MetalButton>
             </form>
 
             {registrationEnabled && (
                 <div className="text-center text-sm">
                     <span className="text-muted-foreground">
-                        Don't have an account?{" "}
+                        {i18n("Don't have an account?")}{" "}
                     </span>
                     <Link
                         href="/register"
                         className="text-accent-cyan hover:underline"
                     >
-                        Register
+                        {i18n("Register")}
                     </Link>
                 </div>
             )}

@@ -2,6 +2,7 @@
 
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { useExtracted } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { MetalButton } from "@/components/metal-button";
 import { cn } from "@/lib/utils";
@@ -44,6 +45,7 @@ function track(name: string, props?: Record<string, unknown>) {
  * driven by a single `mounted` boolean.
  */
 export function HeroReveal() {
+    const i18n = useExtracted();
     const [mounted, setMounted] = useState(false);
     const [showStickyCta, setShowStickyCta] = useState(false);
     const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -97,14 +99,16 @@ export function HeroReveal() {
                     >
                         <Link
                             href="/register"
-                            aria-label="Start Riffado free, no card required"
+                            aria-label={i18n(
+                                "Start Riffado free, no card required",
+                            )}
                             onClick={() =>
                                 track("hero_cta_primary_click", {
                                     location: "hero",
                                 })
                             }
                         >
-                            <span>Start free</span>
+                            <span>{i18n("Start free")}</span>
                             <ArrowRight className="size-4" />
                         </Link>
                     </MetalButton>
@@ -121,7 +125,7 @@ export function HeroReveal() {
                 >
                     <Link
                         href="/install"
-                        aria-label="Self-host Riffado in one command"
+                        aria-label={i18n("Self-host Riffado in one command")}
                         onClick={() =>
                             track("hero_cta_self_host_click", {
                                 location: "hero",
@@ -129,7 +133,7 @@ export function HeroReveal() {
                         }
                         className="group inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
                     >
-                        <span>or self-host in one command</span>
+                        <span>{i18n("or self-host in one command")}</span>
                         <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
                     </Link>
                 </div>
@@ -156,14 +160,16 @@ export function HeroReveal() {
                         <Link
                             href="/register"
                             tabIndex={showStickyCta ? 0 : -1}
-                            aria-label="Start Riffado free, no card required"
+                            aria-label={i18n(
+                                "Start Riffado free, no card required",
+                            )}
                             onClick={() =>
                                 track("hero_cta_primary_click", {
                                     location: "sticky_mobile",
                                 })
                             }
                         >
-                            <span>Start free</span>
+                            <span>{i18n("Start free")}</span>
                             <ArrowRight className="size-4" />
                         </Link>
                     </MetalButton>

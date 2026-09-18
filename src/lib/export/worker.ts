@@ -15,6 +15,7 @@ import {
 } from "@/db/queries/export-jobs";
 import { users } from "@/db/schema";
 import { env } from "@/lib/env";
+import { normalizeLocale } from "@/lib/i18n/config";
 import { sendExportReadyEmail } from "@/lib/notifications/email";
 import { captureServerException } from "@/lib/posthog-server";
 import {
@@ -212,7 +213,7 @@ async function notifyExportReady(userId: string, jobId: string): Promise<void> {
     const base = env.APP_URL?.replace(/\/$/, "");
     if (!base) return;
     const [row] = await db
-        .select({ email: users.email })
+        .select({ email: users.email, uiLocale: users.uiLocale })
         .from(users)
         .where(eq(users.id, userId))
         .limit(1);
@@ -222,6 +223,7 @@ async function notifyExportReady(userId: string, jobId: string): Promise<void> {
         email: row.email,
         jobId,
         downloadUrl: `${base}/settings?export=${jobId}#export`,
+        locale: normalizeLocale(row.uiLocale),
     });
 }
 

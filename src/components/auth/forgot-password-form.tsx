@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useExtracted } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
 import { MetalButton } from "@/components/metal-button";
@@ -24,6 +25,7 @@ interface ForgotPasswordFormProps {
 export function ForgotPasswordForm({
     smtpConfigured,
 }: ForgotPasswordFormProps) {
+    const i18n = useExtracted();
     const [email, setEmail] = useState("");
     const [isLoading, setIsLoading] = useState(false);
     const [submitted, setSubmitted] = useState(false);
@@ -48,7 +50,9 @@ export function ForgotPasswordForm({
             if (result?.error?.status === 429) {
                 toast.error(
                     result.error.message ||
-                        "Too many requests. Please wait a moment and try again.",
+                        i18n(
+                            "Too many requests. Please wait a moment and try again.",
+                        ),
                 );
                 return;
             }
@@ -71,38 +75,49 @@ export function ForgotPasswordForm({
             {!smtpConfigured ? (
                 <div className="space-y-3 rounded-md border border-border bg-muted/40 p-4 text-sm">
                     <p className="font-medium">
-                        Password reset is unavailable on this instance.
+                        {i18n(
+                            "Password reset is unavailable on this instance.",
+                        )}
                     </p>
                     <p className="text-muted-foreground">
-                        The administrator hasn't configured SMTP, so reset
-                        emails can't be delivered. Set{" "}
-                        <code className="font-mono text-xs">SMTP_HOST</code>,{" "}
-                        <code className="font-mono text-xs">SMTP_USER</code>,
-                        and{" "}
-                        <code className="font-mono text-xs">SMTP_PASSWORD</code>{" "}
-                        in the server environment to enable it. In the meantime,
-                        ask your administrator to reset your password directly
-                        in the database.
+                        {i18n(
+                            "The administrator hasn't configured SMTP, so reset emails can't be delivered. Set",
+                        )}{" "}
+                        <code className="font-mono text-xs">
+                            {i18n("SMTP_HOST")}
+                        </code>
+                        ,{" "}
+                        <code className="font-mono text-xs">
+                            {i18n("SMTP_USER")}
+                        </code>
+                        {i18n(", and")}{" "}
+                        <code className="font-mono text-xs">
+                            {i18n("SMTP_PASSWORD")}
+                        </code>{" "}
+                        {i18n(
+                            "in the server environment to enable it. In the meantime, ask your administrator to reset your password directly in the database.",
+                        )}
                     </p>
                 </div>
             ) : submitted ? (
                 <div className="space-y-3 rounded-md border border-border bg-muted/40 p-4 text-sm">
-                    <p className="font-medium">Check your email.</p>
+                    <p className="font-medium">{i18n("Check your email.")}</p>
                     <p className="text-muted-foreground">
-                        If an account exists for{" "}
-                        <span className="font-mono text-xs">{email}</span>,
-                        we've sent a password reset link. The link expires in 1
-                        hour.
+                        {i18n("If an account exists for")}{" "}
+                        <span className="font-mono text-xs">{email}</span>
+                        {i18n(
+                            ", we've sent a password reset link. The link expires in 1 hour.",
+                        )}
                     </p>
                 </div>
             ) : (
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
+                        <Label htmlFor="email">{i18n("Email")}</Label>
                         <Input
                             id="email"
                             type="email"
-                            placeholder="you@example.com"
+                            placeholder={i18n("you@example.com")}
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
@@ -117,7 +132,9 @@ export function ForgotPasswordForm({
                         variant="cyan"
                         disabled={isLoading}
                     >
-                        {isLoading ? "Sending..." : "Send reset link"}
+                        {isLoading
+                            ? i18n("Sending...")
+                            : i18n("Send reset link")}
                     </MetalButton>
                 </form>
             )}
@@ -127,7 +144,7 @@ export function ForgotPasswordForm({
                     href="/login"
                     className="text-accent-cyan hover:underline"
                 >
-                    Back to sign in
+                    {i18n("Back to sign in")}
                 </Link>
             </div>
         </div>

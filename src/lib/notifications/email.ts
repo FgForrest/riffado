@@ -2,6 +2,12 @@ import nodemailer from "nodemailer";
 import React from "react";
 import { claimEmailSend, releaseEmailSend } from "@/db/queries/email-log";
 import { env } from "@/lib/env";
+import {
+    type AppLocale,
+    defaultLocale,
+    normalizeLocale,
+} from "@/lib/i18n/config";
+import { createEmailTranslator } from "@/lib/i18n/email-messages";
 import { isSmtpConfigured } from "@/lib/smtp";
 import { AccountDeletedEmail } from "./email-templates/account-deleted";
 import { EmailChangeConfirmEmail } from "./email-templates/email-change-confirm";
@@ -29,6 +35,10 @@ interface EmailOptions {
 }
 
 let transporter: nodemailer.Transporter | null = null;
+
+function resolveEmailLocale(locale: AppLocale | null | undefined): AppLocale {
+    return normalizeLocale(locale) ?? defaultLocale;
+}
 
 function getTransporter(): nodemailer.Transporter | null {
     // Return null if SMTP is not configured
@@ -160,9 +170,10 @@ export async function sendNewRecordingEmail(
     email: string,
     count: number,
     recordingNames?: string[],
+    requestedLocale?: AppLocale | null,
 ): Promise<boolean> {
-    const subject =
-        count === 1 ? "New recording synced" : `${count} new recordings synced`;
+    const locale = resolveEmailLocale(requestedLocale);
+    const subject = createEmailTranslator(locale)("newRecording", { count });
 
     const baseUrl = env.APP_URL;
     const dashboardUrl = `${baseUrl}/dashboard`;
@@ -176,59 +187,35 @@ export async function sendNewRecordingEmail(
             dashboardUrl,
             settingsUrl,
         }),
+        locale,
     );
-
-    // Generate plain text version
-    const text = `
-${subject}
-
-Your Plaud device has synced ${count === 1 ? "a new recording" : `${count} new recordings`}.
-${
-    recordingNames && recordingNames.length > 0
-        ? `\nRecordings:\n${recordingNames.map((name) => `- ${name}`).join("\n")}`
-        : ""
-}
-
-View recordings: ${dashboardUrl}
-
-Manage notifications: ${settingsUrl}
-    `.trim();
 
     return sendEmail({
         to: email,
         subject,
         html,
-        text,
     });
 }
 
 export async function sendPasswordResetEmail(
     email: string,
     resetUrl: string,
+    requestedLocale?: AppLocale | null,
 ): Promise<boolean> {
-    const subject = "Reset your Riffado password";
+    const locale = resolveEmailLocale(requestedLocale);
+    const subject = createEmailTranslator(locale)("passwordReset");
 
     const html = await renderEmailHtml(
         React.createElement(PasswordResetEmail, {
             resetUrl,
         }),
+        locale,
     );
-
-    const text = `
-${subject}
-
-We received a request to reset your Riffado password. Click the link below to choose a new password. This link expires in 1 hour.
-
-${resetUrl}
-
-If you didn't request a password reset, you can safely ignore this email -- your password will not change.
-    `.trim();
 
     return sendEmail({
         to: email,
         subject,
         html,
-        text,
     });
 }
 
@@ -252,10 +239,12 @@ export async function sendWelcomeHostedProEmail(input: {
     /** Recordings synced before this upgrade, for personalized copy. */
     recordingCount?: number;
     totalDurationMs?: number;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
     return sendClaimedEmail(
         { userId: input.userId, kind: "welcome_hosted_pro" },
         async () => {
+            const locale = resolveEmailLocale(input.locale);
             const html = await renderEmailHtml(
                 React.createElement(WelcomeHostedProEmail, {
                     dashboardUrl: input.dashboardUrl,
@@ -269,10 +258,11 @@ export async function sendWelcomeHostedProEmail(input: {
                     recordingCount: input.recordingCount ?? 0,
                     totalDurationMs: input.totalDurationMs ?? 0,
                 }),
+                locale,
             );
             return {
                 to: input.email,
-                subject: "You're on Riffado Hosted Pro",
+                subject: createEmailTranslator(locale)("welcomeHostedPro"),
                 html,
             };
         },
@@ -291,17 +281,20 @@ export async function sendPaymentFailedEmail(input: {
     billingUrl: string;
     nextRetryAt: Date | null;
     accessUntil: Date | null;
+    locale?: AppLocale | null;
 }): Promise<void> {
+    const locale = resolveEmailLocale(input.locale);
     const html = await renderEmailHtml(
         React.createElement(PaymentFailedEmail, {
             billingUrl: input.billingUrl,
             nextRetryAt: input.nextRetryAt,
             accessUntil: input.accessUntil,
         }),
+        locale,
     );
     await sendEmailWithError({
         to: input.email,
-        subject: "Riffado: payment failed",
+        subject: createEmailTranslator(locale)("paymentFailed"),
         html,
     });
 }
@@ -318,10 +311,12 @@ export async function sendOverCapEmail(input: {
     settingsUrl: string;
     currentBytes: number;
     limitBytes: number;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
     return sendClaimedEmail(
         { userId: input.userId, kind: "over_cap" },
         async () => {
+            const locale = resolveEmailLocale(input.locale);
             const html = await renderEmailHtml(
                 React.createElement(OverCapEmail, {
                     billingUrl: input.billingUrl,
@@ -329,10 +324,11 @@ export async function sendOverCapEmail(input: {
                     currentBytes: input.currentBytes,
                     limitBytes: input.limitBytes,
                 }),
+                locale,
             );
             return {
                 to: input.email,
-                subject: "Riffado: storage over the Free cap",
+                subject: createEmailTranslator(locale)("overCap"),
                 html,
             };
         },
@@ -348,7 +344,9 @@ export async function sendVerifyEmail(input: {
     email: string;
     verificationUrl: string;
     expiresInSeconds: number;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
+    const locale = resolveEmailLocale(input.locale);
     const expiresInHours = Math.max(
         1,
         Math.round(input.expiresInSeconds / 3600),
@@ -358,10 +356,11 @@ export async function sendVerifyEmail(input: {
             verificationUrl: input.verificationUrl,
             expiresInHours,
         }),
+        locale,
     );
     return sendEmail({
         to: input.email,
-        subject: "Confirm your Riffado email",
+        subject: createEmailTranslator(locale)("verify"),
         html,
     });
 }
@@ -378,7 +377,9 @@ export async function sendEmailChangeConfirm(input: {
     newEmail: string;
     confirmUrl: string;
     expiresInSeconds: number;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
+    const locale = resolveEmailLocale(input.locale);
     const expiresInHours = Math.max(
         1,
         Math.round(input.expiresInSeconds / 3600),
@@ -389,10 +390,11 @@ export async function sendEmailChangeConfirm(input: {
             newEmail: input.newEmail,
             expiresInHours,
         }),
+        locale,
     );
     return sendEmail({
         to: input.sendTo,
-        subject: "Confirm your new Riffado email",
+        subject: createEmailTranslator(locale)("emailChange"),
         html,
     });
 }
@@ -411,6 +413,7 @@ export async function sendGraceStartedEmail(input: {
     deletionAt: Date;
     exportUrl: string;
     reactivateUrl: string;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
     return sendClaimedEmail(
         {
@@ -418,6 +421,7 @@ export async function sendGraceStartedEmail(input: {
             kind: `grace_started:${input.deletionAt.toISOString()}`,
         },
         async () => {
+            const locale = resolveEmailLocale(input.locale);
             const html = await renderEmailHtml(
                 React.createElement(GraceStartedEmail, {
                     gracePath: input.gracePath,
@@ -427,13 +431,16 @@ export async function sendGraceStartedEmail(input: {
                     exportUrl: input.exportUrl,
                     reactivateUrl: input.reactivateUrl,
                 }),
+                locale,
             );
             return {
                 to: input.email,
-                subject:
+                subject: createEmailTranslator(locale)(
                     input.gracePath === "trial"
-                        ? `Your Riffado trial ended: ${input.graceDays} days to export`
-                        : `Your Riffado subscription ended: ${input.graceDays} days to export`,
+                        ? "graceStartedTrial"
+                        : "graceStartedPaid",
+                    { days: input.graceDays },
+                ),
                 html,
             };
         },
@@ -446,18 +453,21 @@ export async function sendExportReadyEmail(input: {
     email: string;
     jobId: string;
     downloadUrl: string;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
     return sendClaimedEmail(
         { userId: input.userId, kind: `export_ready:${input.jobId}` },
         async () => {
+            const locale = resolveEmailLocale(input.locale);
             const html = await renderEmailHtml(
                 React.createElement(ExportReadyEmail, {
                     downloadUrl: input.downloadUrl,
                 }),
+                locale,
             );
             return {
                 to: input.email,
-                subject: "Your Riffado export is ready",
+                subject: createEmailTranslator(locale)("exportReady"),
                 html,
             };
         },
@@ -472,6 +482,7 @@ export async function sendGraceReminderEmail(input: {
     deletionAt: Date;
     exportUrl: string;
     reactivateUrl: string;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
     return sendClaimedEmail(
         {
@@ -479,6 +490,7 @@ export async function sendGraceReminderEmail(input: {
             kind: `grace_reminder:${input.deletionAt.toISOString()}:${input.daysLeft}`,
         },
         async () => {
+            const locale = resolveEmailLocale(input.locale);
             const html = await renderEmailHtml(
                 React.createElement(GraceReminderEmail, {
                     daysLeft: input.daysLeft,
@@ -486,10 +498,13 @@ export async function sendGraceReminderEmail(input: {
                     exportUrl: input.exportUrl,
                     reactivateUrl: input.reactivateUrl,
                 }),
+                locale,
             );
             return {
                 to: input.email,
-                subject: `Riffado: ${input.daysLeft} days left to export`,
+                subject: createEmailTranslator(locale)("graceReminder", {
+                    days: input.daysLeft,
+                }),
                 html,
             };
         },
@@ -503,6 +518,7 @@ export async function sendGraceLastDayEmail(input: {
     deletionAt: Date;
     exportUrl: string;
     reactivateUrl: string;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
     return sendClaimedEmail(
         {
@@ -510,17 +526,18 @@ export async function sendGraceLastDayEmail(input: {
             kind: `grace_last_day:${input.deletionAt.toISOString()}`,
         },
         async () => {
+            const locale = resolveEmailLocale(input.locale);
             const html = await renderEmailHtml(
                 React.createElement(GraceLastDayEmail, {
                     deletionAt: input.deletionAt,
                     exportUrl: input.exportUrl,
                     reactivateUrl: input.reactivateUrl,
                 }),
+                locale,
             );
             return {
                 to: input.email,
-                subject:
-                    "Riffado: last chance to export (account deleted in 24h)",
+                subject: createEmailTranslator(locale)("graceLastDay"),
                 html,
             };
         },
@@ -537,15 +554,18 @@ export async function sendGraceLastDayEmail(input: {
 export async function sendAccountDeletedEmail(input: {
     email: string;
     signupUrl: string;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
+    const locale = resolveEmailLocale(input.locale);
     const html = await renderEmailHtml(
         React.createElement(AccountDeletedEmail, {
             signupUrl: input.signupUrl,
         }),
+        locale,
     );
     return sendEmail({
         to: input.email,
-        subject: "Your Riffado account has been deleted",
+        subject: createEmailTranslator(locale)("accountDeleted"),
         html,
     });
 }
@@ -566,10 +586,12 @@ export async function sendTransitionStartEmail(input: {
     billingUrl: string;
     exportUrl: string;
     selfHostUrl: string;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
     return sendClaimedEmail(
         { userId: input.userId, kind: "transition_start" },
         async () => {
+            const locale = resolveEmailLocale(input.locale);
             const html = await renderEmailHtml(
                 React.createElement(TransitionStartEmail, {
                     transitionEndsAt: input.transitionEndsAt,
@@ -581,10 +603,11 @@ export async function sendTransitionStartEmail(input: {
                     exportUrl: input.exportUrl,
                     selfHostUrl: input.selfHostUrl,
                 }),
+                locale,
             );
             return {
                 to: input.email,
-                subject: "Why Riffado Hosted Pro is happening",
+                subject: createEmailTranslator(locale)("transitionStart"),
                 html,
             };
         },
@@ -607,10 +630,12 @@ export async function sendTransitionReminderEmail(input: {
     billingUrl: string;
     exportUrl: string;
     selfHostUrl: string;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
     return sendClaimedEmail(
         { userId: input.userId, kind: "transition_reminder" },
         async () => {
+            const locale = resolveEmailLocale(input.locale);
             const html = await renderEmailHtml(
                 React.createElement(TransitionReminderEmail, {
                     daysLeft: input.daysLeft,
@@ -623,10 +648,13 @@ export async function sendTransitionReminderEmail(input: {
                     exportUrl: input.exportUrl,
                     selfHostUrl: input.selfHostUrl,
                 }),
+                locale,
             );
             return {
                 to: input.email,
-                subject: `Riffado: ${input.daysLeft} day${input.daysLeft === 1 ? "" : "s"} of free Hosted Pro left`,
+                subject: createEmailTranslator(locale)("transitionReminder", {
+                    days: input.daysLeft,
+                }),
                 html,
             };
         },
@@ -646,10 +674,12 @@ export async function sendTransitionEndedEmail(input: {
     billingUrl: string;
     exportUrl: string;
     selfHostUrl: string;
+    locale?: AppLocale | null;
 }): Promise<boolean> {
     return sendClaimedEmail(
         { userId: input.userId, kind: "transition_ended" },
         async () => {
+            const locale = resolveEmailLocale(input.locale);
             const html = await renderEmailHtml(
                 React.createElement(TransitionEndedEmail, {
                     amountValue: input.amountValue,
@@ -658,18 +688,23 @@ export async function sendTransitionEndedEmail(input: {
                     exportUrl: input.exportUrl,
                     selfHostUrl: input.selfHostUrl,
                 }),
+                locale,
             );
             return {
                 to: input.email,
-                subject: "Your Riffado hosted account is now read-only",
+                subject: createEmailTranslator(locale)("transitionEnded"),
                 html,
             };
         },
     );
 }
 
-export async function sendTestEmail(email: string): Promise<void> {
-    const subject = "Test Email from Riffado";
+export async function sendTestEmail(
+    email: string,
+    requestedLocale?: AppLocale | null,
+): Promise<void> {
+    const locale = resolveEmailLocale(requestedLocale);
+    const subject = createEmailTranslator(locale)("test");
 
     const baseUrl = env.APP_URL;
     const dashboardUrl = `${baseUrl}/dashboard`;
@@ -681,25 +716,12 @@ export async function sendTestEmail(email: string): Promise<void> {
             dashboardUrl,
             settingsUrl,
         }),
+        locale,
     );
-
-    // Generate plain text version
-    const text = `
-${subject}
-
-This is a test email from Riffado to verify your email notification settings.
-
-If you received this email, your email notifications are configured correctly! You'll receive notifications when new recordings are synced from your Plaud device.
-
-View dashboard: ${dashboardUrl}
-
-Manage notifications: ${settingsUrl}
-    `.trim();
 
     await sendEmailWithError({
         to: email,
         subject,
         html,
-        text,
     });
 }

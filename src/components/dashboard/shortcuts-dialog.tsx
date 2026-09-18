@@ -1,5 +1,6 @@
 "use client";
 
+import { useExtracted } from "next-intl";
 import {
     Dialog,
     DialogContent,
@@ -18,39 +19,6 @@ interface ShortcutRow {
     description: string;
 }
 
-const groups: { title: string; rows: ShortcutRow[] }[] = [
-    {
-        title: "Global",
-        rows: [
-            { keys: ["⌘", "K"], description: "Command palette" },
-            { keys: ["?"], description: "Show this cheatsheet" },
-            { keys: [","], description: "Open settings" },
-            { keys: ["/"], description: "Focus search" },
-        ],
-    },
-    {
-        title: "Recording list",
-        rows: [
-            { keys: ["j"], description: "Next recording" },
-            { keys: ["k"], description: "Previous recording" },
-            // No `Enter → Focus player` row here: selecting a recording
-            // via j/k already mounts the player; there's no separate
-            // "focus the player" gesture and adding one would conflict
-            // with the search box's Enter handler.
-        ],
-    },
-    {
-        title: "Player",
-        rows: [
-            { keys: ["Space"], description: "Play / pause" },
-            { keys: ["←"], description: "Seek back 5s" },
-            { keys: ["→"], description: "Seek forward 5s" },
-            { keys: ["↑"], description: "Volume up" },
-            { keys: ["↓"], description: "Volume down" },
-        ],
-    },
-];
-
 function Kbd({ children }: { children: React.ReactNode }) {
     return (
         <kbd className="inline-flex h-6 min-w-6 items-center justify-center rounded border border-border bg-muted px-1.5 font-mono text-[11px] text-foreground shadow-sm">
@@ -60,13 +28,44 @@ function Kbd({ children }: { children: React.ReactNode }) {
 }
 
 export function ShortcutsDialog({ open, onOpenChange }: ShortcutsDialogProps) {
+    const i18n = useExtracted();
+    const groups: { title: string; rows: ShortcutRow[] }[] = [
+        {
+            title: i18n("Global"),
+            rows: [
+                { keys: ["⌘", "K"], description: i18n("Command palette") },
+                { keys: ["?"], description: i18n("Show this cheatsheet") },
+                { keys: [","], description: i18n("Open settings") },
+                { keys: ["/"], description: i18n("Focus search") },
+            ],
+        },
+        {
+            title: i18n("Recording list"),
+            rows: [
+                { keys: ["j"], description: i18n("Next recording") },
+                { keys: ["k"], description: i18n("Previous recording") },
+            ],
+        },
+        {
+            title: i18n("Player"),
+            rows: [
+                { keys: ["Space"], description: i18n("Play / pause") },
+                { keys: ["←"], description: i18n("Seek back 5s") },
+                { keys: ["→"], description: i18n("Seek forward 5s") },
+                { keys: ["↑"], description: i18n("Volume up") },
+                { keys: ["↓"], description: i18n("Volume down") },
+            ],
+        },
+    ];
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>Keyboard shortcuts</DialogTitle>
+                    <DialogTitle>{i18n("Keyboard shortcuts")}</DialogTitle>
                     <DialogDescription>
-                        Power-user shortcuts available across the dashboard.
+                        {i18n(
+                            "Power-user shortcuts available across the dashboard.",
+                        )}
                     </DialogDescription>
                 </DialogHeader>
                 <div className="space-y-5">

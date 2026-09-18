@@ -5,6 +5,7 @@ import { db } from "@/db";
 import * as schema from "@/db/schema";
 import { env } from "./env";
 import { closeCycleForUser } from "./hosted/billing/cycle-close";
+import { localeFromAcceptLanguage, normalizeLocale } from "./i18n/config";
 import {
     sendEmailChangeConfirm,
     sendPasswordResetEmail,
@@ -28,6 +29,19 @@ const EMAIL_VERIFICATION_TTL_SECONDS = 24 * 60 * 60;
  */
 const verificationActive = env.IS_HOSTED && isSmtpConfigured();
 
+function authEmailLocale(user: object, request?: Request) {
+    const configuredLocale =
+        "uiLocale" in user && typeof user.uiLocale === "string"
+            ? normalizeLocale(user.uiLocale)
+            : null;
+    return (
+        configuredLocale ??
+        localeFromAcceptLanguage(
+            request?.headers.get("accept-language") ?? null,
+        )
+    );
+}
+
 /**
  * Public alias for `verificationActive`, for callers outside this module
  * (e.g. the register page/form) that need to know whether sign-up leaves
@@ -47,19 +61,21 @@ export const auth = betterAuth({
         enabled: true,
         requireEmailVerification: verificationActive,
         disableSignUp: env.DISABLE_REGISTRATION,
-        sendResetPassword: async ({ user, url }) => {
-            await sendPasswordResetEmail(user.email, url);
+        sendResetPassword: async ({ user, url }, request) => {
+            const locale = authEmailLocale(user, request);
+            await sendPasswordResetEmail(user.email, url, locale);
         },
         resetPasswordTokenExpiresIn: 60 * 60,
         revokeSessionsOnPasswordReset: true,
     },
     emailVerification: {
-        sendVerificationEmail: async ({ user, url }) => {
+        sendVerificationEmail: async ({ user, url }, request) => {
             if (!verificationActive) return;
             await sendVerifyEmail({
                 email: user.email,
                 verificationUrl: url,
                 expiresInSeconds: EMAIL_VERIFICATION_TTL_SECONDS,
+                locale: authEmailLocale(user, request),
             });
         },
         sendOnSignUp: verificationActive,
@@ -67,15 +83,26 @@ export const auth = betterAuth({
         expiresIn: EMAIL_VERIFICATION_TTL_SECONDS,
     },
     user: {
+        additionalFields: {
+            uiLocale: {
+                type: "string",
+                required: false,
+                input: false,
+            },
+        },
         changeEmail: {
             enabled: true,
-            sendChangeEmailConfirmation: async ({ user, newEmail, url }) => {
+            sendChangeEmailConfirmation: async (
+                { user, newEmail, url },
+                request,
+            ) => {
                 if (!verificationActive) return;
                 await sendEmailChangeConfirm({
                     sendTo: user.email,
                     newEmail,
                     confirmUrl: url,
                     expiresInSeconds: EMAIL_VERIFICATION_TTL_SECONDS,
+                    locale: authEmailLocale(user, request),
                 });
             },
         },

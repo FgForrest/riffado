@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowLeft } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useRef } from "react";
 import {
     RecordingPlayer,
@@ -96,6 +97,7 @@ export function WorkstationDetailPane({
     onAddToFolder,
     onRemoveFromFolder,
 }: Props) {
+    const i18n = useExtracted();
     const playerRef = useRef<RecordingPlayerHandle>(null);
     const hasTranscript =
         currentRecording?.hasTranscript ??
@@ -123,8 +125,7 @@ export function WorkstationDetailPane({
                 onClick={onBackToList}
                 className="-ml-2 h-9 gap-1 px-2 lg:hidden"
             >
-                <ArrowLeft className="size-4" />
-                Back to recordings
+                <ArrowLeft className="size-4" /> {i18n("Back to recordings")}
             </Button>
             {currentRecording ? (
                 <>
@@ -195,7 +196,9 @@ export function WorkstationDetailPane({
                 <Card>
                     <CardContent className="py-16 text-center">
                         <p className="text-muted-foreground">
-                            Select a recording to view details and transcription
+                            {i18n(
+                                "Select a recording to view details and transcription",
+                            )}
                         </p>
                     </CardContent>
                 </Card>

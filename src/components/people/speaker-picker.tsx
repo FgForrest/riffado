@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Loader2, Search, UserPlus } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -39,6 +40,7 @@ export interface SpeakerPickerProps {
  * one action rather than a detour through the People section.
  */
 export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
+    const i18n = useExtracted();
     const [people, setPeople] = useState<PickablePerson[] | null>(null);
     const [query, setQuery] = useState("");
     const [selectedPersonId, setSelectedPersonId] = useState<string | null>(
@@ -103,9 +105,11 @@ export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
         <Dialog open onOpenChange={(open) => !open && onClose()}>
             <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Identify {label}</DialogTitle>
+                    <DialogTitle>
+                        {i18n("Identify {speaker}", { speaker: label })}
+                    </DialogTitle>
                     <DialogDescription>
-                        Select an existing person or enter a new name.
+                        {i18n("Select an existing person or enter a new name.")}
                     </DialogDescription>
                 </DialogHeader>
 
@@ -128,8 +132,10 @@ export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
                                     void submit();
                                 }
                             }}
-                            placeholder="Search people or enter a name"
-                            aria-label={`Who is ${label}?`}
+                            placeholder={i18n("Search people or enter a name")}
+                            aria-label={i18n("Who is {speaker}?", {
+                                speaker: label,
+                            })}
                             className="pl-9"
                         />
                     </div>
@@ -137,7 +143,7 @@ export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
                     <div className="min-h-20 rounded-md border bg-muted/20 p-1">
                         {people === null ? (
                             <p className="px-3 py-6 text-center text-sm text-muted-foreground">
-                                Loading people…
+                                {i18n("Loading people…")}
                             </p>
                         ) : matches.length > 0 ? (
                             <ul
@@ -193,11 +199,15 @@ export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
                             <div className="flex min-h-20 items-center justify-center gap-2 px-3 py-5 text-sm text-muted-foreground">
                                 {trimmedQuery ? (
                                     <>
-                                        <UserPlus className="size-4" />
-                                        Create “{trimmedQuery}”
+                                        <UserPlus className="size-4" />{" "}
+                                        {i18n("Create “{name}”", {
+                                            name: trimmedQuery,
+                                        })}
                                     </>
                                 ) : (
-                                    "No people yet. Enter a name to create one."
+                                    i18n(
+                                        "No people yet. Enter a name to create one.",
+                                    )
                                 )}
                             </div>
                         )}
@@ -210,7 +220,7 @@ export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
                         onClick={onClose}
                         disabled={submitting}
                     >
-                        Cancel
+                        {i18n("Cancel")}
                     </Button>
                     <Button
                         onClick={() => void submit()}
@@ -219,7 +229,7 @@ export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
                         {submitting && (
                             <Loader2 className="mr-2 size-4 animate-spin" />
                         )}
-                        {createsPerson ? "Create" : "Select"}
+                        {createsPerson ? i18n("Create") : i18n("Select")}
                     </Button>
                 </DialogFooter>
             </DialogContent>

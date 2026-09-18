@@ -1,4 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
+import { useExtracted, useLocale } from "next-intl";
 import { EmailLayout } from "./_layout";
 import { formatEmailDate } from "./format-date";
 import { emailStyles } from "./styles";
@@ -15,32 +16,45 @@ export function GraceLastDayEmail({
     exportUrl,
     reactivateUrl,
 }: Props) {
+    const i18n = useExtracted();
+    const locale = useLocale();
     return (
         <EmailLayout
-            previewText="Last chance: your Riffado account is deleted in under 24 hours."
-            footerLink={{ href: reactivateUrl, label: "Reactivate account" }}
+            previewText={i18n(
+                "Last chance: your Riffado account is deleted in under 24 hours.",
+            )}
+            footerLink={{
+                href: reactivateUrl,
+                label: i18n("Reactivate account"),
+            }}
         >
-            <Heading style={emailStyles.h1}>Last chance to export.</Heading>
+            <Heading style={emailStyles.h1}>
+                {i18n("Last chance to export.")}
+            </Heading>
             <Text style={emailStyles.text}>
-                Your Riffado account is scheduled for permanent deletion on{" "}
-                {formatEmailDate(deletionAt, {
-                    month: "short",
-                    includeTime: true,
-                })}
-                . That's under 24 hours from now. Every recording, transcript,
-                and summary will be removed and cannot be recovered.
+                {i18n(
+                    "Your Riffado account is scheduled for permanent deletion on",
+                )}{" "}
+                {formatEmailDate(
+                    deletionAt,
+                    { month: "short", includeTime: true },
+                    locale,
+                )}{" "}
+                {i18n(
+                    ". That's under 24 hours from now. Every recording, transcript, and summary will be removed and cannot be recovered.",
+                )}
             </Text>
             <Section style={emailStyles.buttonSection}>
                 <Button style={emailStyles.button} href={exportUrl}>
-                    Export now
+                    {i18n("Export now")}
                 </Button>
             </Section>
             <Text style={emailStyles.text}>
-                Want to keep your account?{" "}
+                {i18n("Want to keep your account?")}{" "}
                 <a href={reactivateUrl} style={emailStyles.link}>
-                    Add a card to reactivate
-                </a>
-                . Reactivation is instant, with no data loss.
+                    {i18n("Add a card to reactivate")}
+                </a>{" "}
+                {i18n(". Reactivation is instant, with no data loss.")}
             </Text>
         </EmailLayout>
     );

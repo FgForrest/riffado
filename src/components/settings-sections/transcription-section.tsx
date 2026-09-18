@@ -1,7 +1,8 @@
 "use client";
 
 import { FileText } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useExtracted } from "next-intl";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SettingsSectionHeader } from "@/components/settings/section-header";
 import { Label } from "@/components/ui/label";
@@ -20,57 +21,62 @@ import { useSettings } from "@/hooks/use-settings";
 // scannable. Auto-detect already covers everything Whisper handles —
 // these entries just let users force a language for noisy recordings
 // or when auto-detect mis-routes (Slavic / Romance neighbours).
-const languageOptions = [
-    { label: "Auto-detect", value: null },
-    { label: "English", value: "en" },
-    { label: "Spanish", value: "es" },
-    { label: "French", value: "fr" },
-    { label: "German", value: "de" },
-    { label: "Italian", value: "it" },
-    { label: "Portuguese", value: "pt" },
-    { label: "Dutch", value: "nl" },
-    { label: "Swedish", value: "sv" },
-    { label: "Danish", value: "da" },
-    { label: "Norwegian", value: "no" },
-    { label: "Finnish", value: "fi" },
-    { label: "Polish", value: "pl" },
-    { label: "Czech", value: "cs" },
-    { label: "Ukrainian", value: "uk" },
-    { label: "Russian", value: "ru" },
-    { label: "Romanian", value: "ro" },
-    { label: "Hungarian", value: "hu" },
-    { label: "Greek", value: "el" },
-    { label: "Turkish", value: "tr" },
-    { label: "Arabic", value: "ar" },
-    { label: "Hebrew", value: "he" },
-    { label: "Hindi", value: "hi" },
-    { label: "Indonesian", value: "id" },
-    { label: "Vietnamese", value: "vi" },
-    { label: "Thai", value: "th" },
-    { label: "Chinese", value: "zh" },
-    { label: "Japanese", value: "ja" },
-    { label: "Korean", value: "ko" },
-];
-
-const qualityOptions = [
-    {
-        label: "Fast",
-        value: "fast",
-        description: "Faster transcription, lower accuracy",
-    },
-    {
-        label: "Balanced",
-        value: "balanced",
-        description: "Good balance of speed and accuracy",
-    },
-    {
-        label: "Accurate",
-        value: "accurate",
-        description: "Highest accuracy, slower transcription",
-    },
-];
-
 export function TranscriptionSection() {
+    const i18n = useExtracted();
+    const languageOptions = useMemo(
+        () => [
+            { label: i18n("Auto-detect"), value: null },
+            { label: i18n("English"), value: "en" },
+            { label: i18n("Spanish"), value: "es" },
+            { label: i18n("French"), value: "fr" },
+            { label: i18n("German"), value: "de" },
+            { label: i18n("Italian"), value: "it" },
+            { label: i18n("Portuguese"), value: "pt" },
+            { label: i18n("Dutch"), value: "nl" },
+            { label: i18n("Swedish"), value: "sv" },
+            { label: i18n("Danish"), value: "da" },
+            { label: i18n("Norwegian"), value: "no" },
+            { label: i18n("Finnish"), value: "fi" },
+            { label: i18n("Polish"), value: "pl" },
+            { label: i18n("Czech"), value: "cs" },
+            { label: i18n("Ukrainian"), value: "uk" },
+            { label: i18n("Russian"), value: "ru" },
+            { label: i18n("Romanian"), value: "ro" },
+            { label: i18n("Hungarian"), value: "hu" },
+            { label: i18n("Greek"), value: "el" },
+            { label: i18n("Turkish"), value: "tr" },
+            { label: i18n("Arabic"), value: "ar" },
+            { label: i18n("Hebrew"), value: "he" },
+            { label: i18n("Hindi"), value: "hi" },
+            { label: i18n("Indonesian"), value: "id" },
+            { label: i18n("Vietnamese"), value: "vi" },
+            { label: i18n("Thai"), value: "th" },
+            { label: i18n("Chinese"), value: "zh" },
+            { label: i18n("Japanese"), value: "ja" },
+            { label: i18n("Korean"), value: "ko" },
+        ],
+        [i18n],
+    );
+    const qualityOptions = useMemo(
+        () => [
+            {
+                label: i18n("Fast"),
+                value: "fast",
+                description: i18n("Faster transcription, lower accuracy"),
+            },
+            {
+                label: i18n("Balanced"),
+                value: "balanced",
+                description: i18n("Good balance of speed and accuracy"),
+            },
+            {
+                label: i18n("Accurate"),
+                value: "accurate",
+                description: i18n("Highest accuracy, slower transcription"),
+            },
+        ],
+        [i18n],
+    );
     const { isLoadingSettings, isSavingSettings, setIsLoadingSettings } =
         useSettings();
     const [autoTranscribe, setAutoTranscribe] = useState(false);
@@ -136,7 +142,7 @@ export function TranscriptionSection() {
         } catch {
             setAutoTranscribe(previous);
             pendingChangesRef.current.delete("autoTranscribe");
-            toast.error("Failed to save settings. Changes reverted.");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
 
@@ -173,7 +179,7 @@ export function TranscriptionSection() {
             setImportPlaudContent(prev.importPlaudContent);
             setTranscriptMode(prev.transcriptMode);
             setPreferredTranscriptSource(prev.preferredTranscriptSource);
-            toast.error("Failed to save settings. Changes reverted.");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
 
@@ -274,7 +280,7 @@ export function TranscriptionSection() {
                     pendingChangesRef.current.delete("syncTitleToPlaud");
                 }
             }
-            toast.error("Failed to save settings. Changes reverted.");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
 
@@ -289,19 +295,22 @@ export function TranscriptionSection() {
     return (
         <div className="space-y-6">
             <SettingsSectionHeader
-                title="Transcription"
-                description="Defaults and provider selection for converting audio to text."
+                title={i18n("Transcription")}
+                description={i18n(
+                    "Defaults and provider selection for converting audio to text.",
+                )}
                 icon={FileText}
             />
             <div className="space-y-4">
                 <div className="flex items-center justify-between">
                     <div className="space-y-0.5 flex-1">
                         <Label htmlFor="auto-transcribe" className="text-base">
-                            Auto-transcribe new recordings
+                            {i18n("Auto-transcribe new recordings")}
                         </Label>
                         <p className="text-sm text-muted-foreground">
-                            Automatically transcribe every new recording,
-                            whether synced from a voice recorder or uploaded
+                            {i18n(
+                                "Automatically transcribe every new recording, whether synced from a voice recorder or uploaded",
+                            )}
                         </p>
                     </div>
                     <Switch
@@ -318,12 +327,12 @@ export function TranscriptionSection() {
                             htmlFor="import-plaud-content"
                             className="text-base"
                         >
-                            Import Plaud transcripts and summaries
+                            {i18n("Import Plaud transcripts and summaries")}
                         </Label>
                         <p className="text-sm text-muted-foreground">
-                            When Plaud already transcribed a recording, import
-                            its transcript and summary on sync instead of
-                            re-doing the work with your own AI provider.
+                            {i18n(
+                                "When Plaud already transcribed a recording, import its transcript and summary on sync instead of re-doing the work with your own AI provider.",
+                            )}
                         </p>
                     </div>
                     <Switch
@@ -342,7 +351,7 @@ export function TranscriptionSection() {
                     <>
                         <div className="space-y-2">
                             <Label htmlFor="transcript-mode">
-                                When Plaud has a transcript
+                                {i18n("When Plaud has a transcript")}
                             </Label>
                             <Select
                                 value={transcriptMode}
@@ -361,22 +370,27 @@ export function TranscriptionSection() {
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="plaud_only">
-                                        Use Plaud only (saves AI credits)
+                                        {i18n(
+                                            "Use Plaud only (saves AI credits)",
+                                        )}
                                     </SelectItem>
                                     <SelectItem value="keep_both">
-                                        Keep both — also run my provider
+                                        {i18n(
+                                            "Keep both — also run my provider",
+                                        )}
                                     </SelectItem>
                                 </SelectContent>
                             </Select>
                             <p className="text-xs text-muted-foreground">
-                                Keep both also transcribes with your own
-                                provider so you can compare them.
+                                {i18n(
+                                    "Keep both also transcribes with your own provider so you can compare them.",
+                                )}
                             </p>
                         </div>
 
                         <div className="space-y-2">
                             <Label htmlFor="preferred-transcript-source">
-                                Primary transcript
+                                {i18n("Primary transcript")}
                             </Label>
                             <Select
                                 value={preferredTranscriptSource}
@@ -394,15 +408,18 @@ export function TranscriptionSection() {
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="plaud">Plaud</SelectItem>
+                                    <SelectItem value="plaud">
+                                        {i18n("Plaud")}
+                                    </SelectItem>
                                     <SelectItem value="riffado">
-                                        My provider
+                                        {i18n("My provider")}
                                     </SelectItem>
                                 </SelectContent>
                             </Select>
                             <p className="text-xs text-muted-foreground">
-                                Shown by default and used for summaries when
-                                both exist.
+                                {i18n(
+                                    "Shown by default and used for summaries when both exist.",
+                                )}
                             </p>
                         </div>
                     </>
@@ -410,7 +427,7 @@ export function TranscriptionSection() {
 
                 <div className="space-y-2">
                     <Label htmlFor="transcription-language">
-                        Default transcription language
+                        {i18n("Default transcription language")}
                     </Label>
                     <Select
                         value={defaultTranscriptionLanguage || "auto"}
@@ -432,7 +449,7 @@ export function TranscriptionSection() {
                                     (opt) =>
                                         opt.value ===
                                         defaultTranscriptionLanguage,
-                                )?.label || "Auto-detect"}
+                                )?.label || i18n("Auto-detect")}
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
@@ -447,14 +464,15 @@ export function TranscriptionSection() {
                         </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                        Language to use for transcription. Auto-detect will
-                        identify the language automatically.
+                        {i18n(
+                            "Language to use for transcription. Auto-detect will identify the language automatically.",
+                        )}
                     </p>
                 </div>
 
                 <div className="space-y-2">
                     <Label htmlFor="transcription-quality">
-                        Transcription quality
+                        {i18n("Transcription quality")}
                     </Label>
                     <Select
                         value={transcriptionQuality}
@@ -473,7 +491,7 @@ export function TranscriptionSection() {
                             <SelectValue>
                                 {qualityOptions.find(
                                     (opt) => opt.value === transcriptionQuality,
-                                )?.label || "Balanced"}
+                                )?.label || i18n("Balanced")}
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
@@ -493,7 +511,9 @@ export function TranscriptionSection() {
                         </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                        Balance between transcription speed and accuracy
+                        {i18n(
+                            "Balance between transcription speed and accuracy",
+                        )}
                     </p>
                 </div>
 
@@ -503,11 +523,12 @@ export function TranscriptionSection() {
                             htmlFor="auto-generate-title"
                             className="text-base"
                         >
-                            Auto-generate titles
+                            {i18n("Auto-generate titles")}
                         </Label>
                         <p className="text-sm text-muted-foreground">
-                            Automatically generate descriptive titles from
-                            transcriptions using AI
+                            {i18n(
+                                "Automatically generate descriptive titles from transcriptions using AI",
+                            )}
                         </p>
                     </div>
                     <Switch
@@ -530,11 +551,12 @@ export function TranscriptionSection() {
                                 htmlFor="sync-title-plaud"
                                 className="text-base"
                             >
-                                Sync titles to Plaud
+                                {i18n("Sync titles to Plaud")}
                             </Label>
                             <p className="text-sm text-muted-foreground">
-                                Update the filename in your Plaud device when
-                                titles are generated
+                                {i18n(
+                                    "Update the filename in your Plaud device when titles are generated",
+                                )}
                             </p>
                         </div>
                         <Switch

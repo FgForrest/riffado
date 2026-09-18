@@ -9,6 +9,7 @@ import {
     Section,
     Text,
 } from "@react-email/components";
+import { useExtracted } from "next-intl";
 import type React from "react";
 import { emailStyles } from "./styles";
 
@@ -31,6 +32,7 @@ export function EmailLayout({
     footerLink,
     children,
 }: EmailLayoutProps) {
+    const i18n = useExtracted();
     return (
         <Html>
             <Head>
@@ -48,7 +50,7 @@ export function EmailLayout({
                         <div style={{ textAlign: "center" }}>
                             <Img
                                 src="https://riffado.com/logo.png"
-                                alt="Riffado"
+                                alt={i18n("Riffado")}
                                 width="32"
                                 height="32"
                                 style={emailStyles.logo}
@@ -70,7 +72,9 @@ export function EmailLayout({
                             </Text>
                         ) : null}
                         <Text style={emailStyles.footerText}>
-                            Riffado. Your recordings, your transcripts.
+                            {i18n(
+                                "Riffado. Your recordings, your transcripts.",
+                            )}
                         </Text>
                     </Section>
                 </Container>

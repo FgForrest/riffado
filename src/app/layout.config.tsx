@@ -1,16 +1,22 @@
 import type { DocsLayoutProps } from "fumadocs-ui/layouts/docs";
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
 
-export const baseOptions: BaseLayoutProps = {
-    nav: {
-        title: "Riffado Docs",
-        url: "/docs",
-    },
-    githubUrl: "https://github.com/riffado/riffado",
-};
+export function createBaseOptions(docsTitle: string): BaseLayoutProps {
+    return {
+        nav: {
+            title: docsTitle,
+            url: "/docs",
+        },
+        githubUrl: "https://github.com/riffado/riffado",
+    };
+}
 
-export const docsTabs: NonNullable<DocsLayoutProps["tabs"]> = [
-    { title: "Guides", url: "/docs/guides" },
-    { title: "Self Hosting", url: "/docs/self-hosting" },
-    { title: "Reference", url: "/docs/reference" },
-];
+export function createDocsTabs(
+    titles: readonly [string, string, string],
+): NonNullable<DocsLayoutProps["tabs"]> {
+    return [
+        { title: titles[0], url: "/docs/guides" },
+        { title: titles[1], url: "/docs/self-hosting" },
+        { title: titles[2], url: "/docs/reference" },
+    ];
+}

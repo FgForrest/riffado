@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useExtracted } from "next-intl";
 import { Github, X } from "@/components/icons/icons";
 import { LogoWordmark } from "@/components/icons/logo";
 import { NewsletterForm } from "@/components/marketing/newsletter-form";
@@ -35,63 +36,6 @@ type FooterColumn = {
     links: FooterLink[];
 };
 
-// Recombined to three columns (Product / Community / Legal) after
-// dropping three duplicate links -- "Open Source" (covered by the
-// brand-block GitHub icon), "License (AGPL-3.0)" (covered by the
-// copyright row), and "Install script" (covered by Product → Self-host).
-// "For Professionals" moved from Company to Product where the
-// audience/page actually lives.
-const COLUMNS: FooterColumn[] = [
-    {
-        title: "Product",
-        links: [
-            { label: "Features", href: "/#features" },
-            { label: "Pricing", href: "/#pricing" },
-            { label: "Self-host", href: "/#deploy" },
-            { label: "For Professionals", href: "/for-professionals" },
-            { label: "Changelog", href: "/changelog" },
-            {
-                label: "Roadmap",
-                href: "https://github.com/riffado/riffado/issues",
-                external: true,
-            },
-        ],
-    },
-    {
-        title: "Community",
-        links: [
-            { label: "Documentation", href: "/docs" },
-            {
-                label: "Discussions",
-                href: "https://github.com/riffado/riffado/discussions",
-                external: true,
-            },
-            {
-                label: "Code of Conduct",
-                href: "https://github.com/riffado/riffado/blob/main/CODE_OF_CONDUCT.md",
-                external: true,
-            },
-            { label: "Contact", href: "mailto:support@riffado.com" },
-        ],
-    },
-    {
-        title: "Legal",
-        links: [
-            { label: "Privacy", href: "/privacy" },
-            { label: "Terms", href: "/terms" },
-            {
-                label: "Security",
-                href: "https://github.com/riffado/riffado/blob/main/SECURITY.md",
-                external: true,
-            },
-            {
-                label: "Security disclosure",
-                href: "mailto:security@riffado.com",
-            },
-        ],
-    },
-];
-
 function FooterLinkItem({ label, href, external }: FooterLink) {
     const externalProps = external
         ? { target: "_blank", rel: "noopener noreferrer" as const }
@@ -110,7 +54,64 @@ function FooterLinkItem({ label, href, external }: FooterLink) {
 }
 
 export function LandingFooter() {
+    const i18n = useExtracted();
     const currentYear = new Date().getFullYear();
+    const columns: FooterColumn[] = [
+        {
+            title: i18n("Product"),
+            links: [
+                { label: i18n("Features"), href: "/#features" },
+                { label: i18n("Pricing"), href: "/#pricing" },
+                { label: i18n("Self-host"), href: "/#deploy" },
+                {
+                    label: i18n("For Professionals"),
+                    href: "/for-professionals",
+                },
+                { label: i18n("Changelog"), href: "/changelog" },
+                {
+                    label: i18n("Roadmap"),
+                    href: "https://github.com/riffado/riffado/issues",
+                    external: true,
+                },
+            ],
+        },
+        {
+            title: i18n("Community"),
+            links: [
+                { label: i18n("Documentation"), href: "/docs" },
+                {
+                    label: i18n("Discussions"),
+                    href: "https://github.com/riffado/riffado/discussions",
+                    external: true,
+                },
+                {
+                    label: i18n("Code of Conduct"),
+                    href: "https://github.com/riffado/riffado/blob/main/CODE_OF_CONDUCT.md",
+                    external: true,
+                },
+                {
+                    label: i18n("Contact"),
+                    href: "mailto:support@riffado.com",
+                },
+            ],
+        },
+        {
+            title: i18n("Legal"),
+            links: [
+                { label: i18n("Privacy"), href: "/privacy" },
+                { label: i18n("Terms"), href: "/terms" },
+                {
+                    label: i18n("Security"),
+                    href: "https://github.com/riffado/riffado/blob/main/SECURITY.md",
+                    external: true,
+                },
+                {
+                    label: i18n("Security disclosure"),
+                    href: "mailto:security@riffado.com",
+                },
+            ],
+        },
+    ];
 
     return (
         <footer className="border-t border-border/40 bg-background">
@@ -122,7 +123,7 @@ export function LandingFooter() {
                         <Link
                             href="/"
                             className="flex items-center hover:opacity-80 transition-opacity w-fit"
-                            aria-label="Riffado"
+                            aria-label={i18n("Riffado")}
                         >
                             <LogoWordmark className="h-7 w-auto" />
                         </Link>
@@ -137,7 +138,7 @@ export function LandingFooter() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-muted-foreground hover:text-foreground transition-colors"
-                                aria-label="Riffado on GitHub"
+                                aria-label={i18n("Riffado on GitHub")}
                             >
                                 <Github className="size-5" />
                             </Link>
@@ -146,7 +147,7 @@ export function LandingFooter() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-muted-foreground hover:text-foreground transition-colors"
-                                aria-label="Riffado on X"
+                                aria-label={i18n("Riffado on X")}
                             >
                                 <X className="size-[18px]" />
                             </Link>
@@ -154,11 +155,12 @@ export function LandingFooter() {
 
                         <div>
                             <h3 className="text-xs font-semibold font-mono uppercase tracking-wider text-foreground/80">
-                                Product updates
+                                {i18n("Product updates")}
                             </h3>
                             <p className="mt-2 text-sm text-muted-foreground leading-relaxed max-w-sm">
-                                Occasional emails when we ship something worth
-                                telling you about.
+                                {i18n(
+                                    "Occasional emails when we ship something worth telling you about.",
+                                )}
                             </p>
                             <div className="mt-4 max-w-md">
                                 <NewsletterForm source="landing" />
@@ -167,12 +169,12 @@ export function LandingFooter() {
                                 href="/updates"
                                 className="mt-3 inline-block text-sm text-muted-foreground hover:text-foreground transition-colors"
                             >
-                                What you&apos;ll get →
+                                {i18n("What you'll get →")}
                             </Link>
                         </div>
                     </div>
 
-                    {COLUMNS.map((col) => (
+                    {columns.map((col) => (
                         <div key={col.title} className="flex flex-col gap-3">
                             <h3 className="text-xs font-semibold font-mono uppercase tracking-wider text-foreground/80">
                                 {col.title}
@@ -198,33 +200,32 @@ export function LandingFooter() {
                     the bottom of the page. */}
                 <div className="mt-12 pt-6 border-t border-border/40 flex flex-col gap-6">
                     <p className="text-xs text-muted-foreground/80 leading-relaxed max-w-2xl">
-                        Riffado is not HIPAA or SOC 2 certified. For regulated
-                        work, self-host and plug in an AI provider that signs a
-                        BAA you&apos;ve reviewed, or run a local model that
-                        never leaves your machine.
+                        {i18n(
+                            "Riffado is not HIPAA or SOC 2 certified. For regulated work, self-host and plug in an AI provider that signs a BAA you've reviewed, or run a local model that never leaves your machine.",
+                        )}
                     </p>
                     <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                         <p className="text-xs text-muted-foreground font-mono">
-                            © {currentYear} Riffado. Licensed under{" "}
+                            © {currentYear} {i18n("Riffado. Licensed under")}{" "}
                             <Link
                                 href="https://www.gnu.org/licenses/agpl-3.0.html"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-foreground/80 hover:text-foreground transition-colors underline decoration-dotted underline-offset-2"
                             >
-                                AGPL-3.0
+                                {i18n("AGPL-3.0")}
                             </Link>
                             .
                         </p>
                         <p className="text-xs text-muted-foreground/70 font-mono">
-                            Built in the open on{" "}
+                            {i18n("Built in the open on")}{" "}
                             <Link
                                 href="https://github.com/riffado/riffado"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="hover:text-foreground transition-colors underline decoration-dotted underline-offset-2"
                             >
-                                GitHub
+                                {i18n("GitHub")}
                             </Link>
                         </p>
                     </div>

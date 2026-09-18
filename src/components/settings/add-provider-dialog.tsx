@@ -1,5 +1,6 @@
 "use client";
 
+import { useExtracted } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
 import { MetalButton } from "@/components/metal-button";
@@ -40,6 +41,7 @@ export function AddProviderDialog({
     onSuccess,
     isHosted = false,
 }: AddProviderDialogProps) {
+    const i18n = useExtracted();
     const visiblePresets = getVisiblePresets({ isHosted });
     const [provider, setProvider] = useState("");
     const [apiKey, setApiKey] = useState("");
@@ -68,7 +70,7 @@ export function AddProviderDialog({
         e.preventDefault();
 
         if (!provider || !apiKey) {
-            toast.error("Provider and API key are required");
+            toast.error(i18n("Provider and API key are required"));
             return;
         }
 
@@ -96,7 +98,7 @@ export function AddProviderDialog({
                 throw new Error(data?.error || "Failed to add provider");
             }
 
-            toast.success("AI provider added successfully");
+            toast.success(i18n("AI provider added successfully"));
             onSuccess();
             onOpenChange(false);
 
@@ -110,7 +112,7 @@ export function AddProviderDialog({
             toast.error(
                 error instanceof Error
                     ? error.message
-                    : "Failed to add AI provider",
+                    : i18n("Failed to add AI provider"),
             );
         } finally {
             setIsLoading(false);
@@ -125,18 +127,20 @@ export function AddProviderDialog({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Add AI Provider</DialogTitle>
+                    <DialogTitle>{i18n("Add AI Provider")}</DialogTitle>
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-2">
-                        <Label>Provider</Label>
+                        <Label>{i18n("Provider")}</Label>
                         <Select
                             value={provider}
                             onValueChange={handleProviderChange}
                         >
                             <SelectTrigger>
-                                <SelectValue placeholder="Select a provider" />
+                                <SelectValue
+                                    placeholder={i18n("Select a provider")}
+                                />
                             </SelectTrigger>
                             <SelectContent>
                                 {visiblePresets.map((preset) => (
@@ -152,12 +156,13 @@ export function AddProviderDialog({
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="apiKey">API Key</Label>
+                        <Label htmlFor="apiKey">{i18n("API Key")}</Label>
                         <Input
                             id="apiKey"
                             type="password"
                             placeholder={
-                                selectedPreset?.placeholder || "Your API key"
+                                selectedPreset?.placeholder ||
+                                i18n("Your API key")
                             }
                             value={apiKey}
                             onChange={(e) => setApiKey(e.target.value)}
@@ -167,11 +172,13 @@ export function AddProviderDialog({
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="baseUrl">Base URL (Optional)</Label>
+                        <Label htmlFor="baseUrl">
+                            {i18n("Base URL (Optional)")}
+                        </Label>
                         <Input
                             id="baseUrl"
                             type="text"
-                            placeholder="https://api.example.com/v1"
+                            placeholder={i18n("https://api.example.com/v1")}
                             value={baseUrl}
                             onChange={(e) => setBaseUrl(e.target.value)}
                             disabled={isLoading}
@@ -179,12 +186,15 @@ export function AddProviderDialog({
                         />
                         {isHosted && (
                             <p className="text-xs text-muted-foreground">
-                                We can&apos;t reach{" "}
-                                <code className="font-mono">localhost</code> or
-                                other private addresses from the hosted app. To
-                                use LM Studio or Ollama, self-host Riffado (
+                                {i18n("We can't reach")}{" "}
                                 <code className="font-mono">
-                                    docker compose up
+                                    {i18n("localhost")}
+                                </code>{" "}
+                                {i18n(
+                                    "or other private addresses from the hosted app. To use LM Studio or Ollama, self-host Riffado (",
+                                )}{" "}
+                                <code className="font-mono">
+                                    {i18n("docker compose up")}
                                 </code>
                                 ).
                             </p>
@@ -218,7 +228,7 @@ export function AddProviderDialog({
                                 }
                                 disabled={isLoading || enhancementOnly}
                             />
-                            <span>Use for transcription</span>
+                            <span>{i18n("Use for transcription")}</span>
                         </label>
                         <label
                             className={
@@ -235,18 +245,22 @@ export function AddProviderDialog({
                                 }
                                 disabled={isLoading || transcriptionOnly}
                             />
-                            <span>Use for AI enhancements</span>
+                            <span>{i18n("Use for AI enhancements")}</span>
                         </label>
                         {transcriptionOnly && (
                             <p className="text-xs text-muted-foreground">
-                                {provider} transcribes only. Summaries need an
-                                OpenAI-compatible provider.
+                                {provider}{" "}
+                                {i18n(
+                                    "transcribes only. Summaries need an OpenAI-compatible provider.",
+                                )}
                             </p>
                         )}
                         {enhancementOnly && (
                             <p className="text-xs text-muted-foreground">
-                                {provider} summarizes only. Transcription needs
-                                a provider that accepts audio.
+                                {provider}{" "}
+                                {i18n(
+                                    "summarizes only. Transcription needs a provider that accepts audio.",
+                                )}
                             </p>
                         )}
                     </Panel>
@@ -258,7 +272,7 @@ export function AddProviderDialog({
                             disabled={isLoading}
                             className="flex-1"
                         >
-                            Cancel
+                            {i18n("Cancel")}
                         </MetalButton>
                         <MetalButton
                             type="submit"
@@ -266,7 +280,9 @@ export function AddProviderDialog({
                             disabled={isLoading}
                             className="flex-1"
                         >
-                            {isLoading ? "Adding..." : "Add Provider"}
+                            {isLoading
+                                ? i18n("Adding...")
+                                : i18n("Add Provider")}
                         </MetalButton>
                     </div>
                 </form>

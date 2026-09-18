@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { getFoundingMemberAvailability } from "@/db/queries/billing";
 import { users } from "@/db/schema";
 import { env } from "@/lib/env";
+import { normalizeLocale } from "@/lib/i18n/config";
 import {
     sendTransitionEndedEmail,
     sendTransitionReminderEmail,
@@ -106,6 +107,7 @@ export async function processTransitionEmails(
                 id: users.id,
                 email: users.email,
                 transitionUntil: users.planTransitionUntil,
+                uiLocale: users.uiLocale,
             })
             .from(users)
             .where(
@@ -145,6 +147,7 @@ export async function processTransitionEmails(
                     billingUrl,
                     exportUrl,
                     selfHostUrl: SELF_HOST_URL,
+                    locale: normalizeLocale(row.uiLocale),
                 });
                 if (sent) ended += 1;
                 continue;
@@ -165,6 +168,7 @@ export async function processTransitionEmails(
                     billingUrl,
                     exportUrl,
                     selfHostUrl: SELF_HOST_URL,
+                    locale: normalizeLocale(row.uiLocale),
                 });
                 if (startSent) start += 1;
             }
@@ -183,6 +187,7 @@ export async function processTransitionEmails(
                     billingUrl,
                     exportUrl,
                     selfHostUrl: SELF_HOST_URL,
+                    locale: normalizeLocale(row.uiLocale),
                 });
                 if (reminderSent) reminder += 1;
             }

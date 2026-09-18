@@ -1,4 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
+import { useExtracted } from "next-intl";
 import { EmailLayout } from "./_layout";
 import { emailStyles } from "./styles";
 
@@ -7,24 +8,27 @@ interface Props {
 }
 
 export function ExportReadyEmail({ downloadUrl }: Props) {
+    const i18n = useExtracted();
     return (
         <EmailLayout
-            previewText="Your Riffado data export is ready to download."
-            footerLink={{ href: downloadUrl, label: "Download export" }}
+            previewText={i18n("Your Riffado data export is ready to download.")}
+            footerLink={{ href: downloadUrl, label: i18n("Download export") }}
         >
-            <Heading style={emailStyles.h1}>Your export is ready</Heading>
+            <Heading style={emailStyles.h1}>
+                {i18n("Your export is ready")}
+            </Heading>
             <Text style={emailStyles.text}>
-                We finished building your full data archive: every
-                recording&apos;s audio, transcript, and AI summary, zipped up
-                and ready to download.
+                {i18n(
+                    "We finished building your full data archive: every recording's audio, transcript, and AI summary, zipped up and ready to download.",
+                )}
             </Text>
             <Section style={emailStyles.buttonSection}>
                 <Button style={emailStyles.button} href={downloadUrl}>
-                    Download export
+                    {i18n("Download export")}
                 </Button>
             </Section>
             <Text style={emailStyles.text}>
-                The download link stays active for 7 days.
+                {i18n("The download link stays active for 7 days.")}
             </Text>
         </EmailLayout>
     );

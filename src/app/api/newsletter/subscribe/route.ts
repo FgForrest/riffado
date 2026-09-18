@@ -11,22 +11,26 @@ import {
 import { signUnsubscribeToken } from "@/lib/email/unsubscribe-token";
 import { env } from "@/lib/env";
 import { apiHandler } from "@/lib/errors";
+import { localeFromAcceptLanguage, normalizeLocale } from "@/lib/i18n/config";
+import { createEmailTranslator } from "@/lib/i18n/email-messages";
 import { NewsletterConfirmEmail } from "@/lib/notifications/email-templates/newsletter-confirm-email";
 import { renderEmailHtml } from "@/lib/notifications/render-email";
 import { consumeRateLimitBucket, getClientIp } from "@/lib/rate-limit";
 
 const subscribeSchema = z.object({
-    email: z
-        .string()
-        .email("Please enter a valid email address")
-        .max(320, "Email address is too long"),
+    email: z.string().email().max(320),
     company: z.string().optional(),
     source: z
         .union([z.literal("landing"), z.literal("install"), z.literal("admin")])
         .optional(),
+    locale: z.enum(["en", "cs-CZ"]).optional(),
 });
 
 export const POST = apiHandler(async (req: Request) => {
+    const requestLocale = localeFromAcceptLanguage(
+        req.headers.get("accept-language"),
+    );
+    const requestMessages = createEmailTranslator(requestLocale);
     const ip = getClientIp(req);
     const limit = await consumeRateLimitBucket(`newsletter:subscribe:${ip}`, {
         limit: 5,
@@ -34,7 +38,7 @@ export const POST = apiHandler(async (req: Request) => {
     });
     if (!limit.allowed) {
         return NextResponse.json(
-            { error: "Too many requests. Please try again in a minute." },
+            { error: requestMessages("newsletterRateLimit") },
             { status: 429 },
         );
     }
@@ -44,7 +48,7 @@ export const POST = apiHandler(async (req: Request) => {
         body = await req.json();
     } catch {
         return NextResponse.json(
-            { error: "Invalid JSON body" },
+            { error: requestMessages("newsletterInvalidBody") },
             { status: 400 },
         );
     }
@@ -52,7 +56,7 @@ export const POST = apiHandler(async (req: Request) => {
     const parsed = subscribeSchema.safeParse(body);
     if (!parsed.success) {
         return NextResponse.json(
-            { error: parsed.error.issues[0]?.message ?? "Invalid input" },
+            { error: requestMessages("newsletterInvalidInput") },
             { status: 400 },
         );
     }
@@ -61,9 +65,11 @@ export const POST = apiHandler(async (req: Request) => {
         return NextResponse.json({ ok: true });
     }
 
+    const locale = normalizeLocale(parsed.data.locale) ?? requestLocale;
     const subscriber = await upsertSubscriber({
         email: parsed.data.email,
         source: parsed.data.source ?? "landing",
+        locale,
     });
 
     if (subscriber.confirmedAt) {
@@ -71,7 +77,11 @@ export const POST = apiHandler(async (req: Request) => {
     }
 
     try {
-        await sendConfirmation(subscriber.id, subscriber.email);
+        await sendConfirmation(
+            subscriber.id,
+            subscriber.email,
+            subscriber.locale,
+        );
     } catch (error) {
         if (error instanceof SmtpNotConfiguredError) {
             // Expected on self-host instances without SMTP configured --
@@ -88,7 +98,9 @@ export const POST = apiHandler(async (req: Request) => {
         // error and the user knows to retry.
         console.error("[newsletter] failed to send confirmation email", error);
         return NextResponse.json(
-            { error: "Failed to send confirmation email. Please try again." },
+            {
+                error: createEmailTranslator(locale)("newsletterSendFailed"),
+            },
             { status: 502 },
         );
     }
@@ -99,6 +111,7 @@ export const POST = apiHandler(async (req: Request) => {
 async function sendConfirmation(
     subscriberId: string,
     email: string,
+    locale: "en" | "cs-CZ",
 ): Promise<void> {
     const base = env.APP_URL?.replace(/\/$/, "");
     if (!base) {
@@ -111,14 +124,14 @@ async function sendConfirmation(
 
     const html = await renderEmailHtml(
         React.createElement(NewsletterConfirmEmail, { confirmUrl }),
+        locale,
     );
-    const text = `Confirm your Riffado newsletter subscription by visiting:\n\n${confirmUrl}\n\nIf you didn't sign up, ignore this email -- without confirmation we'll never email this address again.`;
 
     await sendEmailWithHeaders({
         to: email,
         from: resolveFromAddress("transactional"),
-        subject: "Confirm your Riffado newsletter subscription",
+        subject: createEmailTranslator(locale)("newsletterConfirm"),
         html,
-        text: htmlToText(text === "" ? html : text),
+        text: htmlToText(html),
     });
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { PlaudConnectTabs } from "@/components/plaud-connect-tabs";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,7 @@ export function PlaudReconnectBanner({
     show,
     onReconnected,
 }: PlaudReconnectBannerProps) {
+    const i18n = useExtracted();
     const [open, setOpen] = useState(false);
     // Optimistically hide the banner the moment a reconnect succeeds, so it
     // doesn't linger until the next sync clears the server-side flag. Reset
@@ -56,12 +58,14 @@ export function PlaudReconnectBanner({
                     <AlertTriangle className="mt-0.5 size-5 shrink-0 text-amber-600 dark:text-amber-500" />
                     <div className="space-y-0.5">
                         <p className="text-sm font-medium text-foreground">
-                            Your Plaud connection needs to be reconnected
+                            {i18n(
+                                "Your Plaud connection needs to be reconnected",
+                            )}
                         </p>
                         <p className="text-sm text-muted-foreground">
-                            Plaud stopped accepting your saved sign-in, so new
-                            recordings aren't syncing. Reconnect to resume —
-                            your existing recordings stay put.
+                            {i18n(
+                                "Plaud stopped accepting your saved sign-in, so new recordings aren't syncing. Reconnect to resume — your existing recordings stay put.",
+                            )}
                         </p>
                     </div>
                 </div>
@@ -69,17 +73,20 @@ export function PlaudReconnectBanner({
                     onClick={() => setOpen(true)}
                     className="shrink-0 self-start sm:self-auto"
                 >
-                    Reconnect
+                    {i18n("Reconnect")}
                 </Button>
             </div>
 
             <Dialog open={open} onOpenChange={setOpen}>
                 <DialogContent className="max-w-lg">
                     <DialogHeader>
-                        <DialogTitle>Reconnect your Plaud account</DialogTitle>
+                        <DialogTitle>
+                            {i18n("Reconnect your Plaud account")}
+                        </DialogTitle>
                         <DialogDescription>
-                            Sign back in to resume syncing. Your existing
-                            recordings and transcripts are unaffected.
+                            {i18n(
+                                "Sign back in to resume syncing. Your existing recordings and transcripts are unaffected.",
+                            )}
                         </DialogDescription>
                     </DialogHeader>
                     {open && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { Cpu, Loader2 } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -48,6 +49,7 @@ export function TranscribeInBrowserButton({
     onComplete,
     model = "whisper-base",
 }: Props) {
+    const i18n = useExtracted();
     const [phase, setPhase] = useState<Phase>("idle");
 
     const run = useCallback(async () => {
@@ -88,18 +90,18 @@ export function TranscribeInBrowserButton({
                 throw new Error(err.error ?? "Failed to save transcription");
             }
 
-            toast.success("Transcribed in browser");
+            toast.success(i18n("Transcribed in browser"));
             onComplete();
         } catch (err) {
             toast.error(
                 err instanceof Error
                     ? err.message
-                    : "Browser transcription failed",
+                    : i18n("Browser transcription failed"),
             );
         } finally {
             setPhase("idle");
         }
-    }, [recordingId, model, onComplete]);
+    }, [recordingId, model, onComplete, i18n]);
 
     const busy = phase !== "idle";
 
@@ -109,7 +111,9 @@ export function TranscribeInBrowserButton({
             size="sm"
             variant="outline"
             disabled={disabled || busy}
-            title="Run Whisper in your browser. No API key required; audio never leaves your machine."
+            title={i18n(
+                "Run Whisper in your browser. No API key required; audio never leaves your machine.",
+            )}
         >
             {busy ? (
                 <>
@@ -118,8 +122,8 @@ export function TranscribeInBrowserButton({
                 </>
             ) : (
                 <>
-                    <Cpu className="size-4 mr-2" />
-                    Transcribe in browser
+                    <Cpu className="size-4 mr-2" />{" "}
+                    {i18n("Transcribe in browser")}
                 </>
             )}
         </Button>

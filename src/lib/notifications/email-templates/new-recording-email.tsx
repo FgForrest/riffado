@@ -1,4 +1,5 @@
 import { Button, Heading, Link, Section, Text } from "@react-email/components";
+import { useExtracted } from "next-intl";
 import { EmailLayout } from "./_layout";
 import { emailStyles } from "./styles";
 
@@ -17,25 +18,29 @@ export function NewRecordingEmail({
     dashboardUrl,
     settingsUrl,
 }: NewRecordingEmailProps) {
-    const previewText =
-        count === 1 ? "New recording synced" : `${count} new recordings synced`;
+    const i18n = useExtracted();
+    const syncedLabel = i18n(
+        "{count, plural, one {New recording synced} other {# new recordings synced}}",
+        { count },
+    );
 
     return (
         <EmailLayout
-            previewText={previewText}
-            footerLink={{ href: settingsUrl, label: "Manage notifications" }}
+            previewText={syncedLabel}
+            footerLink={{
+                href: settingsUrl,
+                label: i18n("Manage notifications"),
+            }}
         >
-            <Heading style={emailStyles.h1}>
-                {count === 1
-                    ? "New recording synced"
-                    : `${count} new recordings synced`}
-            </Heading>
+            <Heading style={emailStyles.h1}>{syncedLabel}</Heading>
 
             {recordingNames.length > 0 ? (
                 <>
                     <Text style={emailStyles.text}>
-                        Your Plaud device has synced the following
-                        {count === 1 ? " recording" : " recordings"}:
+                        {i18n(
+                            "Your Plaud device synced the following {count, plural, one {recording} other {recordings}}:",
+                            { count },
+                        )}
                     </Text>
 
                     <Section style={emailStyles.recordingList}>
@@ -63,24 +68,25 @@ export function NewRecordingEmail({
                                     marginTop: "8px",
                                 }}
                             >
-                                +{recordingNames.length - 10} more
+                                {i18n("+{count} more", {
+                                    count: String(recordingNames.length - 10),
+                                })}
                             </Text>
                         )}
                     </Section>
                 </>
             ) : (
                 <Text style={emailStyles.text}>
-                    Your Plaud device has synced{" "}
-                    {count === 1
-                        ? "a new recording"
-                        : `${count} new recordings`}{" "}
-                    to your dashboard.
+                    {i18n(
+                        "Your Plaud device synced {count, plural, one {a new recording} other {# new recordings}} to your dashboard.",
+                        { count },
+                    )}
                 </Text>
             )}
 
             <Section style={emailStyles.buttonSection}>
                 <Button style={emailStyles.button} href={dashboardUrl}>
-                    View recordings
+                    {i18n("View recordings")}
                 </Button>
             </Section>
         </EmailLayout>

@@ -1,6 +1,7 @@
 "use client";
 
 import { RefreshCw } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { SettingsSectionHeader } from "@/components/settings/section-header";
@@ -17,22 +18,17 @@ import {
 import { useSettings } from "@/hooks/use-settings";
 
 const syncIntervalPresets = [
-    { label: "1 minute", value: 60 * 1000 },
-    { label: "2 minutes", value: 2 * 60 * 1000 },
-    { label: "5 minutes", value: 5 * 60 * 1000 },
-    { label: "10 minutes", value: 10 * 60 * 1000 },
-    { label: "15 minutes", value: 15 * 60 * 1000 },
-    { label: "30 minutes", value: 30 * 60 * 1000 },
-    { label: "1 hour", value: 60 * 60 * 1000 },
+    60 * 1000,
+    2 * 60 * 1000,
+    5 * 60 * 1000,
+    10 * 60 * 1000,
+    15 * 60 * 1000,
+    30 * 60 * 1000,
+    60 * 60 * 1000,
 ];
 
-const getSyncIntervalLabel = (value: number) => {
-    return (
-        syncIntervalPresets.find((p) => p.value === value)?.label || "Custom"
-    );
-};
-
 export function SyncSection() {
+    const i18n = useExtracted();
     const { isLoadingSettings, isSavingSettings, setIsLoadingSettings } =
         useSettings();
     const [syncInterval, setSyncInterval] = useState(300000);
@@ -40,6 +36,16 @@ export function SyncSection() {
     const [syncOnMount, setSyncOnMount] = useState(true);
     const [syncOnVisibilityChange, setSyncOnVisibilityChange] = useState(true);
     const [syncNotifications, setSyncNotifications] = useState(true);
+    const getSyncIntervalLabel = (value: number) => {
+        if (value === 60 * 60 * 1000) return i18n("1 hour");
+        const minutes = value / (60 * 1000);
+        return Number.isInteger(minutes)
+            ? i18n(
+                  "{count, plural, one {# minute} few {# minutes} other {# minutes}}",
+                  { count: minutes },
+              )
+            : i18n("Custom");
+    };
 
     useEffect(() => {
         const fetchSettings = async () => {
@@ -124,7 +130,7 @@ export function SyncSection() {
                 const prev = previousValues.syncNotifications;
                 if (typeof prev === "boolean") setSyncNotifications(prev);
             }
-            toast.error("Failed to save settings. Changes reverted.");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
 
@@ -139,16 +145,20 @@ export function SyncSection() {
     return (
         <div className="space-y-6">
             <SettingsSectionHeader
-                title="Sync"
-                description="When and how Riffado pulls new recordings from your Plaud device."
+                title={i18n("Sync")}
+                description={i18n(
+                    "When and how Riffado pulls new recordings from your Plaud device.",
+                )}
                 icon={RefreshCw}
             />
             <div className="space-y-3">
-                <SettingsCard title="Auto-sync">
+                <SettingsCard title={i18n("Auto-sync")}>
                     <ToggleRow
                         id="auto-sync"
-                        label="Enable auto-sync"
-                        description="Automatically sync recordings from your Plaud device at regular intervals."
+                        label={i18n("Enable auto-sync")}
+                        description={i18n(
+                            "Automatically sync recordings from your Plaud device at regular intervals.",
+                        )}
                         checked={autoSyncEnabled}
                         onCheckedChange={(checked) => {
                             setAutoSyncEnabled(checked);
@@ -163,7 +173,7 @@ export function SyncSection() {
                         <div className="mt-3 space-y-3 border-t pt-3">
                             <div className="space-y-2">
                                 <Label htmlFor="sync-interval">
-                                    Sync interval
+                                    {i18n("Sync interval")}
                                 </Label>
                                 <Select
                                     value={syncInterval.toString()}
@@ -187,10 +197,10 @@ export function SyncSection() {
                                     <SelectContent>
                                         {syncIntervalPresets.map((preset) => (
                                             <SelectItem
-                                                key={preset.value}
-                                                value={preset.value.toString()}
+                                                key={preset}
+                                                value={preset.toString()}
                                             >
-                                                {preset.label}
+                                                {getSyncIntervalLabel(preset)}
                                             </SelectItem>
                                         ))}
                                     </SelectContent>
@@ -199,8 +209,10 @@ export function SyncSection() {
 
                             <ToggleRow
                                 id="sync-on-mount"
-                                label="Sync on app load"
-                                description="Automatically sync when the app first loads."
+                                label={i18n("Sync on app load")}
+                                description={i18n(
+                                    "Automatically sync when the app first loads.",
+                                )}
                                 checked={syncOnMount}
                                 onCheckedChange={(checked) => {
                                     setSyncOnMount(checked);
@@ -213,8 +225,10 @@ export function SyncSection() {
 
                             <ToggleRow
                                 id="sync-on-visibility"
-                                label="Sync on tab visibility"
-                                description="Sync when you return to the app tab."
+                                label={i18n("Sync on tab visibility")}
+                                description={i18n(
+                                    "Sync when you return to the app tab.",
+                                )}
                                 checked={syncOnVisibilityChange}
                                 onCheckedChange={(checked) => {
                                     setSyncOnVisibilityChange(checked);
@@ -228,11 +242,13 @@ export function SyncSection() {
                     )}
                 </SettingsCard>
 
-                <SettingsCard title="Notifications">
+                <SettingsCard title={i18n("Notifications")}>
                     <ToggleRow
                         id="sync-notifications"
-                        label="Show sync notifications"
-                        description="Display notifications when sync completes."
+                        label={i18n("Show sync notifications")}
+                        description={i18n(
+                            "Display notifications when sync completes.",
+                        )}
                         checked={syncNotifications}
                         onCheckedChange={(checked) => {
                             setSyncNotifications(checked);

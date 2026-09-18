@@ -2,6 +2,8 @@ import React from "react";
 import { hostedUserAudience } from "@/lib/email/audience/hosted-users";
 import type { CampaignDefinition, Recipient } from "@/lib/email/types";
 import { env } from "@/lib/env";
+import { defaultLocale } from "@/lib/i18n/config";
+import { createEmailTranslator } from "@/lib/i18n/email-messages";
 import { RebrandAnnouncementEmail } from "@/lib/notifications/email-templates/rebrand-announcement-email";
 import { renderEmailHtml } from "@/lib/notifications/render-email";
 
@@ -39,6 +41,7 @@ export function buildRebrandCampaign(): CampaignDefinition {
                     "rebrand-announcement: unsubscribeUrl is null for announcement-class campaign",
                 );
             }
+            const locale = recipient.locale ?? defaultLocale;
             const html = await renderEmailHtml(
                 React.createElement(RebrandAnnouncementEmail, {
                     recipientName: deriveRecipientName(recipient),
@@ -46,8 +49,12 @@ export function buildRebrandCampaign(): CampaignDefinition {
                     loginUrl,
                     unsubscribeUrl,
                 }),
+                locale,
             );
-            return { html };
+            return {
+                html,
+                subject: createEmailTranslator(locale)("rebrandAnnouncement"),
+            };
         },
     };
 }

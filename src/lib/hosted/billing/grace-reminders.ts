@@ -2,6 +2,7 @@ import { and, asc, gt, isNotNull, lte } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import { env } from "@/lib/env";
+import { normalizeLocale } from "@/lib/i18n/config";
 import {
     sendGraceLastDayEmail,
     sendGraceReminderEmail,
@@ -64,6 +65,7 @@ export async function processGraceReminders(): Promise<GraceReminderResult> {
             createdAt: users.createdAt,
             everPaidAt: users.everPaidAt,
             deletionAt: users.accountDeletionScheduledAt,
+            uiLocale: users.uiLocale,
         })
         .from(users)
         .where(
@@ -110,6 +112,7 @@ export async function processGraceReminders(): Promise<GraceReminderResult> {
                 deletionAt: row.deletionAt,
                 exportUrl: `${base}/settings#export`,
                 reactivateUrl: `${base}/settings#billing`,
+                locale: normalizeLocale(row.uiLocale),
             });
             if (sent) reminders += 1;
         } catch (error) {
@@ -126,6 +129,7 @@ export async function processGraceReminders(): Promise<GraceReminderResult> {
             id: users.id,
             email: users.email,
             deletionAt: users.accountDeletionScheduledAt,
+            uiLocale: users.uiLocale,
         })
         .from(users)
         .where(
@@ -151,6 +155,7 @@ export async function processGraceReminders(): Promise<GraceReminderResult> {
                 deletionAt: row.deletionAt,
                 exportUrl: `${base}/settings#export`,
                 reactivateUrl: `${base}/settings#billing`,
+                locale: normalizeLocale(row.uiLocale),
             });
             if (sent) lastDay += 1;
         } catch (error) {

@@ -2,6 +2,7 @@
 
 import { ArrowLeft } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useExtracted } from "next-intl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -58,6 +59,7 @@ export function RecordingWorkstation({
     scrubberStyle,
     initialFolderOrganization,
 }: RecordingWorkstationProps) {
+    const i18n = useExtracted();
     const { push, refresh } = useRouter();
     const [filename, setFilename] = useState(recording.filename);
     const [folderOrganization, setFolderOrganization] =
@@ -112,10 +114,10 @@ export function RecordingWorkstation({
             } | null;
             throw new Error(error?.error || "Failed to delete recording");
         }
-        toast.success("Recording deleted");
+        toast.success(i18n("Recording deleted"));
         push("/dashboard");
         refresh();
-    }, [recording.id, refresh, push]);
+    }, [recording.id, refresh, push, i18n]);
 
     const handleFolderAssignment = useCallback(
         async (folderId: string, assigned: boolean) => {
@@ -149,12 +151,12 @@ export function RecordingWorkstation({
                 toast.error(
                     await getApiErrorMessage(
                         response,
-                        "Could not update folder assignment",
+                        i18n("Could not update folder assignment"),
                     ),
                 );
             }
         },
-        [folderOrganization.assignments, recording.id],
+        [folderOrganization.assignments, recording.id, i18n],
     );
 
     return (
@@ -167,8 +169,8 @@ export function RecordingWorkstation({
                         size="sm"
                         className="-ml-2 gap-1.5 text-muted-foreground"
                     >
-                        <ArrowLeft className="size-4" />
-                        Back to recordings
+                        <ArrowLeft className="size-4" />{" "}
+                        {i18n("Back to recordings")}
                     </Button>
                 </div>
 
@@ -234,13 +236,13 @@ export function RecordingWorkstation({
                     {/* Metadata */}
                     <Card>
                         <CardHeader>
-                            <CardTitle>Details</CardTitle>
+                            <CardTitle>{i18n("Details")}</CardTitle>
                         </CardHeader>
                         <CardContent>
                             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                                 <div>
                                     <div className="text-muted-foreground text-xs mb-1">
-                                        Duration
+                                        {i18n("Duration")}
                                     </div>
                                     <div className="font-medium">
                                         {Math.floor(recording.duration / 60000)}
@@ -252,19 +254,19 @@ export function RecordingWorkstation({
                                 </div>
                                 <div>
                                     <div className="text-muted-foreground text-xs mb-1">
-                                        File Size
+                                        {i18n("File Size")}
                                     </div>
                                     <div className="font-medium">
                                         {(
                                             recording.filesize /
                                             (1024 * 1024)
                                         ).toFixed(2)}{" "}
-                                        MB
+                                        {i18n("MB")}
                                     </div>
                                 </div>
                                 <div>
                                     <div className="text-muted-foreground text-xs mb-1">
-                                        Device
+                                        {i18n("Device")}
                                     </div>
                                     <div className="font-mono text-xs truncate">
                                         {recording.deviceSn}
@@ -272,7 +274,7 @@ export function RecordingWorkstation({
                                 </div>
                                 <div>
                                     <div className="text-muted-foreground text-xs mb-1">
-                                        Date
+                                        {i18n("Date")}
                                     </div>
                                     <div className="font-medium">
                                         <LocalTime

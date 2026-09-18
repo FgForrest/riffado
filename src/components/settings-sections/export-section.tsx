@@ -1,6 +1,7 @@
 "use client";
 
 import { Download, RefreshCw } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { SettingsSectionHeader } from "@/components/settings/section-header";
@@ -27,18 +28,6 @@ const exportFormatLabels: Record<
     srt: { label: "SRT", description: "Subtitle format" },
     vtt: { label: "VTT", description: "WebVTT subtitle format" },
 };
-
-const exportFormatOptions = EXPORT_FORMATS.map((value) => ({
-    value,
-    ...exportFormatLabels[value],
-}));
-
-const backupFrequencyOptions = [
-    { label: "Never", value: "never" },
-    { label: "Daily", value: "daily" },
-    { label: "Weekly", value: "weekly" },
-    { label: "Monthly", value: "monthly" },
-];
 
 interface ExportJobStatus {
     id: string;
@@ -75,6 +64,25 @@ interface ExportSectionProps {
 }
 
 export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
+    const i18n = useExtracted();
+    const exportFormatOptions = EXPORT_FORMATS.map((value) => ({
+        value,
+        label: exportFormatLabels[value].label,
+        description:
+            value === "json"
+                ? i18n("Structured data format")
+                : value === "txt"
+                  ? i18n("Plain text format")
+                  : value === "srt"
+                    ? i18n("Subtitle format")
+                    : i18n("WebVTT subtitle format"),
+    }));
+    const backupFrequencyOptions = [
+        { label: i18n("Never"), value: "never" },
+        { label: i18n("Daily"), value: "daily" },
+        { label: i18n("Weekly"), value: "weekly" },
+        { label: i18n("Monthly"), value: "monthly" },
+    ];
     const { isLoadingSettings, isSavingSettings, setIsLoadingSettings } =
         useSettings();
     const [defaultExportFormat, setDefaultExportFormat] = useState("json");
@@ -137,9 +145,9 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                     if (!cancelled) {
                         setBackupJob(data.job);
                         if (data.job.status === "completed") {
-                            toast.success("Backup ready to download");
+                            toast.success(i18n("Backup ready to download"));
                         } else if (data.job.status === "failed") {
-                            toast.error("Backup failed to build");
+                            toast.error(i18n("Backup failed to build"));
                         }
                     }
                 }
@@ -156,7 +164,7 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
             cancelled = true;
             clearTimeout(timer);
         };
-    }, [backupJob]);
+    }, [backupJob, i18n]);
 
     const handleExportBackupSettingChange = async (updates: {
         defaultExportFormat?: string;
@@ -192,7 +200,7 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                 if (typeof prev === "string" || prev === null)
                     setBackupFrequency(prev);
             }
-            toast.error("Failed to save settings. Changes reverted.");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
 
@@ -218,9 +226,9 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
             document.body.removeChild(a);
             window.URL.revokeObjectURL(url);
 
-            toast.success("Export completed");
+            toast.success(i18n("Export completed"));
         } catch {
-            toast.error("Failed to export recordings");
+            toast.error(i18n("Failed to export recordings"));
         } finally {
             setIsExporting(false);
         }
@@ -235,11 +243,13 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
             setBackupJob(data.job);
             toast.success(
                 ACTIVE_STATUSES.has(data.job.status)
-                    ? "Backup started -- this can take a few minutes for large libraries"
-                    : "Backup ready to download",
+                    ? i18n(
+                          "Backup started -- this can take a few minutes for large libraries",
+                      )
+                    : i18n("Backup ready to download"),
             );
         } catch {
-            toast.error("Failed to start backup");
+            toast.error(i18n("Failed to start backup"));
         } finally {
             setIsStartingBackup(false);
         }
@@ -256,13 +266,17 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
     return (
         <div className="space-y-6">
             <SettingsSectionHeader
-                title="Export & Backup"
-                description="Take your data with you: recordings, transcripts, and summaries."
+                title={i18n("Export & Backup")}
+                description={i18n(
+                    "Take your data with you: recordings, transcripts, and summaries.",
+                )}
                 icon={Download}
             />
             <div className="space-y-4">
                 <div className="space-y-2">
-                    <Label htmlFor="export-format">Default export format</Label>
+                    <Label htmlFor="export-format">
+                        {i18n("Default export format")}
+                    </Label>
                     <Select
                         value={defaultExportFormat}
                         onValueChange={(value) => {
@@ -277,7 +291,7 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                             <SelectValue>
                                 {exportFormatOptions.find(
                                     (opt) => opt.value === defaultExportFormat,
-                                )?.label || "JSON"}
+                                )?.label || i18n("JSON")}
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
@@ -299,11 +313,13 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                 </div>
 
                 <div className="space-y-2">
-                    <Label htmlFor="backup-frequency">Backup frequency</Label>
+                    <Label htmlFor="backup-frequency">
+                        {i18n("Backup frequency")}
+                    </Label>
                     <p className="text-sm text-muted-foreground">
-                        Build a full archive — audio, transcripts and summaries
-                        — on a schedule, without having to remember. Each one
-                        stays downloadable for 7 days and is then deleted.
+                        {i18n(
+                            "Build a full archive — audio, transcripts and summaries — on a schedule, without having to remember. Each one stays downloadable for 7 days and is then deleted.",
+                        )}
                     </p>
                     <Select
                         value={backupFrequency || "never"}
@@ -322,7 +338,7 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                                     (opt) =>
                                         opt.value ===
                                         (backupFrequency || "never"),
-                                )?.label || "Never"}
+                                )?.label || i18n("Never")}
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
@@ -337,16 +353,18 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                         </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                        Archives are written wherever the instance's
-                        BACKUP_STORAGE_PATH points; without it they land beside
-                        your recordings, on the same disk.
+                        {i18n(
+                            "Archives are written wherever the instance's BACKUP_STORAGE_PATH points; without it they land beside your recordings, on the same disk.",
+                        )}
                     </p>
                 </div>
             </div>
 
             <div className="pt-4 border-t space-y-3">
                 <div className="space-y-2">
-                    <Label className="text-base">Manual Actions</Label>
+                    <Label className="text-base">
+                        {i18n("Manual Actions")}
+                    </Label>
                     <Button
                         onClick={async () => {
                             try {
@@ -361,17 +379,19 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                                 });
                                 onReRunOnboarding?.();
                             } catch {
-                                toast.error("Failed to reset onboarding");
+                                toast.error(i18n("Failed to reset onboarding"));
                             }
                         }}
                         variant="outline"
                         className="w-full"
                     >
-                        <RefreshCw className="size-4 mr-2" />
-                        Re-run Onboarding
+                        <RefreshCw className="size-4 mr-2" />{" "}
+                        {i18n("Re-run Onboarding")}
                     </Button>
                     <p className="text-xs text-muted-foreground">
-                        Reset onboarding to see it again on your next visit
+                        {i18n(
+                            "Reset onboarding to see it again on your next visit",
+                        )}
                     </p>
                     <div className="flex gap-2 pt-2">
                         <Button
@@ -382,13 +402,13 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                         >
                             {isExporting ? (
                                 <>
-                                    <div className="animate-spin size-4 mr-2 border-2 border-primary border-t-transparent rounded-full" />
-                                    Exporting…
+                                    <div className="animate-spin size-4 mr-2 border-2 border-primary border-t-transparent rounded-full" />{" "}
+                                    {i18n("Exporting…")}
                                 </>
                             ) : (
                                 <>
-                                    <Download className="size-4 mr-2" />
-                                    Export text
+                                    <Download className="size-4 mr-2" />{" "}
+                                    {i18n("Export text")}
                                 </>
                             )}
                         </Button>
@@ -406,32 +426,35 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                             (backupJob !== null &&
                                 ACTIVE_STATUSES.has(backupJob.status)) ? (
                                 <>
-                                    <div className="animate-spin size-4 mr-2 border-2 border-primary border-t-transparent rounded-full" />
-                                    Building archive…
+                                    <div className="animate-spin size-4 mr-2 border-2 border-primary border-t-transparent rounded-full" />{" "}
+                                    {i18n("Building archive…")}
                                 </>
                             ) : (
                                 <>
-                                    <Download className="size-4 mr-2" />
-                                    Create full backup
+                                    <Download className="size-4 mr-2" />{" "}
+                                    {i18n("Create full backup")}
                                 </>
                             )}
                         </Button>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                        "Export text" downloads transcripts + summaries
-                        instantly. "Create full backup" also bundles the
-                        original audio into a zip archive; large libraries take
-                        a few minutes to build in the background, and you'll get
-                        an email when it's ready.
+                        {i18n(
+                            '"Export text" downloads transcripts + summaries instantly. "Create full backup" also bundles the original audio into a zip archive; large libraries take a few minutes to build in the background, and you\'ll get an email when it\'s ready.',
+                        )}
                     </p>
                     {backupJob && (
                         <div className="rounded-md border p-3 text-sm space-y-1">
                             {backupJob.status === "completed" && (
                                 <div className="flex items-center justify-between gap-2">
                                     <span>
-                                        Backup ready
+                                        {i18n("Backup ready")}{" "}
                                         {backupJob.recordingCount !== null &&
-                                            ` \u2014 ${backupJob.recordingCount} recording${backupJob.recordingCount === 1 ? "" : "s"}`}
+                                            i18n(
+                                                " — {count, plural, one {# recording} other {# recordings}}",
+                                                {
+                                                    count: backupJob.recordingCount,
+                                                },
+                                            )}
                                         {backupJob.fileSize !== null &&
                                             ` (${formatBytes(backupJob.fileSize)})`}
                                     </span>
@@ -439,31 +462,33 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                                         <a
                                             href={`/api/backup/${backupJob.id}/download`}
                                         >
-                                            <Download className="size-4 mr-2" />
-                                            Download
+                                            <Download className="size-4 mr-2" />{" "}
+                                            {i18n("Download")}
                                         </a>
                                     </Button>
                                 </div>
                             )}
                             {ACTIVE_STATUSES.has(backupJob.status) && (
                                 <span className="text-muted-foreground">
-                                    Building your archive
+                                    {i18n("Building your archive")}{" "}
                                     {backupJob.status === "pending"
-                                        ? " (queued)"
+                                        ? i18n(" (queued)")
                                         : ""}
                                     …
                                 </span>
                             )}
                             {backupJob.status === "failed" && (
                                 <span className="text-destructive">
-                                    Backup failed to build. Try again, or
-                                    contact support if it keeps failing.
+                                    {i18n(
+                                        "Backup failed to build. Try again, or contact support if it keeps failing.",
+                                    )}
                                 </span>
                             )}
                             {backupJob.status === "expired" && (
                                 <span className="text-muted-foreground">
-                                    That backup has expired. Create a new one to
-                                    download it again.
+                                    {i18n(
+                                        "That backup has expired. Create a new one to download it again.",
+                                    )}
                                 </span>
                             )}
                         </div>

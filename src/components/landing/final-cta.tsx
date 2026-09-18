@@ -1,3 +1,4 @@
+import { useExtracted } from "next-intl";
 import { LogoWordmark } from "@/components/icons/logo";
 import { FinalCtaActions } from "@/components/landing/final-cta-actions";
 
@@ -13,6 +14,7 @@ import { FinalCtaActions } from "@/components/landing/final-cta-actions";
  * reassurance strip condensing the slice-1 + slice-2 promise.
  */
 export function FinalCTA() {
+    const i18n = useExtracted();
     return (
         <section
             id="get-started"
@@ -41,13 +43,16 @@ export function FinalCTA() {
                     />
 
                     <h2 className="text-3xl md:text-5xl font-semibold tracking-tight text-balance">
-                        Stop renting{" "}
-                        <span className="text-primary">your own voice.</span>
+                        {i18n("Stop renting")}{" "}
+                        <span className="text-primary">
+                            {i18n("your own voice.")}
+                        </span>
                     </h2>
 
                     <p className="text-auth-brand-foreground/70 text-lg leading-relaxed max-w-xl mx-auto">
-                        Your recordings, your transcripts, your AI. Yours to
-                        keep.
+                        {i18n(
+                            "Your recordings, your transcripts, your AI. Yours to keep.",
+                        )}
                     </p>
 
                     <FinalCtaActions />

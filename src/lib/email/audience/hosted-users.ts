@@ -2,6 +2,7 @@ import { and, eq, gt, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { users } from "@/db/schema";
 import type { Recipient } from "@/lib/email/types";
+import { defaultLocale, normalizeLocale } from "@/lib/i18n/config";
 
 interface HostedUserAudienceOptions {
     verifiedOnly?: boolean;
@@ -33,6 +34,7 @@ export async function* hostedUserAudience(
                 email: users.email,
                 name: users.name,
                 marketingEmailConsent: users.marketingEmailConsent,
+                uiLocale: users.uiLocale,
             })
             .from(users)
             .where(and(...conditions))
@@ -48,6 +50,7 @@ export async function* hostedUserAudience(
                 email: row.email,
                 name: row.name,
                 marketingConsent: row.marketingEmailConsent,
+                locale: normalizeLocale(row.uiLocale) ?? defaultLocale,
             };
         }
 

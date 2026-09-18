@@ -7,6 +7,7 @@ import {
     Section,
     Text,
 } from "@react-email/components";
+import { useExtracted, useLocale } from "next-intl";
 import type { ReactNode } from "react";
 import { EmailLayout } from "./_layout";
 import { formatEmailDate } from "./format-date";
@@ -25,9 +26,12 @@ function Bullet({
     children: ReactNode;
     margin?: string;
 }) {
+    const i18n = useExtracted();
     return (
         <Row style={{ margin }}>
-            <Column style={emailStyles.bulletGlyphColumn}>&bull;</Column>
+            <Column style={emailStyles.bulletGlyphColumn}>
+                {i18n("&bull;")}
+            </Column>
             <Column style={emailStyles.bulletTextColumn}>{children}</Column>
         </Row>
     );
@@ -69,146 +73,172 @@ export function TransitionStartEmail({
     exportUrl,
     selfHostUrl,
 }: Props) {
-    const deadline = formatEmailDate(transitionEndsAt);
+    const i18n = useExtracted();
+    const locale = useLocale();
+    const deadline = formatEmailDate(transitionEndsAt, undefined, locale);
     return (
         <EmailLayout
-            previewText={`Hosted Pro is live. The essentials are at the top; the story's below. Nothing changes until ${deadline}.`}
-            footerLink={{ href: billingUrl, label: "Manage billing" }}
+            previewText={i18n(
+                "Hosted Pro is live. The essentials are at the top; the story's below. Nothing changes until {deadline}.",
+                { deadline },
+            )}
+            footerLink={{ href: billingUrl, label: i18n("Manage billing") }}
         >
-            <Heading style={emailStyles.h1}>Hosted Pro is here.</Heading>
+            <Heading style={emailStyles.h1}>
+                {i18n("Hosted Pro is here.")}
+            </Heading>
 
-            <Text style={emailStyles.eyebrow}>In short</Text>
+            <Text style={emailStyles.eyebrow}>{i18n("In short")}</Text>
             <Bullet>
-                You keep full free access until <strong>{deadline}</strong>.
-                Nothing changes today.
+                {i18n("You keep full free access until")}{" "}
+                <strong>{deadline}</strong>
+                {i18n(". Nothing changes today.")}
             </Bullet>
             {foundingOfferAvailable ? (
                 <Bullet>
-                    After that, Hosted Pro is{" "}
+                    {i18n("After that, Hosted Pro is")}{" "}
                     <strong>
-                        {formatEmailPrice(amountValue, amountCurrency)}
-                    </strong>
-                    , locked in for as long as you stay subscribed, for the
-                    first {foundingCapacity} paid monthly members (first-paid,
-                    first-served).
+                        {formatEmailPrice(
+                            amountValue,
+                            amountCurrency,
+                            undefined,
+                            locale,
+                        )}
+                    </strong>{" "}
+                    {i18n(
+                        ", locked in for as long as you stay subscribed, for the first",
+                    )}{" "}
+                    {foundingCapacity}{" "}
+                    {i18n("paid monthly members (first-paid, first-served).")}
                 </Bullet>
             ) : (
                 <Bullet>
-                    After that, Hosted Pro is{" "}
+                    {i18n("After that, Hosted Pro is")}{" "}
                     <strong>
-                        {formatEmailPrice(amountValue, amountCurrency)}
+                        {formatEmailPrice(
+                            amountValue,
+                            amountCurrency,
+                            undefined,
+                            locale,
+                        )}
                     </strong>
                     .
                 </Bullet>
             )}
             <Bullet>
-                If you don't act, your account goes read-only. Nothing gets
-                deleted.
+                {i18n(
+                    "If you don't act, your account goes read-only. Nothing gets deleted.",
+                )}
             </Bullet>
             <Bullet margin="0">
-                Self-hosting stays free forever. That's not changing.
+                {i18n("Self-hosting stays free forever. That's not changing.")}
             </Bullet>
             <Hr style={{ ...emailStyles.divider, margin: "20px 0 24px 0" }} />
 
             <Text style={emailStyles.text}>
-                Here's the story behind that, if you want it.
+                {i18n("Here's the story behind that, if you want it.")}
             </Text>
 
             <Text style={emailStyles.text}>
-                Riffado started as a simple idea: your recordings and
-                transcripts should belong to you, and you should choose which AI
-                touches them. That part worked. But hosted Riffado runs on real
-                infrastructure: servers, storage for your audio, and the compute
-                behind Mynah, the transcription service included with Hosted
-                Pro. Free hosting was the right call for an early cohort helping
-                us find the rough edges. Thank you for that. It's not something
-                we can run forever on goodwill, so Hosted Pro is now a paid
-                plan.
+                {i18n(
+                    "Riffado started as a simple idea: your recordings and transcripts should belong to you, and you should choose which AI touches them. That part worked. But hosted Riffado runs on real infrastructure: servers, storage for your audio, and the compute behind Mynah, the transcription service included with Hosted Pro. Free hosting was the right call for an early cohort helping us find the rough edges. Thank you for that. It's not something we can run forever on goodwill, so Hosted Pro is now a paid plan.",
+                )}
             </Text>
 
             <Text style={emailStyles.text}>
-                A subscription is the most honest way to fund this: no ads, no
-                selling your data, no lock-in. And because Riffado is one AGPL
-                codebase, everything a Hosted Pro subscription funds ships to
-                self-hosters too. Paying for Hosted Pro pays for the project,
-                not just your own account.
+                {i18n(
+                    "A subscription is the most honest way to fund this: no ads, no selling your data, no lock-in. And because Riffado is one AGPL codebase, everything a Hosted Pro subscription funds ships to self-hosters too. Paying for Hosted Pro pays for the project, not just your own account.",
+                )}
             </Text>
 
             <Text style={emailStyles.text}>
-                That also means self-hosting isn't going anywhere. The source
-                stays AGPL-3.0, and the exact code running Hosted is the code
-                you can{" "}
+                {i18n(
+                    "That also means self-hosting isn't going anywhere. The source stays AGPL-3.0, and the exact code running Hosted is the code you can",
+                )}{" "}
                 <a href={selfHostUrl} style={emailStyles.link}>
-                    run yourself
-                </a>
-                : your machine, your storage, free forever. Self-host and Hosted
-                Pro are the same project, run two different ways.
+                    {i18n("run yourself")}
+                </a>{" "}
+                {i18n(
+                    ": your machine, your storage, free forever. Self-host and Hosted Pro are the same project, run two different ways.",
+                )}
             </Text>
 
             <Text style={emailStyles.text}>
-                Hosted Pro includes 50 GB of storage, 15 hours of Mynah
-                transcription every month, unlimited devices, and background
-                sync that keeps pulling recordings even when your browser is
-                closed. Bring your own AI key if you'd rather (OpenAI, Groq,
-                anything compatible); Riffado adds no markup when you do.
+                {i18n(
+                    "Hosted Pro includes 50 GB of storage, 15 hours of Mynah transcription every month, unlimited devices, and background sync that keeps pulling recordings even when your browser is closed. Bring your own AI key if you'd rather (OpenAI, Groq, anything compatible); Riffado adds no markup when you do.",
+                )}
             </Text>
 
             <Hr style={emailStyles.divider} />
 
             <Heading style={emailStyles.h2}>
-                What this means for your account
+                {i18n("What this means for your account")}
             </Heading>
 
             <Bullet>
-                Your access stays free until <strong>{deadline}</strong>.
+                {i18n("Your access stays free until")}{" "}
+                <strong>{deadline}</strong>.
             </Bullet>
             {foundingOfferAvailable ? (
                 <Bullet>
-                    As an early user, you can lock in the founding price of{" "}
+                    {i18n(
+                        "As an early user, you can lock in the founding price of",
+                    )}{" "}
                     <strong>
-                        {formatEmailPrice(amountValue, amountCurrency)}
-                    </strong>
-                    , limited to the first {foundingCapacity} paid monthly
-                    members, first-paid, first-served.
+                        {formatEmailPrice(
+                            amountValue,
+                            amountCurrency,
+                            undefined,
+                            locale,
+                        )}
+                    </strong>{" "}
+                    {i18n(", limited to the first")} {foundingCapacity}{" "}
+                    {i18n("paid monthly members, first-paid, first-served.")}
                 </Bullet>
             ) : (
                 <Bullet>
-                    Monthly Hosted Pro is available for{" "}
+                    {i18n("Monthly Hosted Pro is available for")}{" "}
                     <strong>
-                        {formatEmailPrice(amountValue, amountCurrency)}
+                        {formatEmailPrice(
+                            amountValue,
+                            amountCurrency,
+                            undefined,
+                            locale,
+                        )}
                     </strong>
                     .
                 </Bullet>
             )}
             <Bullet margin="0 0 16px 0">
-                You can cancel anytime. Canceling starts a grace period, so
-                nothing is lost immediately even then.
+                {i18n(
+                    "You can cancel anytime. Canceling starts a grace period, so nothing is lost immediately even then.",
+                )}
             </Bullet>
 
             <Section style={emailStyles.buttonSection}>
                 <Button style={emailStyles.button} href={billingUrl}>
                     {foundingOfferAvailable
-                        ? "Claim founding price"
-                        : "Choose a plan"}
+                        ? i18n("Claim founding price")
+                        : i18n("Choose a plan")}
                 </Button>
             </Section>
 
             <Text style={emailStyles.text}>
-                If you don't choose a plan by {deadline}, your account becomes
-                read-only. Nothing gets deleted: every recording, transcript,
-                and summary stays playable and exportable. Sync, uploads, and
-                new transcriptions pause until you subscribe,{" "}
+                {i18n("If you don't choose a plan by")} {deadline}
+                {i18n(
+                    ", your account becomes read-only. Nothing gets deleted: every recording, transcript, and summary stays playable and exportable. Sync, uploads, and new transcriptions pause until you subscribe,",
+                )}{" "}
                 <a href={exportUrl} style={emailStyles.link}>
-                    export
-                </a>
-                , or self-host.
+                    {i18n("export")}
+                </a>{" "}
+                {i18n(", or self-host.")}
             </Text>
 
             <Text style={emailStyles.text}>
-                Questions, or something looks off? Reply. It comes straight to
-                me, and I read this inbox.
-                <br />
-                Kacper, building Riffado
+                {i18n(
+                    "Questions, or something looks off? Reply. It comes straight to me, and I read this inbox.",
+                )}{" "}
+                <br /> {i18n("Kacper, building Riffado")}
             </Text>
         </EmailLayout>
     );

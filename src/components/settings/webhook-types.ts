@@ -39,7 +39,11 @@ export const DEFAULT_WEBHOOK_EVENTS = [
     "summary.failed",
 ];
 
-export function formatWebhookDate(value: string | null): string {
-    if (!value) return "Never";
-    return new Date(value).toLocaleString();
+export function formatWebhookDate(
+    value: string | null,
+    locale: string,
+    never: string,
+): string {
+    if (!value) return never;
+    return new Date(value).toLocaleString(locale);
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { HardDrive } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SettingsSectionHeader } from "@/components/settings/section-header";
@@ -21,26 +22,18 @@ const RETENTION_KINDS = [
     {
         key: "remoteOriginal",
         setting: "retentionRemoteOriginalDays",
-        label: "Remote original",
-        hint: "Moves the original to the connected recorder service's Trash, but only after it has been downloaded locally.",
     },
     {
         key: "localAudio",
         setting: "retentionLocalAudioDays",
-        label: "Local audio",
-        hint: "Riffado's stored audio copy. It cannot be re-transcribed once both local and remote copies are gone.",
     },
     {
         key: "localTranscript",
         setting: "retentionLocalTranscriptDays",
-        label: "Local transcript",
-        hint: "Deleted from Riffado's database. It can be regenerated if audio is still available.",
     },
     {
         key: "localSummary",
         setting: "retentionLocalSummaryDays",
-        label: "Local summary",
-        hint: "Summary, key points and action items.",
     },
 ] as const;
 
@@ -104,6 +97,31 @@ interface StorageUsage {
 }
 
 export function StorageSection({ isHosted = false }: StorageSectionProps) {
+    const i18n = useExtracted();
+    const retentionCopy = {
+        remoteOriginal: {
+            label: i18n("Remote original"),
+            hint: i18n(
+                "Moves the original to the connected recorder service's Trash, but only after it has been downloaded locally.",
+            ),
+        },
+        localAudio: {
+            label: i18n("Local audio"),
+            hint: i18n(
+                "Riffado's stored audio copy. It cannot be re-transcribed once both local and remote copies are gone.",
+            ),
+        },
+        localTranscript: {
+            label: i18n("Local transcript"),
+            hint: i18n(
+                "Deleted from Riffado's database. It can be regenerated if audio is still available.",
+            ),
+        },
+        localSummary: {
+            label: i18n("Local summary"),
+            hint: i18n("Summary, key points and action items."),
+        },
+    } satisfies Record<RetentionKey, { label: string; hint: string }>;
     const { isLoadingSettings, isSavingSettings, setIsLoadingSettings } =
         useSettings();
     const [retentionPolicy, setRetentionPolicy] = useState(
@@ -302,7 +320,9 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                     const persisted = persistedRetentionPolicyRef.current;
                     retentionPolicyRef.current = persisted;
                     setRetentionPolicy(persisted);
-                    toast.error("Failed to save settings. Changes reverted.");
+                    toast.error(
+                        i18n("Failed to save settings. Changes reverted."),
+                    );
                 }
             }
         };
@@ -358,8 +378,10 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
     return (
         <div className="space-y-6">
             <SettingsSectionHeader
-                title="Storage"
-                description="Where Riffado keeps the audio files behind your recordings."
+                title={i18n("Storage")}
+                description={i18n(
+                    "Where Riffado keeps the audio files behind your recordings.",
+                )}
                 icon={HardDrive}
             />
 
@@ -383,7 +405,7 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                 />
             ) : (
                 <div className="rounded-lg border border-dashed bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
-                    Couldn't load storage usage. Refresh to try again.
+                    {i18n("Couldn't load storage usage. Refresh to try again.")}
                 </div>
             )}
 
@@ -403,24 +425,30 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
             {!isHosted && (
                 <div className="rounded-lg border bg-card/40 px-4 py-3 space-y-2">
                     <div className="flex items-center justify-between text-sm">
-                        <span className="text-muted-foreground">Backend</span>
+                        <span className="text-muted-foreground">
+                            {i18n("Backend")}
+                        </span>
                         <span className="font-medium capitalize">
-                            {usage?.storageType ?? "local"}
+                            {usage?.storageType ?? i18n("local")}
                         </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                        Storage backend is configured at the instance level via
-                        environment variables.
+                        {i18n(
+                            "Storage backend is configured at the instance level via environment variables.",
+                        )}
                     </p>
                 </div>
             )}
 
             <SettingsCard
-                title="Auto-delete old data"
-                description="Set a separate retention period for each copy. Off means it is kept indefinitely. The recording entry stays in your library."
+                title={i18n("Auto-delete old data")}
+                description={i18n(
+                    "Set a separate retention period for each copy. Off means it is kept indefinitely. The recording entry stays in your library.",
+                )}
             >
                 <div className="divide-y rounded-lg border">
-                    {RETENTION_KINDS.map(({ key, label, hint }) => {
+                    {RETENTION_KINDS.map(({ key }) => {
+                        const { label, hint } = retentionCopy[key];
                         const value = retentionPolicy[key];
                         return (
                             <div key={key} className="space-y-3 p-4">
@@ -450,7 +478,7 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                                         htmlFor={`retention-${key}-days`}
                                         className="text-xs text-muted-foreground"
                                     >
-                                        Retention period
+                                        {i18n("Retention period")}
                                     </Label>
                                     <Input
                                         id={`retention-${key}-days`}
@@ -484,7 +512,7 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                                         }}
                                     />
                                     <span className="text-xs text-muted-foreground">
-                                        days (1-365)
+                                        {i18n("days (1-365)")}
                                     </span>
                                 </div>
                             </div>
@@ -494,15 +522,19 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
 
                 <p className="text-xs text-muted-foreground">
                     {reapPreview === null
-                        ? "When all options are off, data is kept indefinitely."
+                        ? i18n(
+                              "When all options are off, data is kept indefinitely.",
+                          )
                         : reapPreview.count === 0
-                          ? "No recordings are old enough yet, so this deletes nothing today."
+                          ? i18n(
+                                "No recordings are old enough yet, so this deletes nothing today.",
+                            )
                           : `Applies to ${reapPreview.count} recording${reapPreview.count === 1 ? "" : "s"} right now. The first sweep runs within the hour.`}
                 </p>
                 <p className="text-xs text-muted-foreground">
-                    Remote originals are moved to Trash only after a successful
-                    local download. Markdown files written by Export/Backup are
-                    left alone.
+                    {i18n(
+                        "Remote originals are moved to Trash only after a successful local download. Markdown files written by Export/Backup are left alone.",
+                    )}
                 </p>
             </SettingsCard>
         </div>

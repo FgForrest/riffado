@@ -2,6 +2,7 @@
 
 import { Loader2, X } from "lucide-react";
 import Link from "next/link";
+import { useExtracted } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { SpeakerPicker } from "@/components/people/speaker-picker";
@@ -63,6 +64,7 @@ export function SpeakerTags({
     attributions,
     onAttributionsChange,
 }: SpeakerTagsProps) {
+    const i18n = useExtracted();
     const [openLabel, setOpenLabel] = useState<string | null>(null);
     const [savingLabel, setSavingLabel] = useState<string | null>(null);
 
@@ -114,14 +116,14 @@ export function SpeakerTags({
         setSavingLabel(null);
 
         if (!response) {
-            toast.error("Could not reach the server");
+            toast.error(i18n("Could not reach the server"));
             return false;
         }
         if (!response.ok) {
             await toastApiError(response, {
                 fallback: choice
-                    ? "Failed to identify this speaker"
-                    : "Failed to unlink this speaker",
+                    ? i18n("Failed to identify this speaker")
+                    : i18n("Failed to unlink this speaker"),
                 errorContext: "update a transcript speaker",
             });
             return false;
@@ -143,7 +145,7 @@ export function SpeakerTags({
     return (
         <fieldset
             className="flex flex-wrap items-center gap-2 border-t pt-3"
-            aria-label="Transcript speakers"
+            aria-label={i18n("Transcript speakers")}
         >
             {speakers.map((speaker, index) => {
                 const attribution = attributions[speaker.speaker];
@@ -192,8 +194,13 @@ export function SpeakerTags({
                                 void attribute(speaker.speaker, null)
                             }
                             disabled={saving}
-                            aria-label={`Unlink ${attribution.name} from ${speaker.label}`}
-                            title={`Unlink ${attribution.name}`}
+                            aria-label={i18n("Unlink {name} from {speaker}", {
+                                name: attribution.name,
+                                speaker: speaker.label,
+                            })}
+                            title={i18n("Unlink {name}", {
+                                name: attribution.name,
+                            })}
                             className="flex h-full items-center border-l border-primary/20 px-2 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive disabled:opacity-60"
                         >
                             {saving ? (

@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { normalizeLocale } from "@/lib/i18n/config";
 import { sendTestEmail } from "@/lib/notifications/email";
 
 export const POST = apiHandler(async (request: Request) => {
-    await requireApiSession(request);
+    const session = await requireApiSession(request);
 
     // Tolerate malformed / null bodies: an unparseable JSON body is a
     // client input bug (400), not a server bug (500). Without the catch,
@@ -37,7 +38,7 @@ export const POST = apiHandler(async (request: Request) => {
 
     // Send test email — sendTestEmail throws on failure; mapErrorToAppError
     // (SMTP* branches) converts the message to the right code/status.
-    await sendTestEmail(email.trim());
+    await sendTestEmail(email.trim(), normalizeLocale(session.user.uiLocale));
 
     return NextResponse.json({ success: true });
 });

@@ -195,7 +195,7 @@ export async function sendCampaign(
                 to: recipientEmail,
                 from,
                 replyTo: resolveReplyToAddress(),
-                subject: campaign.subject,
+                subject: rendered.subject ?? campaign.subject,
                 html: rendered.html,
                 text,
                 headers,

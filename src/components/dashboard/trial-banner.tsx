@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, CreditCard, Download, X } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 
@@ -89,6 +90,7 @@ export function resolveBillingBannerMode(
  * on self-host or for healthy subscribers.
  */
 export function TrialBanner({ isHosted }: { isHosted: boolean }) {
+    const i18n = useExtracted();
     const [mode, setMode] = useState<BannerMode | null>(null);
     const [dismissed, setDismissed] = useState(false);
 
@@ -146,26 +148,38 @@ export function TrialBanner({ isHosted }: { isHosted: boolean }) {
                     {mode.daysLeft !== null ? (
                         <>
                             <span className="font-medium">
-                                {mode.daysLeft} day
-                                {mode.daysLeft !== 1 && "s"} left in your{" "}
                                 {mode.kind === "trial"
-                                    ? "trial"
-                                    : "free Hosted Pro window"}
-                                .
+                                    ? i18n(
+                                          "{days, plural, one {# day} other {# days}} left in your trial.",
+                                          { days: mode.daysLeft },
+                                      )
+                                    : i18n(
+                                          "{days, plural, one {# day} other {# days}} left in your free Hosted Pro window.",
+                                          { days: mode.daysLeft },
+                                      )}
                             </span>{" "}
                         </>
                     ) : null}
                     {mode.foundingOfferAvailable ? (
                         <>
-                            Add a card and pick the monthly plan to claim{" "}
+                            {i18n(
+                                "Add a card and pick the monthly plan to claim",
+                            )}{" "}
                             <span className="font-medium">
-                                founding-member monthly pricing
-                            </span>
-                            . You keep it while your subscription remains
-                            active.
+                                {i18n("founding-member monthly pricing")}
+                            </span>{" "}
+                            {i18n(
+                                ". You keep it while your subscription remains active.",
+                            )}
                         </>
+                    ) : mode.kind === "trial" ? (
+                        i18n(
+                            "Add a card and choose a plan to keep Hosted Pro active after your trial.",
+                        )
                     ) : (
-                        `Add a card and choose a plan to keep Hosted Pro active after your ${mode.kind === "trial" ? "trial" : "free Hosted Pro window"}.`
+                        i18n(
+                            "Add a card and choose a plan to keep Hosted Pro active after your free Hosted Pro window.",
+                        )
                     )}
                 </p>
                 <Button
@@ -174,14 +188,20 @@ export function TrialBanner({ isHosted }: { isHosted: boolean }) {
                     onClick={goToBilling}
                     className="shrink-0"
                 >
-                    {mode.kind === "trial" ? "Add card" : "See plans"}
+                    {mode.kind === "trial"
+                        ? i18n("Add card")
+                        : i18n("See plans")}
                 </Button>
                 {!forcedVisible && (
                     <button
                         type="button"
                         onClick={dismiss}
                         className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:text-foreground"
-                        aria-label={`Dismiss ${mode.kind === "trial" ? "trial" : "Hosted Pro transition"} banner`}
+                        aria-label={
+                            mode.kind === "trial"
+                                ? i18n("Dismiss trial banner")
+                                : i18n("Dismiss Hosted Pro transition banner")
+                        }
                     >
                         <X className="size-4" />
                     </button>
@@ -200,14 +220,19 @@ export function TrialBanner({ isHosted }: { isHosted: boolean }) {
                 <p className="font-medium">
                     {isGrace
                         ? mode.path === "trial"
-                            ? "Your trial ended."
-                            : "Your subscription ended."
-                        : "Your free Hosted Pro window has ended."}
+                            ? i18n("Your trial ended.")
+                            : i18n("Your subscription ended.")
+                        : i18n("Your free Hosted Pro window has ended.")}
                 </p>
                 <p className="mt-0.5 text-muted-foreground">
                     {isGrace
-                        ? `Your recordings are still playable and exportable, but sync and new transcriptions are paused. Scheduled for deletion in ${daysUntil(mode.deletionAt)} day(s).`
-                        : "Your account is read-only. Sync, upload, and transcription are paused. Subscribe to resume, or export your data."}
+                        ? i18n(
+                              "Your recordings are still playable and exportable, but sync and new transcriptions are paused. Scheduled for deletion in {days, plural, one {# day} other {# days}}.",
+                              { days: daysUntil(mode.deletionAt) },
+                          )
+                        : i18n(
+                              "Your account is read-only. Sync, upload, and transcription are paused. Subscribe to resume, or export your data.",
+                          )}
                 </p>
             </div>
             <div className="flex shrink-0 gap-2">
@@ -217,11 +242,10 @@ export function TrialBanner({ isHosted }: { isHosted: boolean }) {
                     onClick={goToExport}
                     className="shrink-0"
                 >
-                    <Download className="mr-1.5 size-4" />
-                    Export
+                    <Download className="mr-1.5 size-4" /> {i18n("Export")}
                 </Button>
                 <Button size="sm" onClick={goToBilling} className="shrink-0">
-                    Subscribe
+                    {i18n("Subscribe")}
                 </Button>
             </div>
         </div>

@@ -1,5 +1,6 @@
 "use client";
 
+import { useExtracted } from "next-intl";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatDuration } from "@/lib/format-duration";
 import { cn } from "@/lib/utils";
@@ -86,6 +87,7 @@ export function Waveform({
     className,
     height = 56,
 }: WaveformProps) {
+    const i18n = useExtracted();
     const wrapRef = useRef<HTMLDivElement>(null);
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const isDraggingRef = useRef(false);
@@ -307,11 +309,14 @@ export function Waveform({
             onKeyDown={onKeyDown}
             role="slider"
             tabIndex={disabled ? -1 : 0}
-            aria-label="Audio waveform scrubber"
+            aria-label={i18n("Audio waveform scrubber")}
             aria-valuemin={0}
             aria-valuemax={100}
             aria-valuenow={Math.round(progress * 100)}
-            aria-valuetext={`${formatSeconds(progress * durationSeconds)} of ${formatSeconds(durationSeconds)}`}
+            aria-valuetext={i18n("{current} of {duration}", {
+                current: formatSeconds(progress * durationSeconds),
+                duration: formatSeconds(durationSeconds),
+            })}
             aria-disabled={disabled || undefined}
             style={{ height }}
         >

@@ -4,6 +4,12 @@ import {
     getSubscriberById,
 } from "@/db/queries/newsletter-subscriptions";
 import { verifyUnsubscribeToken } from "@/lib/email/unsubscribe-token";
+import {
+    type AppLocale,
+    localeFromAcceptLanguage,
+    normalizeLocale,
+} from "@/lib/i18n/config";
+import { createEmailTranslator } from "@/lib/i18n/email-messages";
 
 /**
  * Renders a confirm page requiring a user-initiated POST rather than
@@ -13,45 +19,57 @@ import { verifyUnsubscribeToken } from "@/lib/email/unsubscribe-token";
  * double opt-in without the user's action.
  */
 export async function GET(req: NextRequest): Promise<NextResponse> {
+    const requestLocale = localeFromAcceptLanguage(
+        req.headers.get("accept-language"),
+    );
     const params = req.nextUrl.searchParams;
     const id = params.get("s");
     const token = params.get("t");
 
-    if (!id || !token) return badRequest("missing parameters");
+    if (!id || !token) return badRequest(requestLocale);
     if (!verifyUnsubscribeToken("subscriber", id, token)) {
-        return badRequest("invalid confirmation link");
+        return badRequest(requestLocale);
     }
 
     const subscriber = await getSubscriberById(id);
-    if (!subscriber) return badRequest("unknown subscription");
+    if (!subscriber) return badRequest(requestLocale);
 
-    return confirmPage(id, token);
+    return confirmPage(
+        id,
+        token,
+        normalizeLocale(subscriber.locale) ?? requestLocale,
+    );
 }
 
 export async function POST(req: NextRequest): Promise<NextResponse> {
+    const requestLocale = localeFromAcceptLanguage(
+        req.headers.get("accept-language"),
+    );
     const form = await req.formData().catch(() => null);
     const id = form?.get("s");
     const token = form?.get("t");
 
     if (typeof id !== "string" || typeof token !== "string") {
-        return badRequest("missing parameters");
+        return badRequest(requestLocale);
     }
     if (!verifyUnsubscribeToken("subscriber", id, token)) {
-        return badRequest("invalid confirmation link");
+        return badRequest(requestLocale);
     }
 
     const subscriber = await getSubscriberById(id);
-    if (!subscriber) return badRequest("unknown subscription");
+    if (!subscriber) return badRequest(requestLocale);
 
     await confirmSubscriber(id);
-    return successPage();
+    return successPage(normalizeLocale(subscriber.locale) ?? requestLocale);
 }
 
-function badRequest(message: string): NextResponse {
+function badRequest(locale: AppLocale): NextResponse {
+    const t = createEmailTranslator(locale);
     return new NextResponse(
         renderPage({
-            title: "Confirmation link is not valid",
-            body: `<p>${escapeHtml(message)}.</p><p>You can subscribe again at <a href="/updates">riffado.com/updates</a>.</p>`,
+            locale,
+            title: t("newsletterInvalidTitle"),
+            body: `<p>${escapeHtml(t("newsletterInvalidPageBody"))}</p><p>${escapeHtml(t("newsletterSubscribeAgain"))} <a href="/updates">riffado.com/updates</a>.</p>`,
         }),
         {
             status: 400,
@@ -60,16 +78,22 @@ function badRequest(message: string): NextResponse {
     );
 }
 
-function confirmPage(id: string, token: string): NextResponse {
+function confirmPage(
+    id: string,
+    token: string,
+    locale: AppLocale,
+): NextResponse {
+    const t = createEmailTranslator(locale);
     return new NextResponse(
         renderPage({
-            title: "Confirm your subscription",
+            locale,
+            title: t("newsletterConfirmPageTitle"),
             body: `
-                <p>Click below to confirm you'd like updates from Riffado.</p>
+                <p>${escapeHtml(t("newsletterConfirmPageBody"))}</p>
                 <form method="post" action="/api/newsletter/confirm">
                     <input type="hidden" name="s" value="${escapeHtml(id)}" />
                     <input type="hidden" name="t" value="${escapeHtml(token)}" />
-                    <button type="submit" style="font: inherit; padding: 0.6rem 1.2rem; border-radius: 0.4rem; border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer;">Confirm subscription</button>
+                    <button type="submit" style="font: inherit; padding: 0.6rem 1.2rem; border-radius: 0.4rem; border: 1px solid currentColor; background: transparent; color: inherit; cursor: pointer;">${escapeHtml(t("newsletterConfirmPageButton"))}</button>
                 </form>
             `,
         }),
@@ -80,13 +104,15 @@ function confirmPage(id: string, token: string): NextResponse {
     );
 }
 
-function successPage(): NextResponse {
+function successPage(locale: AppLocale): NextResponse {
+    const t = createEmailTranslator(locale);
     return new NextResponse(
         renderPage({
-            title: "Subscription confirmed",
+            locale,
+            title: t("newsletterConfirmedTitle"),
             body: `
-                <p>Thanks. You'll get an email when we ship something worth telling you about -- typically a few times a year, never more than once a month.</p>
-                <p>You can unsubscribe at any time using the link in the footer of every email.</p>
+                <p>${escapeHtml(t("newsletterConfirmedBody"))}</p>
+                <p>${escapeHtml(t("newsletterConfirmedFooter"))}</p>
             `,
         }),
         {
@@ -96,9 +122,17 @@ function successPage(): NextResponse {
     );
 }
 
-function renderPage({ title, body }: { title: string; body: string }): string {
+function renderPage({
+    locale,
+    title,
+    body,
+}: {
+    locale: AppLocale;
+    title: string;
+    body: string;
+}): string {
     return `<!doctype html>
-<html lang="en">
+<html lang="${locale}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />

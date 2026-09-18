@@ -1,6 +1,7 @@
 "use client";
 
 import { Mail } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useState } from "react";
 import { Github } from "@/components/icons/icons";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,7 @@ export function ReportBugDialog({
     open,
     onOpenChange,
 }: ReportBugDialogProps) {
+    const i18n = useExtracted();
     const page =
         typeof window !== "undefined" ? window.location.pathname : undefined;
     const opts = { isHosted, errorId, errorContext, page };
@@ -57,17 +59,21 @@ export function ReportBugDialog({
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>Report a bug</DialogTitle>
+                    <DialogTitle>{i18n("Report a bug")}</DialogTitle>
                     <DialogDescription>
                         {errorId
-                            ? "Something went wrong. The details below will be pre-filled \u2014 add what you were doing and we'll take a look."
-                            : "Pick how you'd like to report this. Your version and deployment mode are pre-filled to save you typing."}
+                            ? i18n(
+                                  "Something went wrong. The details below will be pre-filled — add what you were doing and we'll take a look.",
+                              )
+                            : i18n(
+                                  "Pick how you'd like to report this. Your version and deployment mode are pre-filled to save you typing.",
+                              )}
                     </DialogDescription>
                 </DialogHeader>
 
                 <div className="space-y-2">
                     <p className="text-xs font-medium text-muted-foreground">
-                        Preview
+                        {i18n("Preview")}
                     </p>
                     <pre className="max-h-48 overflow-auto rounded-md border bg-muted/50 p-3 text-xs whitespace-pre-wrap break-words">
                         {preview}
@@ -82,8 +88,7 @@ export function ReportBugDialog({
                                 rel="noopener noreferrer"
                                 onClick={() => onOpenChange(false)}
                             >
-                                <Mail className="size-4" />
-                                Email us
+                                <Mail className="size-4" /> {i18n("Email us")}
                             </a>
                         </Button>
                     ) : null}
@@ -94,8 +99,8 @@ export function ReportBugDialog({
                             rel="noopener noreferrer"
                             onClick={() => onOpenChange(false)}
                         >
-                            <Github className="size-4" />
-                            Report on GitHub
+                            <Github className="size-4" />{" "}
+                            {i18n("Report on GitHub")}
                         </a>
                     </Button>
                 </DialogFooter>
@@ -123,6 +128,7 @@ const RESET_BUTTON_CLASSES =
     "appearance-none border-0 bg-transparent p-0 m-0 font-inherit text-inherit cursor-pointer";
 
 export function ReportBugButton({ isHosted, className }: ReportBugButtonProps) {
+    const i18n = useExtracted();
     const [open, setOpen] = useState(false);
 
     return (
@@ -132,7 +138,7 @@ export function ReportBugButton({ isHosted, className }: ReportBugButtonProps) {
                 onClick={() => setOpen(true)}
                 className={`${RESET_BUTTON_CLASSES} ${className ?? ""}`}
             >
-                Report a bug
+                {i18n("Report a bug")}
             </button>
             <ReportBugDialog
                 isHosted={isHosted}

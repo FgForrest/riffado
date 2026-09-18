@@ -1,5 +1,6 @@
 "use client";
 
+import { useExtracted } from "next-intl";
 import { useId } from "react";
 import { formatBytes } from "@/lib/format-bytes";
 import { formatHoursCompact } from "@/lib/format-duration";
@@ -40,6 +41,7 @@ export function UsageHero({
     diskFreeBytes,
     quotaBytes,
 }: UsageHeroProps) {
+    const i18n = useExtracted();
     const avgBytes =
         recordingCount > 0 ? Math.round(usedBytes / recordingCount) : 0;
 
@@ -78,21 +80,24 @@ export function UsageHero({
                 )}
                 <div className="min-w-0">
                     <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                        Storage used
+                        {i18n("Storage used")}
                     </div>
                     <div className="mt-1 text-sm text-muted-foreground">
                         {recordingCount.toLocaleString()}{" "}
-                        {recordingCount === 1 ? "recording" : "recordings"}
+                        {recordingCount === 1
+                            ? i18n("recording")
+                            : i18n("recordings")}
                         {totalDurationMs > 0 && (
                             <>
                                 {" · "}
-                                {formatHoursCompact(totalDurationMs)} total
+                                {formatHoursCompact(totalDurationMs)}{" "}
+                                {i18n("total")}
                             </>
                         )}
                         {avgBytes > 0 && (
                             <>
                                 {" · "}
-                                {formatBytes(avgBytes)} avg
+                                {formatBytes(avgBytes)} {i18n("avg")}
                             </>
                         )}
                     </div>
@@ -128,6 +133,7 @@ interface CapacityRingProps {
  * matches the convention users expect from capacity meters.
  */
 function CapacityRing({ used, total, usedBytes }: CapacityRingProps) {
+    const i18n = useExtracted();
     const id = useId();
     const pct = Math.min(1, Math.max(0, total > 0 ? used / total : 0));
     const size = 132;
@@ -150,7 +156,7 @@ function CapacityRing({ used, total, usedBytes }: CapacityRingProps) {
                 aria-labelledby={`${id}-title`}
             >
                 <title id={`${id}-title`}>
-                    Storage capacity: {pctLabel} used
+                    {i18n("Storage capacity:")} {pctLabel} {i18n("used")}
                 </title>
                 {/* Track */}
                 <circle
@@ -180,7 +186,7 @@ function CapacityRing({ used, total, usedBytes }: CapacityRingProps) {
                     {formatBytes(usedBytes)}
                 </div>
                 <div className="text-[11px] text-muted-foreground tabular-nums">
-                    {pctLabel} used
+                    {pctLabel} {i18n("used")}
                 </div>
             </div>
         </div>

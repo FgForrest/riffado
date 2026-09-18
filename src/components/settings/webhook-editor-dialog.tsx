@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Clipboard } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -66,6 +67,7 @@ export function WebhookEditorDialog({
     events,
     onSaved,
 }: Props) {
+    const i18n = useExtracted();
     const [form, setForm] = useState<WebhookForm>(() =>
         buildForm(editingWebhook, events),
     );
@@ -125,12 +127,16 @@ export function WebhookEditorDialog({
             } else {
                 onOpenChange(false);
             }
-            toast.success(editingWebhook ? "Webhook updated" : "Webhook added");
+            toast.success(
+                editingWebhook
+                    ? i18n("Webhook updated")
+                    : i18n("Webhook added"),
+            );
         } catch (error) {
             toast.error(
                 error instanceof Error
                     ? error.message
-                    : "Failed to save webhook",
+                    : i18n("Failed to save webhook"),
             );
         } finally {
             setIsSaving(false);
@@ -140,19 +146,21 @@ export function WebhookEditorDialog({
     const copySecret = async () => {
         if (!createdSecret) return;
         await navigator.clipboard.writeText(createdSecret);
-        toast.success("Secret copied");
+        toast.success(i18n("Secret copied"));
     };
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="max-w-xl">
                 <DialogTitle>
-                    {editingWebhook ? "Edit Webhook" : "Add Webhook"}
+                    {editingWebhook
+                        ? i18n("Edit Webhook")
+                        : i18n("Add Webhook")}
                 </DialogTitle>
                 {createdSecret ? (
                     <div className="space-y-4">
                         <DialogDescription>
-                            This signing secret is shown once.
+                            {i18n("This signing secret is shown once.")}
                         </DialogDescription>
                         <div className="rounded-md border bg-muted p-3 font-mono text-sm break-all">
                             {createdSecret}
@@ -164,8 +172,7 @@ export function WebhookEditorDialog({
                                 className="flex-1"
                                 onClick={copySecret}
                             >
-                                <Clipboard className="size-4" />
-                                Copy
+                                <Clipboard className="size-4" /> {i18n("Copy")}
                             </Button>
                             <Button
                                 type="button"
@@ -175,15 +182,14 @@ export function WebhookEditorDialog({
                                     onOpenChange(false);
                                 }}
                             >
-                                <Check className="size-4" />
-                                Saved
+                                <Check className="size-4" /> {i18n("Saved")}
                             </Button>
                         </div>
                     </div>
                 ) : (
                     <form onSubmit={handleSubmit} className="space-y-4">
                         <div className="space-y-2">
-                            <Label htmlFor="webhook-url">URL</Label>
+                            <Label htmlFor="webhook-url">{i18n("URL")}</Label>
                             <Input
                                 id="webhook-url"
                                 value={form.url}
@@ -193,13 +199,15 @@ export function WebhookEditorDialog({
                                         url: event.target.value,
                                     }))
                                 }
-                                placeholder="https://example.com/webhook"
+                                placeholder={i18n(
+                                    "https://example.com/webhook",
+                                )}
                                 disabled={isSaving}
                             />
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="webhook-description">
-                                Description
+                                {i18n("Description")}
                             </Label>
                             <Input
                                 id="webhook-description"
@@ -210,12 +218,12 @@ export function WebhookEditorDialog({
                                         description: event.target.value,
                                     }))
                                 }
-                                placeholder="Automation receiver"
+                                placeholder={i18n("Automation receiver")}
                                 disabled={isSaving}
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label>Events</Label>
+                            <Label>{i18n("Events")}</Label>
                             <div className="grid gap-2 sm:grid-cols-2">
                                 {events.map((event) => (
                                     <label
@@ -240,7 +248,9 @@ export function WebhookEditorDialog({
                             </div>
                         </div>
                         <div className="flex items-center justify-between rounded-md border p-3">
-                            <Label htmlFor="webhook-enabled">Enabled</Label>
+                            <Label htmlFor="webhook-enabled">
+                                {i18n("Enabled")}
+                            </Label>
                             <Switch
                                 id="webhook-enabled"
                                 checked={form.enabled}
@@ -260,7 +270,7 @@ export function WebhookEditorDialog({
                                 onClick={() => onOpenChange(false)}
                                 disabled={isSaving}
                             >
-                                Cancel
+                                {i18n("Cancel")}
                             </Button>
                             <Button
                                 type="submit"
@@ -270,7 +280,7 @@ export function WebhookEditorDialog({
                                     form.events.length === 0
                                 }
                             >
-                                Save
+                                {i18n("Save")}
                             </Button>
                         </div>
                     </form>

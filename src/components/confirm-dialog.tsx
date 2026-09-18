@@ -1,5 +1,6 @@
 "use client";
 
+import { useExtracted } from "next-intl";
 import {
     createContext,
     type ReactNode,
@@ -88,6 +89,7 @@ interface ActiveConfirm extends ConfirmOptions {
 }
 
 export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
+    const i18n = useExtracted();
     const [active, setActive] = useState<ActiveConfirm | null>(null);
     const [isRunning, setIsRunning] = useState(false);
     // Ref guard so the imperative `confirm()` can reject re-entrancy
@@ -128,7 +130,9 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
         } catch (err) {
             toast.error(
                 entry.errorMessage ??
-                    (err instanceof Error ? err.message : "Action failed"),
+                    (err instanceof Error
+                        ? err.message
+                        : i18n("Action failed")),
             );
             // Stay open so the user can retry or cancel; just leave
             // the pending state.
@@ -162,7 +166,7 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel disabled={isRunning}>
-                            {active?.cancelLabel ?? "Cancel"}
+                            {active?.cancelLabel ?? i18n("Cancel")}
                         </AlertDialogCancel>
                         <AlertDialogAction
                             disabled={isRunning}
@@ -181,8 +185,8 @@ export function ConfirmDialogProvider({ children }: { children: ReactNode }) {
                             {isRunning
                                 ? (active?.pendingLabel ??
                                   active?.confirmLabel ??
-                                  "Confirm")
-                                : (active?.confirmLabel ?? "Confirm")}
+                                  i18n("Confirm"))
+                                : (active?.confirmLabel ?? i18n("Confirm"))}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

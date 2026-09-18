@@ -15,6 +15,7 @@ import {
 } from "@/lib/encryption/fields";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { EXPORT_FORMATS } from "@/lib/export/formats";
+import { isSupportedLocale } from "@/lib/i18n/config";
 import {
     clampRounds,
     MULTI_PASS_ROUNDS_DEFAULT,
@@ -215,11 +216,13 @@ export const GET = apiHandler(async (request: Request) => {
     const [userRow] = await db
         .select({
             marketingEmailConsent: users.marketingEmailConsent,
+            uiLocale: users.uiLocale,
         })
         .from(users)
         .where(eq(users.id, session.user.id))
         .limit(1);
     const marketingEmailConsent = userRow?.marketingEmailConsent ?? false;
+    const uiLocale = userRow?.uiLocale ?? null;
 
     if (!settings) {
         return NextResponse.json({
@@ -229,6 +232,7 @@ export const GET = apiHandler(async (request: Request) => {
             barkPushUrlSet: false,
             userEmail,
             marketingEmailConsent,
+            uiLocale,
         });
     }
 
@@ -248,6 +252,7 @@ export const GET = apiHandler(async (request: Request) => {
         ...settingsData,
         userEmail,
         marketingEmailConsent,
+        uiLocale,
     });
 });
 
@@ -255,6 +260,19 @@ export const PUT = apiHandler(async (request: Request) => {
     const session = await requireApiSession(request);
 
     const body = await request.json();
+
+    if (
+        body.uiLocale !== undefined &&
+        body.uiLocale !== null &&
+        !isSupportedLocale(body.uiLocale)
+    ) {
+        throw new AppError(
+            ErrorCode.INVALID_INPUT,
+            "Invalid uiLocale value",
+            400,
+            { field: "uiLocale" },
+        );
+    }
 
     const [existing] = await db
         .select()
@@ -432,6 +450,13 @@ export const PUT = apiHandler(async (request: Request) => {
                 marketingEmailConsent: body.marketingEmailConsent,
                 updatedAt: new Date(),
             })
+            .where(eq(users.id, session.user.id));
+    }
+
+    if (body.uiLocale === null || isSupportedLocale(body.uiLocale)) {
+        await db
+            .update(users)
+            .set({ uiLocale: body.uiLocale, updatedAt: new Date() })
             .where(eq(users.id, session.user.id));
     }
 
