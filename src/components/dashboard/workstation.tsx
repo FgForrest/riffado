@@ -94,6 +94,7 @@ interface WorkstationProps {
      * hosted-mode behavior by forgetting to thread the value through.
      */
     isHosted: boolean;
+    filesystemExportsAvailable: boolean;
     initialFolderOrganization: FolderOrganization;
 }
 
@@ -122,6 +123,7 @@ export function Workstation({
     initialSettings,
     plaudNeedsReconnect,
     isHosted,
+    filesystemExportsAvailable,
     initialFolderOrganization,
 }: WorkstationProps) {
     const { refresh } = useRouter();
@@ -783,6 +785,9 @@ export function Workstation({
                                     hiddenOnMobile={mobileView === "list"}
                                     onBackToFolders={() =>
                                         setMobileView("list")
+                                    }
+                                    filesystemExportsAvailable={
+                                        filesystemExportsAvailable
                                     }
                                 />
                             ) : (

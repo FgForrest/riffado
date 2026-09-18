@@ -1,0 +1,1 @@
+ALTER TABLE "folder_export_materializations" ADD COLUMN "expected" boolean DEFAULT true NOT NULL;

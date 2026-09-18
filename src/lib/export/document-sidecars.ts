@@ -7,6 +7,7 @@ import {
     userSettings,
 } from "@/db/schema";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
+import { enqueueExportPlansForUser } from "@/lib/folder-exports/jobs";
 import { buildNameResolver } from "@/lib/knowledge/attribution";
 import { projectTranscript } from "@/lib/knowledge/project-transcript";
 import {
@@ -411,77 +412,9 @@ async function loadSidecarProjectionContext(
 /** Rewrite only sidecars that already exist for this recording. */
 export async function rewriteExistingRecordingSidecars(
     userId: string,
-    recordingId: string,
+    _recordingId: string,
 ): Promise<void> {
-    const [recording] = await db
-        .select({ storagePath: recordings.storagePath })
-        .from(recordings)
-        .where(
-            and(
-                eq(recordings.id, recordingId),
-                eq(recordings.userId, userId),
-                isNull(recordings.deletedAt),
-            ),
-        )
-        .limit(1);
-    if (!recording) return;
-
-    const storage = await createUserStorageProvider(userId);
-    const transcriptSources = await contentSources(
-        userId,
-        recordingId,
-        "transcript",
-    );
-    const summarySources = await contentSources(userId, recordingId, "summary");
-    const legacyTranscriptKey = sidecarKey(recording.storagePath, "transcript");
-    const legacySummaryKey = sidecarKey(recording.storagePath, "summary");
-    const [legacyTranscript, legacySummary] = await Promise.all([
-        storage.exists(legacyTranscriptKey),
-        storage.exists(legacySummaryKey),
-    ]);
-    let migratedLegacyTranscript = false;
-    let migratedLegacySummary = false;
-
-    for (const source of transcriptSources) {
-        if (
-            legacyTranscript ||
-            (await storage.exists(
-                sidecarKey(recording.storagePath, "transcript", source),
-            ))
-        ) {
-            const written = await exportRecordingSidecars(
-                userId,
-                recordingId,
-                { transcript: true, summary: false },
-                source,
-            );
-            if (written.includes("transcript")) {
-                migratedLegacyTranscript ||= legacyTranscript;
-            }
-        }
-    }
-    for (const source of summarySources) {
-        if (
-            legacySummary ||
-            (await storage.exists(
-                sidecarKey(recording.storagePath, "summary", source),
-            ))
-        ) {
-            const written = await exportRecordingSidecars(
-                userId,
-                recordingId,
-                { transcript: false, summary: true },
-                source,
-            );
-            if (written.includes("summary")) {
-                migratedLegacySummary ||= legacySummary;
-            }
-        }
-    }
-    if (migratedLegacyTranscript) {
-        await storage.deleteFile(legacyTranscriptKey);
-    }
-    if (migratedLegacySummary) await storage.deleteFile(legacySummaryKey);
+    await enqueueExportPlansForUser(userId);
 }
 
 /** Best-effort wrapper for user-facing mutation and attribution paths. */
@@ -502,31 +435,14 @@ export async function refreshExistingRecordingSidecars(
 /** Best-effort removal of one source-specific sidecar after content deletion. */
 export async function removeRecordingSidecar(
     userId: string,
-    recordingId: string,
-    kind: SidecarKind,
-    source: string,
+    _recordingId: string,
+    _kind: SidecarKind,
+    _source: string,
 ): Promise<void> {
     try {
-        const [recording] = await db
-            .select({ storagePath: recordings.storagePath })
-            .from(recordings)
-            .where(
-                and(
-                    eq(recordings.id, recordingId),
-                    eq(recordings.userId, userId),
-                    isNull(recordings.deletedAt),
-                ),
-            )
-            .limit(1);
-        if (!recording) return;
-        const storage = await createUserStorageProvider(userId);
-        const key = sidecarKey(recording.storagePath, kind, source);
-        if (await storage.exists(key)) await storage.deleteFile(key);
+        await enqueueExportPlansForUser(userId);
     } catch (error) {
-        console.error(
-            `Failed to remove ${source} ${kind} sidecar for recording ${recordingId}:`,
-            error,
-        );
+        console.error("Failed to schedule folder export projection:", error);
     }
 }
 
@@ -537,40 +453,14 @@ export async function removeRecordingSidecar(
  */
 export async function exportRecordingSidecarsIfEnabled(
     userId: string,
-    recordingId: string,
-    kind: SidecarKind,
-    source?: string,
+    _recordingId: string,
+    _kind: SidecarKind,
+    _source?: string,
 ): Promise<void> {
     try {
-        const [settings] = await db
-            .select({
-                transcript: userSettings.autoExportTranscript,
-                summary: userSettings.autoExportSummary,
-            })
-            .from(userSettings)
-            .where(eq(userSettings.userId, userId))
-            .limit(1);
-
-        if (!settings) return;
-
-        const enabled =
-            kind === "transcript" ? settings.transcript : settings.summary;
-        if (!enabled) return;
-
-        await exportRecordingSidecars(
-            userId,
-            recordingId,
-            {
-                transcript: kind === "transcript",
-                summary: kind === "summary",
-            },
-            source,
-        );
+        await enqueueExportPlansForUser(userId);
     } catch (error) {
-        console.error(
-            `Failed to export ${kind} sidecar for recording ${recordingId}:`,
-            error,
-        );
+        console.error("Failed to schedule folder export projection:", error);
     }
 }
 

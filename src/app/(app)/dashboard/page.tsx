@@ -12,6 +12,7 @@ import { requireAuth } from "@/lib/auth-server";
 import { decryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
 import { listFolderOrganization } from "@/lib/folders/folders";
+import { organizationForDeployment } from "@/lib/folders/hierarchy";
 import { isAdminEmail } from "@/lib/hosted/admin/guard";
 import { initialSettingsFromRow } from "@/lib/settings/initial-settings";
 import { readTranscriptTurns } from "@/lib/transcription/read-turns";
@@ -161,6 +162,13 @@ export default async function DashboardPage() {
     // `src/lib/settings/initial-settings.ts`; adding a new preference
     // there is the only place callers need to touch.
     const initialSettings = initialSettingsFromRow(settingsRow);
+    const visibleFolderOrganization = organizationForDeployment(
+        folderOrganization,
+        {
+            isHosted: env.IS_HOSTED,
+            selfHostMode: env.SELF_HOST_MODE,
+        },
+    );
 
     return (
         <Workstation
@@ -172,7 +180,10 @@ export default async function DashboardPage() {
             initialSettings={initialSettings}
             plaudNeedsReconnect={connectionRow?.invalidatedAt != null}
             isHosted={env.IS_HOSTED}
-            initialFolderOrganization={folderOrganization}
+            filesystemExportsAvailable={
+                !env.IS_HOSTED && Boolean(env.FILESYSTEM_EXPORT_ROOT)
+            }
+            initialFolderOrganization={visibleFolderOrganization}
         />
     );
 }

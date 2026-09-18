@@ -19,6 +19,10 @@ vi.mock("@/db", () => ({
     },
 }));
 
+vi.mock("@/lib/folder-exports/jobs", () => ({
+    enqueueExportPlansForUser: vi.fn().mockResolvedValue(undefined),
+}));
+
 import { db } from "@/db";
 import {
     recordingFolderAssignments,
@@ -58,9 +62,35 @@ describe("folder ownership", () => {
                 selectAnswer([{ id: "folder-1", kind: "custom" }], wheres),
             );
         const onConflictDoNothing = vi.fn().mockResolvedValue(undefined);
-        (db.insert as Mock).mockReturnValue({
-            values: vi.fn().mockReturnValue({ onConflictDoNothing }),
-        });
+        const transactionSelect = vi
+            .fn()
+            .mockReturnValueOnce({
+                from: vi.fn().mockReturnValue({
+                    where: vi
+                        .fn()
+                        .mockResolvedValue([
+                            { id: "folder-1", parentId: null },
+                        ]),
+                }),
+            })
+            .mockReturnValueOnce({
+                from: vi.fn().mockReturnValue({
+                    where: vi
+                        .fn()
+                        .mockResolvedValue([{ folderId: "folder-1" }]),
+                }),
+            });
+        const tx = {
+            insert: vi.fn().mockReturnValue({
+                values: vi.fn().mockReturnValue({ onConflictDoNothing }),
+            }),
+            select: transactionSelect,
+            delete: vi.fn(),
+        };
+        (db.transaction as Mock).mockImplementation(
+            (callback: (transaction: typeof tx) => Promise<unknown>) =>
+                callback(tx),
+        );
 
         await addRecordingToFolder({
             userId: "user-1",

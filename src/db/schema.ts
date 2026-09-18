@@ -418,6 +418,116 @@ export const recordingFolderAssignments = pgTable(
     }),
 );
 
+export const folderExportConfigurations = pgTable(
+    "folder_export_configurations",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        folderId: text("folder_id")
+            .notNull()
+            .references(() => recordingFolders.id, { onDelete: "cascade" }),
+        provider: varchar("provider", { length: 32 })
+            .$type<"filesystem">()
+            .notNull(),
+        exportAudio: boolean("export_audio").notNull().default(true),
+        exportTranscript: boolean("export_transcript").notNull().default(true),
+        exportSummary: boolean("export_summary").notNull().default(true),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        userIdIdx: index("folder_export_configurations_user_id_idx").on(
+            table.userId,
+        ),
+        folderIdIdx: index("folder_export_configurations_folder_id_idx").on(
+            table.folderId,
+        ),
+    }),
+);
+
+export const filesystemExportSettings = pgTable(
+    "filesystem_export_settings",
+    {
+        exportConfigurationId: text("export_configuration_id")
+            .primaryKey()
+            .references(() => folderExportConfigurations.id, {
+                onDelete: "cascade",
+            }),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        targetPath: text("target_path").notNull(),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        userIdIdx: index("filesystem_export_settings_user_id_idx").on(
+            table.userId,
+        ),
+    }),
+);
+
+export const folderExportMaterializations = pgTable(
+    "folder_export_materializations",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        exportConfigurationId: text("export_configuration_id")
+            .notNull()
+            .references(() => folderExportConfigurations.id, {
+                onDelete: "cascade",
+            }),
+        recordingId: text("recording_id")
+            .notNull()
+            .references(() => recordings.id, { onDelete: "cascade" }),
+        placementFolderId: text("placement_folder_id")
+            .notNull()
+            .references(() => recordingFolders.id, { onDelete: "cascade" }),
+        artifactType: varchar("artifact_type", { length: 16 })
+            .$type<"audio" | "transcript" | "summary">()
+            .notNull(),
+        artifactId: text("artifact_id").notNull(),
+        artifactVersion: varchar("artifact_version", { length: 64 }).notNull(),
+        logicalPath: text("logical_path").notNull(),
+        expectedSize: bigint("expected_size", { mode: "number" }).notNull(),
+        expected: boolean("expected").notNull().default(true),
+        status: varchar("status", { length: 16 })
+            .$type<"pending" | "in_progress" | "exported" | "failed">()
+            .notNull()
+            .default("pending"),
+        attempts: integer("attempts").notNull().default(0),
+        lastError: text("last_error"),
+        exportedAt: timestamp("exported_at"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        placementUnique: unique(
+            "folder_export_materializations_placement_unique",
+        ).on(
+            table.exportConfigurationId,
+            table.placementFolderId,
+            table.artifactType,
+            table.artifactId,
+        ),
+        userIdIdx: index("folder_export_materializations_user_id_idx").on(
+            table.userId,
+        ),
+        pendingIdx: index("folder_export_materializations_pending_idx").on(
+            table.status,
+            table.updatedAt,
+        ),
+    }),
+);
+
 // Transcriptions
 export const transcriptions = pgTable(
     "transcriptions",

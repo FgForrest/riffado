@@ -13,7 +13,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { useSettings } from "@/hooks/use-settings";
 import { EXPORT_FORMATS, type ExportFormat } from "@/lib/export/formats";
 
@@ -79,9 +78,6 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
     const { isLoadingSettings, isSavingSettings, setIsLoadingSettings } =
         useSettings();
     const [defaultExportFormat, setDefaultExportFormat] = useState("json");
-    const [autoExportTranscript, setAutoExportTranscript] = useState(false);
-    const [autoExportSummary, setAutoExportSummary] = useState(false);
-    const [isBackfilling, setIsBackfilling] = useState(false);
     const [backupFrequency, setBackupFrequency] = useState<string | null>(null);
     const [isExporting, setIsExporting] = useState(false);
     const [isStartingBackup, setIsStartingBackup] = useState(false);
@@ -94,8 +90,6 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                 if (response.ok) {
                     const data = await response.json();
                     setDefaultExportFormat(data.defaultExportFormat ?? "json");
-                    setAutoExportTranscript(data.autoExportTranscript ?? false);
-                    setAutoExportSummary(data.autoExportSummary ?? false);
                     setBackupFrequency(data.backupFrequency ?? null);
                 }
             } catch (error) {
@@ -166,22 +160,12 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
 
     const handleExportBackupSettingChange = async (updates: {
         defaultExportFormat?: string;
-        autoExportTranscript?: boolean;
-        autoExportSummary?: boolean;
         backupFrequency?: string | null;
     }) => {
         const previousValues: Record<string, unknown> = {};
         if (updates.defaultExportFormat !== undefined) {
             previousValues.defaultExportFormat = defaultExportFormat;
             setDefaultExportFormat(updates.defaultExportFormat);
-        }
-        if (updates.autoExportTranscript !== undefined) {
-            previousValues.autoExportTranscript = autoExportTranscript;
-            setAutoExportTranscript(updates.autoExportTranscript);
-        }
-        if (updates.autoExportSummary !== undefined) {
-            previousValues.autoExportSummary = autoExportSummary;
-            setAutoExportSummary(updates.autoExportSummary);
         }
         if (updates.backupFrequency !== undefined) {
             previousValues.backupFrequency = backupFrequency;
@@ -203,62 +187,12 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                 const prev = previousValues.defaultExportFormat;
                 if (typeof prev === "string") setDefaultExportFormat(prev);
             }
-            if (updates.autoExportTranscript !== undefined) {
-                const prev = previousValues.autoExportTranscript;
-                if (typeof prev === "boolean") setAutoExportTranscript(prev);
-            }
-            if (updates.autoExportSummary !== undefined) {
-                const prev = previousValues.autoExportSummary;
-                if (typeof prev === "boolean") setAutoExportSummary(prev);
-            }
             if (updates.backupFrequency !== undefined) {
                 const prev = previousValues.backupFrequency;
                 if (typeof prev === "string" || prev === null)
                     setBackupFrequency(prev);
             }
             toast.error("Failed to save settings. Changes reverted.");
-        }
-    };
-
-    const handleDocumentBackfill = async () => {
-        setIsBackfilling(true);
-        try {
-            const response = await fetch("/api/settings/export-documents", {
-                method: "POST",
-            });
-            const data = await response.json().catch(() => null);
-            if (!response.ok) {
-                throw new Error(data?.error || "Export failed");
-            }
-
-            const parts: string[] = [];
-            if (data.transcripts > 0) {
-                parts.push(
-                    `${data.transcripts} transcript${data.transcripts === 1 ? "" : "s"}`,
-                );
-            }
-            if (data.summaries > 0) {
-                parts.push(
-                    `${data.summaries} ${data.summaries === 1 ? "summary" : "summaries"}`,
-                );
-            }
-            toast.success(
-                parts.length > 0
-                    ? `Exported ${parts.join(" and ")}.`
-                    : "Nothing to export yet.",
-            );
-
-            if (data.failed > 0) {
-                toast.error(
-                    `${data.failed} recording${data.failed === 1 ? "" : "s"} could not be exported. Check the server logs.`,
-                );
-            }
-        } catch (error) {
-            toast.error(
-                error instanceof Error ? error.message : "Export failed",
-            );
-        } finally {
-            setIsBackfilling(false);
         }
     };
 
@@ -362,92 +296,6 @@ export function ExportSection({ onReRunOnboarding }: ExportSectionProps) {
                             ))}
                         </SelectContent>
                     </Select>
-                </div>
-
-                {/* "Auto-export new recordings" used to sit here as a
-                    permanently disabled "Coming soon" switch. It never had a
-                    destination -- there is no concept of an export target to
-                    write to on sync -- and the block below is the version of
-                    that idea which actually runs: transcripts and summaries
-                    are written into storage the moment they are produced.
-                    The `autoExport` column is left in place (still accepted
-                    and returned by /api/settings/user) so no migration is
-                    needed and nothing that reads it breaks. */}
-                <div className="space-y-4 rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                        <Label className="text-base">
-                            Documents alongside audio
-                        </Label>
-                        <p className="text-sm text-muted-foreground">
-                            Write markdown files next to each recording in
-                            storage, named after the audio file (
-                            <code className="font-mono text-xs">
-                                Board_meeting.custom.transcript.md
-                            </code>
-                            ). With local storage on a mounted folder, they
-                            appear straight on disk. Plaud and custom variants
-                            are written as separate files.
-                        </p>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <Label
-                            htmlFor="auto-export-transcript"
-                            className="text-sm font-normal"
-                        >
-                            Export transcripts
-                        </Label>
-                        <Switch
-                            id="auto-export-transcript"
-                            checked={autoExportTranscript}
-                            onCheckedChange={(checked) =>
-                                handleExportBackupSettingChange({
-                                    autoExportTranscript: checked,
-                                })
-                            }
-                            disabled={isLoadingSettings || isSavingSettings}
-                        />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <Label
-                            htmlFor="auto-export-summary"
-                            className="text-sm font-normal"
-                        >
-                            Export summaries
-                        </Label>
-                        <Switch
-                            id="auto-export-summary"
-                            checked={autoExportSummary}
-                            onCheckedChange={(checked) =>
-                                handleExportBackupSettingChange({
-                                    autoExportSummary: checked,
-                                })
-                            }
-                            disabled={isLoadingSettings || isSavingSettings}
-                        />
-                    </div>
-
-                    <div className="flex items-center justify-between gap-4">
-                        <p className="text-xs text-muted-foreground">
-                            New transcriptions and summaries are exported
-                            automatically. Existing recordings need one
-                            backfill.
-                        </p>
-                        <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={handleDocumentBackfill}
-                            disabled={
-                                isBackfilling ||
-                                (!autoExportTranscript && !autoExportSummary)
-                            }
-                        >
-                            {isBackfilling
-                                ? "Exporting..."
-                                : "Export all existing"}
-                        </Button>
-                    </div>
                 </div>
 
                 <div className="space-y-2">

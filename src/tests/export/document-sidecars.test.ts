@@ -4,6 +4,14 @@ vi.mock("@/db", () => ({
     db: { select: vi.fn(), update: vi.fn() },
 }));
 
+const { enqueueExportPlansForUser } = vi.hoisted(() => ({
+    enqueueExportPlansForUser: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock("@/lib/folder-exports/jobs", () => ({
+    enqueueExportPlansForUser,
+}));
+
 vi.mock("@/lib/encryption/fields", () => ({
     decryptText: vi.fn((value: string | null) => value),
     decryptJsonField: vi.fn((value: unknown) => value),
@@ -441,59 +449,11 @@ describe("exportRecordingSidecars", () => {
         expect(body).toContain('participants:\n  - "Jane Doe"');
     });
 
-    it("refreshes only sidecars already present in storage", async () => {
-        exists.mockImplementation(async (key: string) =>
-            key.endsWith(".transcript.md"),
-        );
-        vi.mocked(db.select)
-            // existing-sidecar recording lookup
-            .mockReturnValueOnce(
-                rows([
-                    {
-                        storagePath: "user-1/Board_meeting.mp3",
-                        storageFilename: "Board_meeting.mp3",
-                    },
-                ]) as never,
-            )
-            .mockReturnValueOnce(rows([{ source: "riffado" }]) as never)
-            .mockReturnValueOnce(rows([]) as never)
-            // export recording lookup
-            .mockReturnValueOnce(
-                rows([
-                    {
-                        id: "rec-1",
-                        userId: "user-1",
-                        filename: "Board meeting",
-                        storagePath: "user-1/Board_meeting.mp3",
-                        storageFilename: "Board_meeting.mp3",
-                        startTime: RECORDED_AT,
-                        duration: 60_000,
-                        deletedAt: null,
-                    },
-                ]) as never,
-            )
-            .mockReturnValueOnce(
-                rows([
-                    {
-                        id: "tr-1",
-                        source: "riffado",
-                        text: "speaker_0: Hello.",
-                        provider: "OpenAI",
-                        model: "gpt-4o-transcribe-diarize",
-                        detectedLanguage: "en",
-                    },
-                ]) as never,
-            )
-            .mockReturnValueOnce(rows([{ preferred: "riffado" }]) as never)
-            .mockReturnValueOnce(rows([]) as never);
-
+    it("schedules folder exports instead of rewriting storage sidecars", async () => {
         await refreshExistingRecordingSidecars("user-1", "rec-1");
-
-        expect(exists).toHaveBeenCalledTimes(2);
-        expect(uploadFile).toHaveBeenCalledTimes(1);
-        expect(uploadFile.mock.calls[0]?.[0]).toBe(
-            "user-1/Board_meeting.custom.transcript.md",
-        );
+        expect(enqueueExportPlansForUser).toHaveBeenCalledWith("user-1");
+        expect(exists).not.toHaveBeenCalled();
+        expect(uploadFile).not.toHaveBeenCalled();
     });
 
     it("moves legacy audio and sidecars to the canonical title-based name", async () => {
