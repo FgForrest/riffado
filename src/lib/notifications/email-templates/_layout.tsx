@@ -9,8 +9,8 @@ import {
     Section,
     Text,
 } from "@react-email/components";
-import { useExtracted } from "next-intl";
 import type React from "react";
+import { getEmailTranslator } from "../email-template-i18n";
 import { emailStyles } from "./styles";
 
 interface EmailLayoutProps {
@@ -32,7 +32,7 @@ export function EmailLayout({
     footerLink,
     children,
 }: EmailLayoutProps) {
-    const i18n = useExtracted();
+    const i18n = getEmailTranslator();
     return (
         <Html>
             <Head>

@@ -1,5 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
-import { useExtracted, useLocale } from "next-intl";
+import { getEmailLocale, getEmailTranslator } from "../email-template-i18n";
 import { EmailLayout } from "./_layout";
 import { formatEmailPrice } from "./format-price";
 import { emailStyles } from "./styles";
@@ -38,8 +38,8 @@ export function WelcomeHostedProEmail({
     recordingCount,
     totalDurationMs,
 }: Props) {
-    const i18n = useExtracted();
-    const locale = useLocale();
+    const i18n = getEmailTranslator();
+    const locale = getEmailLocale();
     const hours = Math.round(totalDurationMs / 3_600_000);
     const isFoundingMonthly = foundingMember && interval === "month";
     return (

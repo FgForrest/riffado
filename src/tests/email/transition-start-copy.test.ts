@@ -1,10 +1,11 @@
 import { render } from "@react-email/render";
-import React, { type ComponentType, type PropsWithChildren } from "react";
-import { IntlProvider } from "use-intl/react";
+import React from "react";
 import { describe, expect, it } from "vitest";
 import { defaultLocale } from "@/lib/i18n/config";
-import { messagesForLocale } from "@/lib/i18n/messages";
+import { runWithEmailLocale } from "@/lib/notifications/email-template-i18n";
+import { TestEmail } from "@/lib/notifications/email-templates/test-email";
 import { TransitionStartEmail } from "@/lib/notifications/email-templates/transition-start";
+import { renderEmailHtml } from "@/lib/notifications/render-email";
 
 const baseProps = {
     transitionEndsAt: new Date("2026-08-27T23:59:59Z"),
@@ -16,26 +17,13 @@ const baseProps = {
     selfHostUrl: "https://github.com/riffado/riffado#quick-start",
 };
 
-const EmailIntlProvider = IntlProvider as ComponentType<
-    PropsWithChildren<{
-        locale: typeof defaultLocale;
-        messages: ReturnType<typeof messagesForLocale>;
-    }>
->;
-
 function renderTransition(
     props: React.ComponentProps<typeof TransitionStartEmail>,
 ) {
-    return render(
-        React.createElement(
-            EmailIntlProvider,
-            {
-                locale: defaultLocale,
-                messages: messagesForLocale(defaultLocale),
-            },
-            React.createElement(TransitionStartEmail, props),
-        ),
-        { plainText: true },
+    return runWithEmailLocale(defaultLocale, () =>
+        render(React.createElement(TransitionStartEmail, props), {
+            plainText: true,
+        }),
     );
 }
 
@@ -100,5 +88,18 @@ describe("TransitionStartEmail", () => {
         // below that a skimmer may never reach.
         expect(inShortSection).toContain("first 100 paid monthly members");
         expect(inShortSection).toContain("first-paid, first-served");
+    });
+
+    it("renders localized email outside a React internationalization context", async () => {
+        const html = await renderEmailHtml(
+            React.createElement(TestEmail, {
+                dashboardUrl: "https://riffado.com",
+                settingsUrl: "https://riffado.com/settings",
+            }),
+            "cs-CZ",
+        );
+
+        expect(html).toContain("Testovací e-mail");
+        expect(html).toContain("e-mailová oznámení fungují");
     });
 });

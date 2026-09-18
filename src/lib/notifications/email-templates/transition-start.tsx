@@ -7,8 +7,8 @@ import {
     Section,
     Text,
 } from "@react-email/components";
-import { useExtracted, useLocale } from "next-intl";
 import type { ReactNode } from "react";
+import { getEmailLocale, getEmailTranslator } from "../email-template-i18n";
 import { EmailLayout } from "./_layout";
 import { formatEmailDate } from "./format-date";
 import { formatEmailPrice } from "./format-price";
@@ -26,7 +26,7 @@ function Bullet({
     children: ReactNode;
     margin?: string;
 }) {
-    const i18n = useExtracted();
+    const i18n = getEmailTranslator();
     return (
         <Row style={{ margin }}>
             <Column style={emailStyles.bulletGlyphColumn}>
@@ -73,8 +73,8 @@ export function TransitionStartEmail({
     exportUrl,
     selfHostUrl,
 }: Props) {
-    const i18n = useExtracted();
-    const locale = useLocale();
+    const i18n = getEmailTranslator();
+    const locale = getEmailLocale();
     const deadline = formatEmailDate(transitionEndsAt, undefined, locale);
     return (
         <EmailLayout

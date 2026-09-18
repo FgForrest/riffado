@@ -1,5 +1,5 @@
 import { Button, Heading, Link, Section, Text } from "@react-email/components";
-import { useExtracted } from "next-intl";
+import { getEmailTranslator } from "../email-template-i18n";
 import { EmailLayout } from "./_layout";
 import { emailStyles } from "./styles";
 
@@ -18,7 +18,7 @@ export function NewRecordingEmail({
     dashboardUrl,
     settingsUrl,
 }: NewRecordingEmailProps) {
-    const i18n = useExtracted();
+    const i18n = getEmailTranslator();
     const syncedLabel = i18n(
         "{count, plural, one {New recording synced} other {# new recordings synced}}",
         { count },

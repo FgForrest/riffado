@@ -1,5 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
-import { useExtracted } from "next-intl";
+import { getEmailTranslator } from "../email-template-i18n";
 import { EmailLayout } from "./_layout";
 import { emailStyles } from "./styles";
 
@@ -10,7 +10,7 @@ interface NewsletterConfirmEmailProps {
 export function NewsletterConfirmEmail({
     confirmUrl,
 }: NewsletterConfirmEmailProps) {
-    const i18n = useExtracted();
+    const i18n = getEmailTranslator();
     return (
         <EmailLayout
             previewText={i18n("Confirm your Riffado newsletter subscription")}

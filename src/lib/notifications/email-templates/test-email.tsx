@@ -1,5 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
-import { useExtracted } from "next-intl";
+import { getEmailTranslator } from "../email-template-i18n";
 import { EmailLayout } from "./_layout";
 import { emailStyles } from "./styles";
 
@@ -9,7 +9,7 @@ interface TestEmailProps {
 }
 
 export function TestEmail({ dashboardUrl, settingsUrl }: TestEmailProps) {
-    const i18n = useExtracted();
+    const i18n = getEmailTranslator();
     return (
         <EmailLayout
             previewText={i18n(

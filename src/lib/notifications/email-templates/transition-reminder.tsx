@@ -1,5 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
-import { useExtracted, useLocale } from "next-intl";
+import { getEmailLocale, getEmailTranslator } from "../email-template-i18n";
 import { EmailLayout } from "./_layout";
 import { formatEmailDate } from "./format-date";
 import { formatEmailPrice } from "./format-price";
@@ -39,8 +39,8 @@ export function TransitionReminderEmail({
     exportUrl,
     selfHostUrl,
 }: Props) {
-    const i18n = useExtracted();
-    const locale = useLocale();
+    const i18n = getEmailTranslator();
+    const locale = getEmailLocale();
     return (
         <EmailLayout
             previewText={i18n(

@@ -1,5 +1,5 @@
 import { Heading, Text } from "@react-email/components";
-import { useExtracted } from "next-intl";
+import { getEmailTranslator } from "../email-template-i18n";
 import { EmailLayout } from "./_layout";
 import { emailStyles } from "./styles";
 
@@ -16,7 +16,7 @@ export function RebrandAnnouncementEmail({
     loginUrl,
     unsubscribeUrl,
 }: RebrandAnnouncementEmailProps) {
-    const i18n = useExtracted();
+    const i18n = getEmailTranslator();
     const opener = recipientName
         ? i18n("Hey {name},", { name: recipientName })
         : i18n("Hey,");
