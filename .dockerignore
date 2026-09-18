@@ -55,5 +55,8 @@ next-env.d.ts
 # README
 README.md
 
-# agent-bridge sidecar (its own build context; not part of the app image)
-/agent-bridge
+# The sidecar has its own image, but Next type-checks the test that imports its
+# pure logic module during the app build. Keep only that module in this context;
+# the app image's runner stage still copies neither it nor the tests.
+/agent-bridge/*
+!/agent-bridge/lib.mjs
