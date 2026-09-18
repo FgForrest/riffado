@@ -74,7 +74,7 @@ const recordings: Recording[] = [
 describe("folder navigation", () => {
     afterEach(cleanup);
 
-    it("shows fixed roots and direct-only folder counts", () => {
+    it("shows fixed roots and distinct subtree folder counts", () => {
         render(
             <ConfirmDialogProvider>
                 <FolderTree
@@ -100,7 +100,7 @@ describe("folder navigation", () => {
             screen.getByRole("button", { name: "Private, 2 recordings" }),
         ).toBeTruthy();
         expect(
-            screen.getByRole("button", { name: "Meetings, 1 recording" }),
+            screen.getByRole("button", { name: "Meetings, 2 recordings" }),
         ).toBeTruthy();
         expect(
             screen.getByRole("button", { name: "Planning, 1 recording" }),

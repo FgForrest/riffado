@@ -10,11 +10,11 @@ import {
     MoreHorizontal,
     Pencil,
     Play,
-    RefreshCw,
     Trash2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useConfirm } from "@/components/confirm-dialog";
+import { FolderExportActions } from "@/components/dashboard/folder-export-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -32,6 +32,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { recordingIdsVisibleInFolder } from "@/lib/folders/hierarchy";
 import { formatBytes } from "@/lib/format-bytes";
 import { formatDateTime } from "@/lib/format-date";
 import { formatDurationMs } from "@/lib/format-duration";
@@ -60,6 +61,7 @@ interface FolderRecordingPaneProps {
     onDeleteFolder: (folderId: string) => Promise<void>;
     hiddenOnMobile: boolean;
     onBackToFolders: () => void;
+    filesystemExportsAvailable: boolean;
 }
 
 export function FolderRecordingPane({
@@ -73,6 +75,7 @@ export function FolderRecordingPane({
     onDeleteFolder,
     hiddenOnMobile,
     onBackToFolders,
+    filesystemExportsAvailable,
 }: FolderRecordingPaneProps) {
     const confirm = useConfirm();
     const [renameOpen, setRenameOpen] = useState(false);
@@ -84,22 +87,15 @@ export function FolderRecordingPane({
     }>({ column: "date", direction: "desc" });
 
     const folderRecordings = useMemo(() => {
-        const matching =
-            folder.kind === "private"
-                ? recordings
-                : (() => {
-                      const ids = new Set(
-                          assignments
-                              .filter(
-                                  (assignment) =>
-                                      assignment.folderId === folder.id,
-                              )
-                              .map((assignment) => assignment.recordingId),
-                      );
-                      return recordings.filter((recording) =>
-                          ids.has(recording.id),
-                      );
-                  })();
+        const ids = recordingIdsVisibleInFolder(
+            folders,
+            assignments,
+            folder,
+            recordings.map((recording) => recording.id),
+        );
+        const matching = recordings.filter((recording) =>
+            ids.has(recording.id),
+        );
         const direction = sort.direction === "asc" ? 1 : -1;
         return [...matching].sort((left, right) => {
             let difference: number;
@@ -120,7 +116,7 @@ export function FolderRecordingPane({
             }
             return difference * direction || left.id.localeCompare(right.id);
         });
-    }, [assignments, folder, recordings, sort]);
+    }, [assignments, folder, folders, recordings, sort]);
 
     const path = useMemo(() => {
         const byId = new Map(folders.map((item) => [item.id, item]));
@@ -244,17 +240,11 @@ export function FolderRecordingPane({
                     </div>
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="h-9"
-                        disabled
-                        title="Coming soon"
-                    >
-                        <RefreshCw />
-                        Synchronize
-                    </Button>
+                    <FolderExportActions
+                        folder={folder}
+                        filesystemAvailable={filesystemExportsAvailable}
+                        privateTree={path[0]?.kind === "private"}
+                    />
                     {folder.kind === "custom" && (
                         <>
                             <Button

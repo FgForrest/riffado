@@ -30,6 +30,10 @@ type StorageReconciliationModule = {
     startStorageReconciliationSeeder: () => void;
 };
 
+type FolderExportModule = {
+    startFolderExportSeeder: () => void;
+};
+
 type EnvModule = {
     env: {
         IS_HOSTED: boolean;
@@ -113,6 +117,10 @@ export async function register() {
     const { startStorageReconciliationSeeder } =
         require("./lib/recordings/storage-reconciliation-job") as StorageReconciliationModule;
     startStorageReconciliationSeeder();
+
+    const { startFolderExportSeeder } =
+        require("./lib/folder-exports/jobs") as FolderExportModule;
+    startFolderExportSeeder();
 
     // Catch anything that escapes a background worker's own try/catch (or
     // any other unexpected process-level throw) instead of only ever

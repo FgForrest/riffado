@@ -9,7 +9,6 @@ import {
     History,
     MoreHorizontal,
     Pencil,
-    RefreshCw,
     Search,
     Trash2,
     X,
@@ -34,6 +33,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { effectiveRecordingCounts } from "@/lib/folders/hierarchy";
 import { cn } from "@/lib/utils";
 import type {
     RecordingFolder,
@@ -124,20 +124,11 @@ export function FolderTree({
     }, [folders]);
 
     const countByFolder = useMemo(() => {
-        const counts = new Map<string, number>();
-        const recordingIds = new Set(
+        return effectiveRecordingCounts(
+            folders,
+            assignments,
             recordings.map((recording) => recording.id),
         );
-        for (const assignment of assignments) {
-            if (!recordingIds.has(assignment.recordingId)) continue;
-            counts.set(
-                assignment.folderId,
-                (counts.get(assignment.folderId) ?? 0) + 1,
-            );
-        }
-        const privateRoot = folders.find((folder) => folder.kind === "private");
-        if (privateRoot) counts.set(privateRoot.id, recordings.length);
-        return counts;
     }, [assignments, folders, recordings]);
 
     const matchingIds = useMemo(() => {
@@ -427,10 +418,6 @@ export function FolderTree({
                                     </DropdownMenuItem>
                                 </>
                             )}
-                            <DropdownMenuItem disabled title="Coming soon">
-                                <RefreshCw />
-                                Synchronize
-                            </DropdownMenuItem>
                             {folder.kind === "custom" && (
                                 <>
                                     <DropdownMenuSeparator />

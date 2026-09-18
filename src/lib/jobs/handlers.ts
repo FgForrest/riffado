@@ -8,6 +8,11 @@
  */
 
 import {
+    exportMaterializeJobHandler,
+    exportPlanJobHandler,
+    exportReconcileJobHandler,
+} from "@/lib/folder-exports/job-handlers";
+import {
     storageReconciliationJobHandler,
     storageReconciliationScanJobHandler,
 } from "@/lib/recordings/storage-reconciliation-job-handler";
@@ -23,4 +28,7 @@ export function registerJobHandlers(): void {
     registerJobHandler(videoExtractionJobHandler);
     registerJobHandler(storageReconciliationScanJobHandler);
     registerJobHandler(storageReconciliationJobHandler);
+    registerJobHandler(exportPlanJobHandler);
+    registerJobHandler(exportMaterializeJobHandler);
+    registerJobHandler(exportReconcileJobHandler);
 }

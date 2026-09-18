@@ -1,12 +1,14 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
+    folderExportConfigurations,
     recordingFolderAssignments,
     recordingFolders,
     recordings,
 } from "@/db/schema";
 import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { AppError, ErrorCode } from "@/lib/errors";
+import { enqueueExportPlansForUser } from "@/lib/folder-exports/jobs";
 import { lookupHash } from "@/lib/knowledge/lookup-hash";
 import type {
     FolderKind,
@@ -26,6 +28,12 @@ const ROOTS: ReadonlyArray<{
 ];
 
 const FOLDER_ORDER_STEP = 1000;
+
+async function scheduleExportProjection(userId: string): Promise<void> {
+    await enqueueExportPlansForUser(userId).catch((error) => {
+        console.error("Failed to schedule folder export projection:", error);
+    });
+}
 
 function normalizeName(value: string): string {
     const name = value.trim().replace(/\s+/g, " ");
@@ -202,6 +210,7 @@ export async function renameFolder(input: {
     if (!updated) {
         throw new AppError(ErrorCode.NOT_FOUND, "Folder not found", 404);
     }
+    await scheduleExportProjection(input.userId);
     return serializeFolder(updated);
 }
 
@@ -211,7 +220,7 @@ export async function moveFolder(input: {
     parentId: string;
     beforeId?: string | null;
 }): Promise<RecordingFolder> {
-    return db.transaction(
+    const moved = await db.transaction(
         async (tx) => {
             const folders = await tx
                 .select({
@@ -253,6 +262,49 @@ export async function moveFolder(input: {
                 ancestor = ancestor.parentId
                     ? byId.get(ancestor.parentId)
                     : undefined;
+            }
+
+            let destinationRoot = parent;
+            while (destinationRoot.parentId) {
+                const next = byId.get(destinationRoot.parentId);
+                if (!next) break;
+                destinationRoot = next;
+            }
+            if (destinationRoot.kind !== "private") {
+                const movedSubtree = new Set([folder.id]);
+                let changed = true;
+                while (changed) {
+                    changed = false;
+                    for (const candidate of folders) {
+                        if (
+                            candidate.parentId &&
+                            movedSubtree.has(candidate.parentId) &&
+                            !movedSubtree.has(candidate.id)
+                        ) {
+                            movedSubtree.add(candidate.id);
+                            changed = true;
+                        }
+                    }
+                }
+                const configured = await tx
+                    .select({ id: folderExportConfigurations.id })
+                    .from(folderExportConfigurations)
+                    .where(
+                        and(
+                            eq(folderExportConfigurations.userId, input.userId),
+                            inArray(folderExportConfigurations.folderId, [
+                                ...movedSubtree,
+                            ]),
+                        ),
+                    )
+                    .limit(1);
+                if (configured.length > 0) {
+                    throw new AppError(
+                        ErrorCode.INVALID_INPUT,
+                        "Remove filesystem exports before moving this folder outside Private",
+                        400,
+                    );
+                }
             }
 
             const siblings = folders
@@ -321,6 +373,8 @@ export async function moveFolder(input: {
         },
         { isolationLevel: "serializable" },
     );
+    await scheduleExportProjection(input.userId);
+    return moved;
 }
 
 export async function deleteFolder(
@@ -340,6 +394,7 @@ export async function deleteFolder(
     if (deleted.length === 0) {
         throw new AppError(ErrorCode.NOT_FOUND, "Folder not found", 404);
     }
+    await scheduleExportProjection(userId);
 }
 
 export async function addRecordingToFolder(input: {
@@ -385,14 +440,67 @@ export async function addRecordingToFolder(input: {
         );
     }
 
-    await db
-        .insert(recordingFolderAssignments)
-        .values({
-            userId: input.userId,
-            recordingId: recording[0].id,
-            folderId: folder[0].id,
-        })
-        .onConflictDoNothing();
+    await db.transaction(async (tx) => {
+        await tx
+            .insert(recordingFolderAssignments)
+            .values({
+                userId: input.userId,
+                recordingId: recording[0].id,
+                folderId: folder[0].id,
+            })
+            .onConflictDoNothing();
+
+        const [folders, assignments] = await Promise.all([
+            tx
+                .select({
+                    id: recordingFolders.id,
+                    parentId: recordingFolders.parentId,
+                })
+                .from(recordingFolders)
+                .where(eq(recordingFolders.userId, input.userId)),
+            tx
+                .select({ folderId: recordingFolderAssignments.folderId })
+                .from(recordingFolderAssignments)
+                .where(
+                    and(
+                        eq(recordingFolderAssignments.userId, input.userId),
+                        eq(
+                            recordingFolderAssignments.recordingId,
+                            input.recordingId,
+                        ),
+                    ),
+                ),
+        ]);
+        const selected = new Set(assignments.map((item) => item.folderId));
+        const byId = new Map(folders.map((item) => [item.id, item]));
+        const redundant = new Set<string>();
+        for (const assignment of assignments) {
+            let current = byId.get(assignment.folderId);
+            while (current?.parentId) {
+                if (selected.has(current.parentId)) {
+                    redundant.add(current.parentId);
+                }
+                current = byId.get(current.parentId);
+            }
+        }
+        if (redundant.size > 0) {
+            await tx
+                .delete(recordingFolderAssignments)
+                .where(
+                    and(
+                        eq(recordingFolderAssignments.userId, input.userId),
+                        eq(
+                            recordingFolderAssignments.recordingId,
+                            input.recordingId,
+                        ),
+                        inArray(recordingFolderAssignments.folderId, [
+                            ...redundant,
+                        ]),
+                    ),
+                );
+        }
+    });
+    await scheduleExportProjection(input.userId);
 }
 
 export async function removeRecordingFromFolder(input: {
@@ -409,4 +517,5 @@ export async function removeRecordingFromFolder(input: {
                 eq(recordingFolderAssignments.folderId, input.folderId),
             ),
         );
+    await scheduleExportProjection(input.userId);
 }

@@ -64,6 +64,7 @@ function renderPane(folder: RecordingFolder) {
                 onDeleteFolder={vi.fn()}
                 hiddenOnMobile={false}
                 onBackToFolders={vi.fn()}
+                filesystemExportsAvailable={false}
             />
         </ConfirmDialogProvider>,
     );
@@ -72,11 +73,11 @@ function renderPane(folder: RecordingFolder) {
 describe("folder recording pane", () => {
     afterEach(cleanup);
 
-    it("lists only recordings assigned directly to a custom folder", () => {
+    it("includes recordings assigned to descendant folders", () => {
         renderPane(meetings);
         expect(screen.getByText("Direct meeting")).toBeTruthy();
-        expect(screen.queryByText("Child meeting")).toBeNull();
-        expect(screen.getByText("1 recording")).toBeTruthy();
+        expect(screen.getByText("Child meeting")).toBeTruthy();
+        expect(screen.getByText("2 recordings")).toBeTruthy();
     });
 
     it("lists every recording in the Private root", () => {
@@ -107,15 +108,12 @@ describe("folder recording pane", () => {
         expect(dataTransfer.effectAllowed).toBe("copy");
     });
 
-    it("renders synchronization as unavailable in this phase", () => {
+    it("always renders export settings and hides synchronization without an applicable export", () => {
         renderPane(meetings);
+        expect(screen.getByRole("button", { name: "Settings" })).toBeTruthy();
         expect(
-            (
-                screen.getByRole("button", {
-                    name: "Synchronize",
-                }) as HTMLButtonElement
-            ).disabled,
-        ).toBe(true);
+            screen.queryByRole("button", { name: "Synchronize" }),
+        ).toBeNull();
     });
 
     it("sorts the recording table by every displayed column", () => {

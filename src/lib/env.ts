@@ -23,6 +23,9 @@ const baseEnvSchema = z.object({
         .optional()
         .transform((val) => val === "true"),
 
+    /** Self-host topology. Ignored by hosted deployments. */
+    SELF_HOST_MODE: z.enum(["local", "shared"]).optional().default("shared"),
+
     /** Disable email/password sign-up. */
     DISABLE_REGISTRATION: z
         .string()
@@ -62,6 +65,12 @@ const baseEnvSchema = z.object({
     S3_REGION: z.string().optional(),
     S3_ACCESS_KEY_ID: z.string().optional(),
     S3_SECRET_ACCESS_KEY: z.string().optional(),
+
+    /** Dedicated server-side root for folder filesystem exports. */
+    FILESYSTEM_EXPORT_ROOT: z
+        .string()
+        .optional()
+        .transform((val) => (val?.trim() ? val.trim() : undefined)),
 
     /**
      * Where full-data backup archives are written. Unset, they go to the
@@ -748,6 +757,7 @@ function validateEnv(): Env {
     try {
         const parsed = envSchema.parse({
             IS_HOSTED: process.env.IS_HOSTED,
+            SELF_HOST_MODE: process.env.SELF_HOST_MODE,
             DISABLE_REGISTRATION: process.env.DISABLE_REGISTRATION,
             DISABLE_UPDATE_CHECK: process.env.DISABLE_UPDATE_CHECK,
             DATABASE_URL: process.env.DATABASE_URL,
@@ -766,6 +776,7 @@ function validateEnv(): Env {
             S3_REGION: process.env.S3_REGION,
             S3_ACCESS_KEY_ID: process.env.S3_ACCESS_KEY_ID,
             S3_SECRET_ACCESS_KEY: process.env.S3_SECRET_ACCESS_KEY,
+            FILESYSTEM_EXPORT_ROOT: process.env.FILESYSTEM_EXPORT_ROOT,
             BACKUP_STORAGE_PATH: process.env.BACKUP_STORAGE_PATH,
             WEBSHARE_API_KEY: process.env.WEBSHARE_API_KEY,
             PLAUD_PROXY_SCOPE: process.env.PLAUD_PROXY_SCOPE,
