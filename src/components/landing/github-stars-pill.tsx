@@ -1,4 +1,5 @@
 import { Star } from "lucide-react";
+import { getExtracted, getLocale } from "next-intl/server";
 import { Github } from "@/components/icons/icons";
 
 export const RIFFADO_REPO = "riffado/riffado";
@@ -35,17 +36,21 @@ export async function fetchStarCount(): Promise<number | null> {
 }
 
 /** Format a star count compactly: 1234 → "1.2k", 12345 → "12.3k". */
-export function formatStars(n: number): string {
+export function formatStars(n: number, locale = "en"): string {
     if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
-    return n.toLocaleString("en-US");
+    return n.toLocaleString(locale);
 }
 
 export async function GitHubStarsPill() {
+    const i18n = await getExtracted();
+    const locale = await getLocale();
     const stars = await fetchStarCount();
     const label =
         stars === null
-            ? "Star on GitHub"
-            : `${formatStars(stars)} stars on GitHub`;
+            ? i18n("Star on GitHub")
+            : i18n("{count} stars on GitHub", {
+                  count: formatStars(stars, locale),
+              });
 
     return (
         <a
@@ -59,9 +64,11 @@ export async function GitHubStarsPill() {
             <span className="h-4 w-px bg-border group-hover:bg-foreground/20 transition-colors" />
             <Star className="size-3.5 fill-current text-amber-500" />
             {stars === null ? (
-                <span>Star</span>
+                <span>{i18n("Star")}</span>
             ) : (
-                <span className="tabular-nums">{formatStars(stars)}</span>
+                <span className="tabular-nums">
+                    {formatStars(stars, locale)}
+                </span>
             )}
         </a>
     );

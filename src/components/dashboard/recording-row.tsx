@@ -1,6 +1,7 @@
 "use client";
 
 import { Download, Loader2, MoreHorizontal, Play, Trash2 } from "lucide-react";
+import { useExtracted, useLocale } from "next-intl";
 import { useConfirm } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +41,8 @@ export function RecordingRow({
     onDelete: (recording: Recording) => Promise<void>;
     registerRef: (id: string, el: HTMLButtonElement | null) => void;
 }) {
+    const i18n = useExtracted();
+    const locale = useLocale();
     const confirm = useConfirm();
     return (
         <div
@@ -73,8 +76,8 @@ export function RecordingRow({
                                     aria-hidden="true"
                                 />
                                 {inFlight === "transcribing"
-                                    ? "Transcribing"
-                                    : "Summarizing"}
+                                    ? i18n("Transcribing")
+                                    : i18n("Summarizing")}
                             </span>
                         )}
                     </div>
@@ -99,6 +102,7 @@ export function RecordingRow({
                             {formatDateTime(
                                 recording.startTime,
                                 dateTimeFormat,
+                                locale,
                             )}
                         </p>
                     )}
@@ -110,7 +114,7 @@ export function RecordingRow({
                         <Button
                             variant="ghost"
                             size="icon-sm"
-                            aria-label="Row actions"
+                            aria-label={i18n("Row actions")}
                             onClick={(e) => e.stopPropagation()}
                         >
                             <MoreHorizontal className="size-4" />
@@ -118,8 +122,7 @@ export function RecordingRow({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                         <DropdownMenuItem onSelect={() => onSelect(recording)}>
-                            <Play />
-                            Open
+                            <Play /> {i18n("Open")}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onSelect={() => {
@@ -128,8 +131,7 @@ export function RecordingRow({
                                 );
                             }}
                         >
-                            <Download />
-                            Download audio
+                            <Download /> {i18n("Download audio")}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem
@@ -138,28 +140,26 @@ export function RecordingRow({
                                 // Keep menu mounted so confirm dialog can take focus.
                                 e.preventDefault();
                                 void confirm({
-                                    title: "Delete this recording?",
+                                    title: i18n("Delete this recording?"),
                                     description: (
                                         <>
                                             <span className="font-medium text-foreground">
                                                 {recording.filename}
                                             </span>
-                                            <br />
-                                            The audio file and any transcript or
-                                            summary will be removed. If the file
-                                            is still on your Plaud device, the
-                                            next sync will re-download it.
+                                            <br />{" "}
+                                            {i18n(
+                                                "The audio file and any transcript or summary will be removed. If the file is still on your Plaud device, the next sync will re-download it.",
+                                            )}
                                         </>
                                     ),
-                                    confirmLabel: "Delete",
-                                    pendingLabel: "Deleting…",
+                                    confirmLabel: i18n("Delete"),
+                                    pendingLabel: i18n("Deleting…"),
                                     destructive: true,
                                     onConfirm: () => onDelete(recording),
                                 });
                             }}
                         >
-                            <Trash2 />
-                            Delete
+                            <Trash2 /> {i18n("Delete")}
                         </DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>

@@ -2,6 +2,7 @@
 
 import { ListChecks, Pencil, Plus, Trash2 } from "lucide-react";
 import { nanoid } from "nanoid";
+import { useExtracted, useLocale } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/confirm-dialog";
@@ -52,6 +53,38 @@ const ROUND_OPTIONS = Array.from(
 );
 
 export function SummarySection() {
+    const i18n = useExtracted();
+    const locale = useLocale();
+    const languageNames = new Intl.DisplayNames([locale], { type: "language" });
+    const languageLabel = (code: string) =>
+        code === "auto"
+            ? i18n("Auto (match transcript)")
+            : (languageNames.of(code) ?? code);
+    const presetCopy: Record<
+        keyof typeof SUMMARY_PRESETS,
+        { name: string; description: string }
+    > = {
+        general: {
+            name: i18n("General Summary"),
+            description: i18n("Concise summary of any audio transcription"),
+        },
+        "meeting-notes": {
+            name: i18n("Meeting Notes"),
+            description: i18n(
+                "Structured meeting summary with attendees, decisions, and action items",
+            ),
+        },
+        "key-points": {
+            name: i18n("Key Points"),
+            description: i18n("Extract the key points as a bullet list"),
+        },
+        "action-items": {
+            name: i18n("Action Items"),
+            description: i18n(
+                "Extract all action items, tasks, and follow-ups mentioned",
+            ),
+        },
+    };
     const confirm = useConfirm();
     const { isLoadingSettings, isSavingSettings, setIsLoadingSettings } =
         useSettings();
@@ -176,7 +209,7 @@ export function SummarySection() {
             // restoring `previous` here would resurrect an outdated value.
             if (promptAbortRef.current !== ctrl) return;
             setSelectedPrompt(previous);
-            toast.error("Failed to save settings. Changes reverted.");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
 
@@ -205,22 +238,23 @@ export function SummarySection() {
                 selectedPrompt,
                 customPrompts: updatedPrompts,
             });
-            toast.success("Prompt saved");
+            toast.success(i18n("Prompt saved"));
         } catch {
             // Roll back the optimistic update -- otherwise a later save
             // (e.g. a preset change) would echo this rejected mutation
             // back to the server as if it had succeeded.
             setCustomPrompts(previousPrompts);
-            toast.error("Failed to save prompt. Changes reverted.");
+            toast.error(i18n("Failed to save prompt. Changes reverted."));
         }
     };
 
     const handleDeleteCustomPrompt = (id: string) => {
         void confirm({
-            title: "Delete this custom prompt?",
-            description:
+            title: i18n("Delete this custom prompt?"),
+            description: i18n(
                 "Recordings already summarized with this prompt keep their existing summaries, but you won't be able to apply it again.",
-            confirmLabel: "Delete",
+            ),
+            confirmLabel: i18n("Delete"),
             destructive: true,
             onConfirm: async () => {
                 const previousPrompts = customPrompts;
@@ -239,7 +273,9 @@ export function SummarySection() {
                     // Roll back both -- same reasoning as the save path above.
                     setCustomPrompts(previousPrompts);
                     setSelectedPrompt(previousSelectedPrompt);
-                    toast.error("Failed to delete prompt. Changes reverted.");
+                    toast.error(
+                        i18n("Failed to delete prompt. Changes reverted."),
+                    );
                 }
             },
         });
@@ -269,7 +305,7 @@ export function SummarySection() {
         } catch {
             if (languageAbortRef.current !== ctrl) return;
             setOutputLanguage(previous);
-            toast.error("Failed to save settings. Changes reverted.");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
 
@@ -292,7 +328,7 @@ export function SummarySection() {
         } catch {
             if (autoSummarizeAbortRef.current !== ctrl) return;
             setAutoSummarize(previous);
-            toast.error("Failed to save settings. Changes reverted.");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
 
@@ -316,7 +352,7 @@ export function SummarySection() {
         } catch {
             if (autoPresetAbortRef.current !== ctrl) return;
             setAutoSummarizePreset(previous);
-            toast.error("Failed to save settings. Changes reverted.");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
 
@@ -347,7 +383,7 @@ export function SummarySection() {
         } catch {
             if (multiPassAbortRefs.current[key] !== ctrl) return;
             rollback();
-            toast.error("Failed to save settings. Changes reverted.");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
 
@@ -409,24 +445,26 @@ export function SummarySection() {
         ? viewingPreset.prompt
         : viewingCustom?.prompt || "";
     const viewingName = viewingPreset
-        ? viewingPreset.name
-        : viewingCustom?.name || "Prompt";
+        ? presetCopy[viewingPreset.id].name
+        : viewingCustom?.name || i18n("Prompt");
     const viewingDescription = viewingPreset
-        ? viewingPreset.description
-        : "Custom prompt";
+        ? presetCopy[viewingPreset.id].description
+        : i18n("Custom prompt");
     const autoPresetValue = autoSummarizePreset ?? AUTO_PRESET_DEFAULT;
 
     return (
         <div className="space-y-6">
             <SettingsSectionHeader
-                title="Summary"
-                description="Prompt presets and provider used when generating recording summaries."
+                title={i18n("Summary")}
+                description={i18n(
+                    "Prompt presets and provider used when generating recording summaries.",
+                )}
                 icon={ListChecks}
             />
             <div className="space-y-4">
                 <div className="space-y-2">
                     <Label htmlFor="summary-preset">
-                        Default summary prompt
+                        {i18n("Default summary prompt")}
                     </Label>
                     <Select
                         value={selectedPrompt}
@@ -435,22 +473,22 @@ export function SummarySection() {
                     >
                         <SelectTrigger id="summary-preset" className="w-full">
                             <SelectValue>
-                                {SUMMARY_PRESETS[
-                                    selectedPrompt as keyof typeof SUMMARY_PRESETS
+                                {presetCopy[
+                                    selectedPrompt as keyof typeof presetCopy
                                 ]?.name ||
                                     customPrompts.find(
                                         (p) => p.id === selectedPrompt,
                                     )?.name ||
-                                    "General Summary"}
+                                    i18n("General Summary")}
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                             {Object.values(SUMMARY_PRESETS).map((preset) => (
                                 <SelectItem key={preset.id} value={preset.id}>
                                     <div>
-                                        <div>{preset.name}</div>
+                                        <div>{presetCopy[preset.id].name}</div>
                                         <div className="text-xs text-muted-foreground">
-                                            {preset.description}
+                                            {presetCopy[preset.id].description}
                                         </div>
                                     </div>
                                 </SelectItem>
@@ -460,7 +498,7 @@ export function SummarySection() {
                                     <div>
                                         <div>{prompt.name}</div>
                                         <div className="text-xs text-muted-foreground">
-                                            Custom prompt
+                                            {i18n("Custom prompt")}
                                         </div>
                                     </div>
                                 </SelectItem>
@@ -468,13 +506,14 @@ export function SummarySection() {
                         </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                        The default prompt used when generating summaries. You
-                        can override this per-recording.
+                        {i18n(
+                            "The default prompt used when generating summaries. You can override this per-recording.",
+                        )}
                     </p>
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="ai-output-language">
-                        AI output language
+                        {i18n("AI output language")}
                     </Label>
                     <Select
                         value={outputLanguage}
@@ -486,35 +525,32 @@ export function SummarySection() {
                             className="w-full"
                         >
                             <SelectValue>
-                                {AI_OUTPUT_LANGUAGES.find(
-                                    (l) => l.code === outputLanguage,
-                                )?.label ?? "Auto (match transcript)"}
+                                {languageLabel(outputLanguage)}
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                             {AI_OUTPUT_LANGUAGES.map((lang) => (
                                 <SelectItem key={lang.code} value={lang.code}>
-                                    {lang.label}
+                                    {languageLabel(lang.code)}
                                 </SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
                     <p className="text-xs text-muted-foreground">
-                        Applies to AI-generated summaries and titles. Auto lets
-                        the model match the transcript's language.
+                        {i18n(
+                            "Applies to AI-generated summaries and titles. Auto lets the model match the transcript's language.",
+                        )}
                     </p>
                 </div>
                 <div className="flex items-center justify-between pt-2">
                     <div className="space-y-0.5 flex-1">
                         <Label htmlFor="auto-summarize" className="text-base">
-                            Auto-generate summary after transcription
+                            {i18n("Auto-generate summary after transcription")}
                         </Label>
                         <p className="text-sm text-muted-foreground">
-                            Triggers after any successful transcription —
-                            manual, auto-sync, or re-transcribe. Enable
-                            Auto-transcribe to also cover newly synced
-                            recordings. Costs one extra AI provider call per
-                            generated summary.
+                            {i18n(
+                                "Triggers after any successful transcription — manual, auto-sync, or re-transcribe. Enable Auto-transcribe to also cover newly synced recordings. Costs one extra AI provider call per generated summary.",
+                            )}
                         </p>
                     </div>
                     <Switch
@@ -527,7 +563,7 @@ export function SummarySection() {
                 {autoSummarize && (
                     <div className="space-y-2">
                         <Label htmlFor="auto-summarize-preset">
-                            Preset for auto-summary
+                            {i18n("Preset for auto-summary")}
                         </Label>
                         <Select
                             value={autoPresetValue}
@@ -540,19 +576,23 @@ export function SummarySection() {
                             >
                                 <SelectValue>
                                     {autoPresetValue === AUTO_PRESET_DEFAULT
-                                        ? "Use default summary prompt"
-                                        : SUMMARY_PRESETS[
-                                              autoPresetValue as keyof typeof SUMMARY_PRESETS
+                                        ? i18n("Use default summary prompt")
+                                        : presetCopy[
+                                              autoPresetValue as keyof typeof presetCopy
                                           ]?.name ||
-                                          "Use default summary prompt"}
+                                          i18n("Use default summary prompt")}
                                 </SelectValue>
                             </SelectTrigger>
                             <SelectContent>
                                 <SelectItem value={AUTO_PRESET_DEFAULT}>
                                     <div>
-                                        <div>Use default summary prompt</div>
+                                        <div>
+                                            {i18n("Use default summary prompt")}
+                                        </div>
                                         <div className="text-xs text-muted-foreground">
-                                            Inherits the preset selected above
+                                            {i18n(
+                                                "Inherits the preset selected above",
+                                            )}
                                         </div>
                                     </div>
                                 </SelectItem>
@@ -563,9 +603,14 @@ export function SummarySection() {
                                             value={preset.id}
                                         >
                                             <div>
-                                                <div>{preset.name}</div>
+                                                <div>
+                                                    {presetCopy[preset.id].name}
+                                                </div>
                                                 <div className="text-xs text-muted-foreground">
-                                                    {preset.description}
+                                                    {
+                                                        presetCopy[preset.id]
+                                                            .description
+                                                    }
                                                 </div>
                                             </div>
                                         </SelectItem>
@@ -574,9 +619,9 @@ export function SummarySection() {
                             </SelectContent>
                         </Select>
                         <p className="text-xs text-muted-foreground">
-                            Pick a different preset for the auto-mode (e.g.
-                            "Action Items" for meetings) without changing your
-                            manual default above.
+                            {i18n(
+                                'Pick a different preset for the auto-mode (e.g. "Action Items" for meetings) without changing your manual default above.',
+                            )}
                         </p>
                     </div>
                 )}
@@ -587,14 +632,12 @@ export function SummarySection() {
                 <div className="flex items-center justify-between">
                     <div className="space-y-0.5 flex-1">
                         <Label htmlFor="multi-pass" className="text-base">
-                            Multi-pass summarization
+                            {i18n("Multi-pass summarization")}
                         </Label>
                         <p className="text-sm text-muted-foreground">
-                            Summarizes the transcript several times in parallel
-                            and merges the results. Independent passes leave out
-                            different things, so the merged summary leaves out
-                            less. It does not make any individual fact more
-                            accurate.
+                            {i18n(
+                                "Summarizes the transcript several times in parallel and merges the results. Independent passes leave out different things, so the merged summary leaves out less. It does not make any individual fact more accurate.",
+                            )}
                         </p>
                     </div>
                     <Switch
@@ -608,7 +651,7 @@ export function SummarySection() {
                     <>
                         <div className="space-y-2">
                             <Label htmlFor="multi-pass-rounds">
-                                Passes per summary
+                                {i18n("Passes per summary")}
                             </Label>
                             <Select
                                 value={String(multiPassRounds)}
@@ -627,22 +670,20 @@ export function SummarySection() {
                                             key={count}
                                             value={String(count)}
                                         >
-                                            {count} passes
+                                            {count} {i18n("passes")}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
                             <p className="text-xs text-muted-foreground">
-                                Every pass re-sends the whole transcript, so{" "}
-                                {multiPassRounds} passes costs roughly{" "}
-                                {multiPassRounds}× the tokens of a single
-                                summary; the merge adds only a few percent on
-                                top. On a provider backed by a subscription
-                                rather than an API key, what this spends is your
-                                rate limit rather than money. Passes run
-                                concurrently only if your provider accepts
-                                concurrent requests — otherwise they queue, and
-                                the summary takes correspondingly longer.
+                                {i18n(
+                                    "Every pass re-sends the whole transcript, so",
+                                )}{" "}
+                                {multiPassRounds} {i18n("passes costs roughly")}{" "}
+                                {multiPassRounds}
+                                {i18n(
+                                    "× the tokens of a single summary; the merge adds only a few percent on top. On a provider backed by a subscription rather than an API key, what this spends is your rate limit rather than money. Passes run concurrently only if your provider accepts concurrent requests — otherwise they queue, and the summary takes correspondingly longer.",
+                                )}
                             </p>
                         </div>
                         <div className="flex items-center justify-between">
@@ -651,13 +692,12 @@ export function SummarySection() {
                                     htmlFor="multi-pass-auto"
                                     className="text-base"
                                 >
-                                    Also use for auto-summary
+                                    {i18n("Also use for auto-summary")}
                                 </Label>
                                 <p className="text-sm text-muted-foreground">
-                                    Off by default. A manual summary is one
-                                    recording you are waiting on; a single sync
-                                    can generate a dozen, and each one
-                                    multiplies by the pass count.
+                                    {i18n(
+                                        "Off by default. A manual summary is one recording you are waiting on; a single sync can generate a dozen, and each one multiplies by the pass count.",
+                                    )}
                                 </p>
                             </div>
                             <Switch
@@ -669,7 +709,7 @@ export function SummarySection() {
                         </div>
                         <div className="space-y-2">
                             <Label htmlFor="multi-pass-merge-prompt">
-                                Custom merge prompt (optional)
+                                {i18n("Custom merge prompt (optional)")}
                             </Label>
                             <textarea
                                 id="multi-pass-merge-prompt"
@@ -678,16 +718,14 @@ export function SummarySection() {
                                 onChange={(e) => setMergePrompt(e.target.value)}
                                 onBlur={handleMergePromptBlur}
                                 disabled={isSavingSettings}
-                                placeholder="Leave blank to use the built-in merge prompt"
+                                placeholder={i18n(
+                                    "Leave blank to use the built-in merge prompt",
+                                )}
                             />
                             <p className="text-xs text-muted-foreground">
-                                The built-in prompt treats the merge as a union
-                                and de-duplication of the passes rather than a
-                                fresh summary, which is what keeps a point found
-                                by only one pass from being dropped. Replace it
-                                only if you need different merge behaviour — the
-                                passes themselves are steered by your summary
-                                prompt above.
+                                {i18n(
+                                    "The built-in prompt treats the merge as a union and de-duplication of the passes rather than a fresh summary, which is what keeps a point found by only one pass from being dropped. Replace it only if you need different merge behaviour — the passes themselves are steered by your summary prompt above.",
+                                )}
                             </p>
                         </div>
                     </>
@@ -698,7 +736,7 @@ export function SummarySection() {
             <div className="space-y-4 pt-4 border-t">
                 <div className="flex items-center justify-between">
                     <h3 className="text-sm font-semibold">
-                        Custom Summary Prompts
+                        {i18n("Custom Summary Prompts")}
                     </h3>
                     <Button
                         onClick={() =>
@@ -706,13 +744,15 @@ export function SummarySection() {
                         }
                         size="sm"
                     >
-                        <Plus className="size-4 mr-2" />
-                        Add Custom Prompt
+                        <Plus className="size-4 mr-2" />{" "}
+                        {i18n("Add Custom Prompt")}
                     </Button>
                 </div>
                 {customPrompts.length === 0 ? (
                     <p className="text-sm text-muted-foreground text-center py-4">
-                        No custom prompts yet. Create one to get started.
+                        {i18n(
+                            "No custom prompts yet. Create one to get started.",
+                        )}
                     </p>
                 ) : (
                     <div className="space-y-2">
@@ -729,7 +769,7 @@ export function SummarySection() {
                                             </h4>
                                             {selectedPrompt === prompt.id && (
                                                 <span className="text-xs px-2 py-0.5 bg-primary/10 text-primary rounded border border-primary/20">
-                                                    Active
+                                                    {i18n("Active")}
                                                 </span>
                                             )}
                                         </div>
@@ -742,7 +782,7 @@ export function SummarySection() {
                                                 setViewingPromptId(prompt.id)
                                             }
                                         >
-                                            View
+                                            {i18n("View")}
                                         </Button>
                                         <Button
                                             variant="outline"
@@ -807,33 +847,36 @@ export function SummarySection() {
                     <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
                         <DialogTitle>
                             {editingCustomPrompt.id
-                                ? "Edit Custom Prompt"
-                                : "Create Custom Prompt"}
+                                ? i18n("Edit Custom Prompt")
+                                : i18n("Create Custom Prompt")}
                         </DialogTitle>
                         <DialogDescription>
-                            Create a custom prompt for summary generation. Use{" "}
+                            {i18n(
+                                "Create a custom prompt for summary generation. Use",
+                            )}{" "}
                             <code className="px-1 py-0.5 bg-muted rounded">
                                 {"{transcription}"}
                             </code>{" "}
-                            as a placeholder for the transcription text. The
-                            model must respond with a JSON object containing{" "}
+                            {i18n(
+                                "as a placeholder for the transcription text. The model must respond with a JSON object containing",
+                            )}{" "}
                             <code className="px-1 py-0.5 bg-muted rounded">
-                                summary
+                                {i18n("summary")}
                             </code>
                             ,{" "}
                             <code className="px-1 py-0.5 bg-muted rounded">
-                                keyPoints
-                            </code>
-                            , and{" "}
-                            <code className="px-1 py-0.5 bg-muted rounded">
-                                actionItems
+                                {i18n("keyPoints")}
                             </code>{" "}
-                            fields.
+                            {i18n(", and")}{" "}
+                            <code className="px-1 py-0.5 bg-muted rounded">
+                                {i18n("actionItems")}
+                            </code>{" "}
+                            {i18n("fields.")}
                         </DialogDescription>
                         <div className="space-y-4 mt-4">
                             <div className="space-y-2">
                                 <Label htmlFor="custom-summary-prompt-name">
-                                    Name
+                                    {i18n("Name")}
                                 </Label>
                                 <Input
                                     id="custom-summary-prompt-name"
@@ -848,12 +891,12 @@ export function SummarySection() {
                                                 : prev,
                                         )
                                     }
-                                    placeholder="My Custom Prompt"
+                                    placeholder={i18n("My Custom Prompt")}
                                 />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="custom-summary-prompt-text">
-                                    Prompt
+                                    {i18n("Prompt")}
                                 </Label>
                                 <textarea
                                     id="custom-summary-prompt-text"
@@ -869,32 +912,25 @@ export function SummarySection() {
                                                 : prev,
                                         )
                                     }
-                                    placeholder={`Detect the type of recording (meeting, lecture, personal note, interview) and summarize it accordingly.
-
-Respond in the following JSON format (no markdown, no code fences):
-{
-  "summary": "A concise paragraph summarizing the transcription",
-  "keyPoints": ["key point 1", "key point 2"],
-  "actionItems": ["action item 1", "action item 2"]
-}
-
-If there are no key points or action items, return empty arrays.
-
-Transcription:
-{transcription}`}
+                                    placeholder={i18n(
+                                        "Describe how the model should summarize the {transcription} placeholder and return summary, keyPoints, and actionItems fields.",
+                                        { transcription: "{transcription}" },
+                                    )}
                                 />
                                 {editingCustomPrompt.prompt &&
                                     !editingCustomPrompt.prompt.includes(
                                         "{transcription}",
                                     ) && (
                                         <p className="text-xs text-amber-600 dark:text-amber-500">
-                                            This prompt doesn&apos;t include{" "}
+                                            {i18n(
+                                                "This prompt doesn't include",
+                                            )}{" "}
                                             <code className="px-1 py-0.5 bg-muted rounded">
                                                 {"{transcription}"}
                                             </code>{" "}
-                                            -- the transcript won&apos;t be
-                                            inserted, and the model will only
-                                            see this literal text.
+                                            {i18n(
+                                                "-- the transcript won't be inserted, and the model will only see this literal text.",
+                                            )}
                                         </p>
                                     )}
                             </div>
@@ -903,7 +939,7 @@ Transcription:
                                     variant="outline"
                                     onClick={() => setEditingCustomPrompt(null)}
                                 >
-                                    Cancel
+                                    {i18n("Cancel")}
                                 </Button>
                                 <Button
                                     onClick={() => {
@@ -912,7 +948,9 @@ Transcription:
                                             !editingCustomPrompt.prompt
                                         ) {
                                             toast.error(
-                                                "Name and prompt are required",
+                                                i18n(
+                                                    "Name and prompt are required",
+                                                ),
                                             );
                                             return;
                                         }
@@ -925,7 +963,9 @@ Transcription:
                                         !editingCustomPrompt.prompt
                                     }
                                 >
-                                    {editingCustomPrompt.id ? "Save" : "Create"}
+                                    {editingCustomPrompt.id
+                                        ? i18n("Save")
+                                        : i18n("Create")}
                                 </Button>
                             </div>
                         </div>

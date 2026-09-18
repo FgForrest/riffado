@@ -1,11 +1,13 @@
 "use client";
 
 import { Bot, CheckCircle2, Mic, Sparkles } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { PlaudConnectTabs } from "@/components/plaud-connect-tabs";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export function OnboardingStepWelcome() {
+    const i18n = useExtracted();
     return (
         <div className="space-y-4">
             <div className="text-center space-y-2">
@@ -13,11 +15,12 @@ export function OnboardingStepWelcome() {
                     <Mic className="size-8 text-primary" />
                 </div>
                 <h3 className="text-xl font-semibold">
-                    Your AI-Powered Recording Hub
+                    {i18n("Your AI-Powered Recording Hub")}
                 </h3>
                 <p className="text-muted-foreground">
-                    Riffado helps you manage, transcribe, and enhance your Plaud
-                    recordings with AI. Let's set up your account.
+                    {i18n(
+                        "Riffado helps you manage, transcribe, and enhance your Plaud recordings with AI. Let's set up your account.",
+                    )}
                 </p>
             </div>
 
@@ -25,14 +28,15 @@ export function OnboardingStepWelcome() {
                 <Card className="gap-0 py-4">
                     <CardHeader>
                         <CardTitle className="text-base flex items-center gap-2">
-                            <Mic className="size-4" />
-                            Connect Your Account
+                            <Mic className="size-4" />{" "}
+                            {i18n("Connect Your Account")}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <p className="text-sm text-muted-foreground">
-                            Sign in with your Plaud email to sync recordings
-                            automatically
+                            {i18n(
+                                "Sign in with your Plaud email to sync recordings automatically",
+                            )}
                         </p>
                     </CardContent>
                 </Card>
@@ -40,14 +44,15 @@ export function OnboardingStepWelcome() {
                 <Card className="gap-0 py-4">
                     <CardHeader>
                         <CardTitle className="text-base flex items-center gap-2">
-                            <Bot className="size-4" />
-                            Set Up AI Provider
+                            <Bot className="size-4" />{" "}
+                            {i18n("Set Up AI Provider")}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <p className="text-sm text-muted-foreground">
-                            Configure an AI provider for automatic
-                            transcriptions
+                            {i18n(
+                                "Configure an AI provider for automatic transcriptions",
+                            )}
                         </p>
                     </CardContent>
                 </Card>
@@ -55,14 +60,15 @@ export function OnboardingStepWelcome() {
                 <Card className="gap-0 py-4">
                     <CardHeader>
                         <CardTitle className="text-base flex items-center gap-2">
-                            <Sparkles className="size-4" />
-                            Start Recording
+                            <Sparkles className="size-4" />{" "}
+                            {i18n("Start Recording")}
                         </CardTitle>
                     </CardHeader>
                     <CardContent>
                         <p className="text-sm text-muted-foreground">
-                            You're all set! Start recording and let AI do the
-                            work
+                            {i18n(
+                                "You're all set! Start recording and let AI do the work",
+                            )}
                         </p>
                     </CardContent>
                 </Card>
@@ -80,6 +86,7 @@ export function OnboardingStepPlaud({
     onReconnect: () => void;
     onConnected: () => void;
 }) {
+    const i18n = useExtracted();
     return (
         <div className="space-y-4">
             <div className="text-center space-y-2">
@@ -87,11 +94,12 @@ export function OnboardingStepPlaud({
                     <Mic className="size-8 text-primary" />
                 </div>
                 <h3 className="text-xl font-semibold">
-                    Connect Your Plaud Account
+                    {i18n("Connect Your Plaud Account")}
                 </h3>
                 <p className="text-muted-foreground">
-                    Sign in with your Plaud email to sync recordings
-                    automatically
+                    {i18n(
+                        "Sign in with your Plaud email to sync recordings automatically",
+                    )}
                 </p>
             </div>
 
@@ -101,9 +109,11 @@ export function OnboardingStepPlaud({
                         <div className="flex items-center gap-3">
                             <CheckCircle2 className="size-5 text-primary" />
                             <div className="flex-1">
-                                <p className="font-medium">Device Connected</p>
+                                <p className="font-medium">
+                                    {i18n("Device Connected")}
+                                </p>
                                 <p className="text-sm text-muted-foreground">
-                                    Your Plaud account is connected
+                                    {i18n("Your Plaud account is connected")}
                                 </p>
                             </div>
                             <Button
@@ -111,7 +121,7 @@ export function OnboardingStepPlaud({
                                 size="sm"
                                 onClick={onReconnect}
                             >
-                                Reconnect
+                                {i18n("Reconnect")}
                             </Button>
                         </div>
                     </CardContent>
@@ -136,6 +146,7 @@ export function OnboardingStepAiProvider({
     hasIncludedProvider: boolean;
     onGoToSettings: () => void;
 }) {
+    const i18n = useExtracted();
     const includedOnly = hasIncludedProvider && !hasOwnProvider;
     return (
         <div className="space-y-4">
@@ -145,13 +156,17 @@ export function OnboardingStepAiProvider({
                 </div>
                 <h3 className="text-xl font-semibold">
                     {includedOnly
-                        ? "Transcription Included"
-                        : "Set Up AI Provider"}
+                        ? i18n("Transcription Included")
+                        : i18n("Set Up AI Provider")}
                 </h3>
                 <p className="text-muted-foreground">
                     {includedOnly
-                        ? "Mynah transcription comes with your plan. You're ready to go."
-                        : "Configure an AI provider to enable automatic transcriptions"}
+                        ? i18n(
+                              "Mynah transcription comes with your plan. You're ready to go.",
+                          )
+                        : i18n(
+                              "Configure an AI provider to enable automatic transcriptions",
+                          )}
                 </p>
             </div>
 
@@ -162,10 +177,12 @@ export function OnboardingStepAiProvider({
                             <CheckCircle2 className="size-5 text-primary" />
                             <div className="flex-1">
                                 <p className="font-medium">
-                                    AI Provider Configured
+                                    {i18n("AI Provider Configured")}
                                 </p>
                                 <p className="text-sm text-muted-foreground">
-                                    You already have your own AI provider set up
+                                    {i18n(
+                                        "You already have your own AI provider set up",
+                                    )}
                                 </p>
                             </div>
                         </div>
@@ -178,14 +195,12 @@ export function OnboardingStepAiProvider({
                             <CheckCircle2 className="size-5 text-primary mt-0.5" />
                             <div className="flex-1">
                                 <p className="font-medium">
-                                    Mynah transcription is included
+                                    {i18n("Mynah transcription is included")}
                                 </p>
                                 <p className="text-sm text-muted-foreground">
-                                    Transcription works out of the box with your
-                                    plan. Adding your own AI provider is
-                                    optional. Use it for summaries or a
-                                    different transcription engine alongside
-                                    Mynah.
+                                    {i18n(
+                                        "Transcription works out of the box with your plan. Adding your own AI provider is optional. Use it for summaries or a different transcription engine alongside Mynah.",
+                                    )}
                                 </p>
                             </div>
                         </div>
@@ -194,7 +209,7 @@ export function OnboardingStepAiProvider({
                             variant="outline"
                             className="w-full"
                         >
-                            Add your own provider (optional)
+                            {i18n("Add your own provider (optional)")}
                         </Button>
                     </CardContent>
                 </Card>
@@ -202,16 +217,16 @@ export function OnboardingStepAiProvider({
                 <Card className="gap-0 py-4">
                     <CardContent className="pt-6 space-y-4">
                         <p className="text-sm text-muted-foreground">
-                            You can set up an AI provider later in Settings.
-                            This enables automatic transcription of your
-                            recordings.
+                            {i18n(
+                                "You can set up an AI provider later in Settings. This enables automatic transcription of your recordings.",
+                            )}
                         </p>
                         <Button
                             onClick={onGoToSettings}
                             variant="outline"
                             className="w-full"
                         >
-                            Go to Settings
+                            {i18n("Go to Settings")}
                         </Button>
                     </CardContent>
                 </Card>
@@ -225,15 +240,18 @@ export function OnboardingStepComplete({
 }: {
     hasIncludedProvider: boolean;
 }) {
+    const i18n = useExtracted();
     return (
         <div className="space-y-4">
             <div className="text-center space-y-2">
                 <div className="size-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-3">
                     <CheckCircle2 className="size-8 text-primary" />
                 </div>
-                <h3 className="text-xl font-semibold">You're All Set!</h3>
+                <h3 className="text-xl font-semibold">
+                    {i18n("You're All Set!")}
+                </h3>
                 <p className="text-muted-foreground">
-                    Start recording and let Riffado handle the rest
+                    {i18n("Start recording and let Riffado handle the rest")}
                 </p>
             </div>
 
@@ -244,11 +262,12 @@ export function OnboardingStepComplete({
                             <CheckCircle2 className="size-5 text-primary mt-0.5" />
                             <div>
                                 <p className="font-medium">
-                                    Recordings sync automatically
+                                    {i18n("Recordings sync automatically")}
                                 </p>
                                 <p className="text-sm text-muted-foreground">
-                                    Your Plaud device will sync recordings in
-                                    the background
+                                    {i18n(
+                                        "Your Plaud device will sync recordings in the background",
+                                    )}
                                 </p>
                             </div>
                         </div>
@@ -256,12 +275,16 @@ export function OnboardingStepComplete({
                             <CheckCircle2 className="size-5 text-primary mt-0.5" />
                             <div>
                                 <p className="font-medium">
-                                    AI-powered transcriptions
+                                    {i18n("AI-powered transcriptions")}
                                 </p>
                                 <p className="text-sm text-muted-foreground">
                                     {hasIncludedProvider
-                                        ? "Mynah transcription is ready with your plan"
-                                        : "Set up an AI provider to transcribe recordings automatically"}
+                                        ? i18n(
+                                              "Mynah transcription is ready with your plan",
+                                          )
+                                        : i18n(
+                                              "Set up an AI provider to transcribe recordings automatically",
+                                          )}
                                 </p>
                             </div>
                         </div>
@@ -269,11 +292,12 @@ export function OnboardingStepComplete({
                             <CheckCircle2 className="size-5 text-primary mt-0.5" />
                             <div>
                                 <p className="font-medium">
-                                    Customize your experience
+                                    {i18n("Customize your experience")}
                                 </p>
                                 <p className="text-sm text-muted-foreground">
-                                    Adjust settings anytime from the Settings
-                                    menu
+                                    {i18n(
+                                        "Adjust settings anytime from the Settings menu",
+                                    )}
                                 </p>
                             </div>
                         </div>

@@ -11,15 +11,16 @@
 export function formatEmailDate(
     d: Date,
     options?: { month?: "long" | "short"; includeTime?: boolean },
+    locale = "en",
 ): string {
-    const datePart = d.toLocaleDateString("en-US", {
+    const datePart = d.toLocaleDateString(locale, {
         year: "numeric",
         month: options?.month ?? "long",
         day: "numeric",
         timeZone: "UTC",
     });
     if (!options?.includeTime) return datePart;
-    const timePart = d.toLocaleTimeString("en-US", {
+    const timePart = d.toLocaleTimeString(locale, {
         hour: "numeric",
         minute: "2-digit",
         timeZone: "UTC",

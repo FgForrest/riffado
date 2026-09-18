@@ -1,18 +1,19 @@
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { cache } from "react";
 import { db } from "@/db";
 import { userSettings, users } from "@/db/schema";
 import { auth } from "./auth";
 import { AppError, ErrorCode } from "./errors";
 
-export async function getSession() {
+export const getSession = cache(async () => {
     const session = await auth.api.getSession({
         headers: await headers(),
     });
 
     return session;
-}
+});
 
 /** Require an authenticated, non-suspended session. Redirects on failure. */
 export async function requireAuth() {

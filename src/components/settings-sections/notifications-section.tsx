@@ -8,6 +8,7 @@ import {
     Smartphone,
     Volume2,
 } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useState } from "react";
 import { SettingsSectionHeader } from "@/components/settings/section-header";
 import { SettingsCard } from "@/components/settings/settings-card";
@@ -19,6 +20,7 @@ import { useSettings } from "@/hooks/use-settings";
 import { requestNotificationPermission } from "@/lib/notifications/browser";
 
 export function NotificationsSection() {
+    const i18n = useExtracted();
     const {
         isLoadingSettings,
         isSavingSettings,
@@ -175,8 +177,10 @@ export function NotificationsSection() {
     return (
         <div className="space-y-6">
             <SettingsSectionHeader
-                title="Notifications"
-                description="Choose how and when Riffado lets you know about new recordings and sync events."
+                title={i18n("Notifications")}
+                description={i18n(
+                    "Choose how and when Riffado lets you know about new recordings and sync events.",
+                )}
                 icon={Bell}
             />
 
@@ -190,11 +194,13 @@ export function NotificationsSection() {
                                 <BellRing
                                     className="size-4 text-muted-foreground"
                                     aria-hidden="true"
-                                />
-                                Browser notifications
+                                />{" "}
+                                {i18n("Browser notifications")}
                             </span>
                         }
-                        description="Show browser notifications for new recordings and sync events."
+                        description={i18n(
+                            "Show browser notifications for new recordings and sync events.",
+                        )}
                         checked={browserNotifications}
                         onCheckedChange={handleBrowserNotificationsChange}
                         disabled={isSavingSettings}
@@ -210,11 +216,13 @@ export function NotificationsSection() {
                                 <Mail
                                     className="size-4 text-muted-foreground"
                                     aria-hidden="true"
-                                />
-                                Email notifications
+                                />{" "}
+                                {i18n("Email notifications")}
                             </span>
                         }
-                        description="Send email notifications for new recordings."
+                        description={i18n(
+                            "Send email notifications for new recordings.",
+                        )}
                         checked={emailNotifications}
                         onCheckedChange={handleEmailNotificationsChange}
                         disabled={isSavingSettings}
@@ -223,7 +231,7 @@ export function NotificationsSection() {
                     {emailNotifications && (
                         <div className="mt-3 space-y-2 border-t pt-3">
                             <Label htmlFor="notification-email">
-                                Email address
+                                {i18n("Email address")}
                             </Label>
                             <Input
                                 id="notification-email"
@@ -234,12 +242,18 @@ export function NotificationsSection() {
                                         e.target.value,
                                     )
                                 }
-                                placeholder={userEmail || "your@email.com"}
+                                placeholder={
+                                    userEmail || i18n("your@email.com")
+                                }
                             />
                             <p className="text-xs text-muted-foreground">
                                 {userEmail && notificationEmail === userEmail
-                                    ? "Using your account email. You can change this to a different address if needed."
-                                    : "Email address to receive notifications."}
+                                    ? i18n(
+                                          "Using your account email. You can change this to a different address if needed.",
+                                      )
+                                    : i18n(
+                                          "Email address to receive notifications.",
+                                      )}
                             </p>
                             <div className="flex items-center gap-2 pt-1">
                                 <Button
@@ -254,8 +268,8 @@ export function NotificationsSection() {
                                 >
                                     <Mail className="size-4" />
                                     {isSendingTestEmail
-                                        ? "Sending…"
-                                        : "Send test email"}
+                                        ? i18n("Sending…")
+                                        : i18n("Send test email")}
                                 </Button>
                                 {testEmailStatus.type && (
                                     <p
@@ -282,11 +296,13 @@ export function NotificationsSection() {
                                 <Smartphone
                                     className="size-4 text-muted-foreground"
                                     aria-hidden="true"
-                                />
-                                Bark push notifications
+                                />{" "}
+                                {i18n("Bark push notifications")}
                             </span>
                         }
-                        description="Send push notifications via Bark for new recordings."
+                        description={i18n(
+                            "Send push notifications via Bark for new recordings.",
+                        )}
                         checked={barkNotifications}
                         onCheckedChange={handleBarkNotificationsChange}
                         disabled={isSavingSettings}
@@ -294,7 +310,9 @@ export function NotificationsSection() {
 
                     {barkNotifications && (
                         <div className="mt-3 space-y-2 border-t pt-3">
-                            <Label htmlFor="bark-push-url">Bark push URL</Label>
+                            <Label htmlFor="bark-push-url">
+                                {i18n("Bark push URL")}
+                            </Label>
                             <Input
                                 id="bark-push-url"
                                 type="url"
@@ -302,11 +320,14 @@ export function NotificationsSection() {
                                 onChange={(e) =>
                                     handleBarkPushUrlChange(e.target.value)
                                 }
-                                placeholder="https://api.day.app/your_key"
+                                placeholder={i18n(
+                                    "https://api.day.app/your_key",
+                                )}
                             />
                             <p className="text-xs text-muted-foreground">
-                                Copy the full push URL from the Bark app (e.g.,
-                                https://api.day.app/your_key).
+                                {i18n(
+                                    "Copy the full push URL from the Bark app (e.g., https://api.day.app/your_key).",
+                                )}
                             </p>
                         </div>
                     )}
@@ -321,11 +342,13 @@ export function NotificationsSection() {
                                 <Volume2
                                     className="size-4 text-muted-foreground"
                                     aria-hidden="true"
-                                />
-                                Notification sound
+                                />{" "}
+                                {i18n("Notification sound")}
                             </span>
                         }
-                        description="Play a sound when notifications are received."
+                        description={i18n(
+                            "Play a sound when notifications are received.",
+                        )}
                         checked={notificationSound}
                         onCheckedChange={(checked) => {
                             setNotificationSound(checked);
@@ -343,11 +366,13 @@ export function NotificationsSection() {
                                 <Megaphone
                                     className="size-4 text-muted-foreground"
                                     aria-hidden="true"
-                                />
-                                Product updates
+                                />{" "}
+                                {i18n("Product updates")}
                             </span>
                         }
-                        description="Occasional emails about new features and releases. A few times a year at most, never more than once a month."
+                        description={i18n(
+                            "Occasional emails about new features and releases. A few times a year at most, never more than once a month.",
+                        )}
                         checked={marketingEmailConsent}
                         onCheckedChange={(checked) => {
                             setMarketingEmailConsent(checked);

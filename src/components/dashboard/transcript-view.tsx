@@ -1,5 +1,6 @@
 "use client";
 
+import { useExtracted } from "next-intl";
 import { useMemo } from "react";
 import type { SpeakerAttributions } from "@/lib/knowledge/speaker-references";
 import {
@@ -80,6 +81,7 @@ export function TranscriptView({
     speakerAttributions = {},
     onSeekToTurn,
 }: TranscriptViewProps) {
+    const i18n = useExtracted();
     const turns = useMemo<RenderableTurn[] | null>(() => {
         if (storedTurns?.length) {
             return storedTurns.map((turn) => ({
@@ -134,8 +136,20 @@ export function TranscriptView({
                                         onClick={() =>
                                             onSeekToTurn(turn.startMs ?? 0)
                                         }
-                                        aria-label={`Seek audio to ${formatTimestamp(turn.startMs ?? 0)}, ${displayName}`}
-                                        title={`Seek audio to ${formatTimestamp(turn.startMs ?? 0)}`}
+                                        aria-label={i18n(
+                                            "Seek audio to {time}, {speaker}",
+                                            {
+                                                time: formatTimestamp(
+                                                    turn.startMs ?? 0,
+                                                ),
+                                                speaker: displayName,
+                                            },
+                                        )}
+                                        title={i18n("Seek audio to {time}", {
+                                            time: formatTimestamp(
+                                                turn.startMs ?? 0,
+                                            ),
+                                        })}
                                     >
                                         {displayName}
                                     </button>

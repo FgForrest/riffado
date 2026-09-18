@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Clipboard, Download, Loader2 } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -17,11 +18,13 @@ export function MarkdownActions({
     recordingId,
     source,
 }: MarkdownActionsProps) {
+    const i18n = useExtracted();
     const [copyState, setCopyState] = useState<"idle" | "copying" | "copied">(
         "idle",
     );
     const endpoint = `/api/recordings/${encodeURIComponent(recordingId)}/markdown/${kind}?source=${encodeURIComponent(source)}`;
-    const documentLabel = kind === "transcript" ? "transcript" : "summary";
+    const documentLabel =
+        kind === "transcript" ? i18n("transcript") : i18n("summary");
 
     const copyMarkdown = async () => {
         setCopyState("copying");
@@ -31,12 +34,18 @@ export function MarkdownActions({
             await navigator.clipboard.writeText(await response.text());
             setCopyState("copied");
             toast.success(
-                `${documentLabel === "transcript" ? "Transcript" : "Summary"} Markdown copied`,
+                kind === "transcript"
+                    ? i18n("Transcript Markdown copied")
+                    : i18n("Summary Markdown copied"),
             );
             window.setTimeout(() => setCopyState("idle"), 1500);
         } catch {
             setCopyState("idle");
-            toast.error(`Failed to copy ${documentLabel} Markdown`);
+            toast.error(
+                i18n("Failed to copy {document} Markdown", {
+                    document: documentLabel,
+                }),
+            );
         }
     };
 
@@ -45,8 +54,12 @@ export function MarkdownActions({
             <Button asChild size="icon-sm" variant="ghost">
                 <a
                     href={endpoint}
-                    aria-label={`Download ${documentLabel} Markdown`}
-                    title={`Download ${documentLabel} Markdown`}
+                    aria-label={i18n("Download {document} Markdown", {
+                        document: documentLabel,
+                    })}
+                    title={i18n("Download {document} Markdown", {
+                        document: documentLabel,
+                    })}
                 >
                     <Download className="size-4" />
                 </a>
@@ -57,8 +70,12 @@ export function MarkdownActions({
                 variant="ghost"
                 onClick={copyMarkdown}
                 disabled={copyState === "copying"}
-                aria-label={`Copy ${documentLabel} Markdown`}
-                title={`Copy ${documentLabel} Markdown`}
+                aria-label={i18n("Copy {document} Markdown", {
+                    document: documentLabel,
+                })}
+                title={i18n("Copy {document} Markdown", {
+                    document: documentLabel,
+                })}
             >
                 {copyState === "copying" ? (
                     <Loader2 className="size-4 animate-spin" />

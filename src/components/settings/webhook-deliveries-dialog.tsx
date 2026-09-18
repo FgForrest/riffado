@@ -1,6 +1,7 @@
 "use client";
 
 import { RotateCcw } from "lucide-react";
+import { useExtracted, useLocale } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,8 @@ interface Props {
  * another never flashes the wrong endpoint's history.
  */
 export function WebhookDeliveriesDialog({ webhook, onClose }: Props) {
+    const i18n = useExtracted();
+    const locale = useLocale();
     const [deliveries, setDeliveries] = useState<WebhookDelivery[]>([]);
 
     const webhookId = webhook?.id ?? null;
@@ -40,9 +43,9 @@ export function WebhookDeliveriesDialog({ webhook, onClose }: Props) {
             };
             setDeliveries(data.deliveries);
         } catch {
-            toast.error("Failed to load deliveries");
+            toast.error(i18n("Failed to load deliveries"));
         }
-    }, [webhookId]);
+    }, [webhookId, i18n]);
 
     useEffect(() => {
         if (!webhookId) {
@@ -62,10 +65,10 @@ export function WebhookDeliveriesDialog({ webhook, onClose }: Props) {
                 { method: "POST" },
             );
             if (!response.ok) throw new Error("Failed to redeliver");
-            toast.success("Delivery queued");
+            toast.success(i18n("Delivery queued"));
             await refresh();
         } catch {
-            toast.error("Failed to queue delivery");
+            toast.error(i18n("Failed to queue delivery"));
         }
     };
 
@@ -77,11 +80,11 @@ export function WebhookDeliveriesDialog({ webhook, onClose }: Props) {
             }}
         >
             <DialogContent className="max-w-3xl">
-                <DialogTitle>Webhook Deliveries</DialogTitle>
+                <DialogTitle>{i18n("Webhook Deliveries")}</DialogTitle>
                 <div className="max-h-[420px] space-y-2 overflow-y-auto">
                     {deliveries.length === 0 ? (
                         <p className="py-8 text-center text-sm text-muted-foreground">
-                            No deliveries yet
+                            {i18n("No deliveries yet")}
                         </p>
                     ) : (
                         deliveries.map((delivery) => (
@@ -99,15 +102,18 @@ export function WebhookDeliveriesDialog({ webhook, onClose }: Props) {
                                         </span>
                                         {delivery.lastResponseStatus && (
                                             <span className="rounded border px-2 py-0.5 text-xs">
-                                                HTTP{" "}
+                                                {i18n("HTTP")}{" "}
                                                 {delivery.lastResponseStatus}
                                             </span>
                                         )}
                                     </div>
                                     <p className="text-xs text-muted-foreground">
-                                        Attempts: {delivery.attempts} · Last:{" "}
+                                        {i18n("Attempts:")} {delivery.attempts}{" "}
+                                        {i18n("· Last:")}{" "}
                                         {formatWebhookDate(
                                             delivery.lastAttemptAt,
+                                            locale,
+                                            i18n("Never"),
                                         )}
                                     </p>
                                     {delivery.lastError && (
@@ -122,8 +128,8 @@ export function WebhookDeliveriesDialog({ webhook, onClose }: Props) {
                                     disabled={delivery.status === "processing"}
                                     onClick={() => redeliver(delivery.id)}
                                 >
-                                    <RotateCcw className="size-4" />
-                                    Redeliver
+                                    <RotateCcw className="size-4" />{" "}
+                                    {i18n("Redeliver")}
                                 </Button>
                             </div>
                         ))

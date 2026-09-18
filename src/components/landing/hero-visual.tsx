@@ -1,4 +1,5 @@
 import Image from "next/image";
+import { useExtracted } from "next-intl";
 
 /**
  * Above-the-fold product visual.
@@ -16,6 +17,7 @@ import Image from "next/image";
  * Server component; zero client JS.
  */
 export function HeroVisual() {
+    const i18n = useExtracted();
     return (
         <div className="relative">
             {/* Soft brand glow behind the frame. Subtle; the screenshot
@@ -33,7 +35,9 @@ export function HeroVisual() {
                 <div className="relative aspect-[16/10] w-full">
                     <Image
                         src="/landing/hero-light.webp"
-                        alt="Riffado dashboard showing a transcribed board meeting with summary and action items"
+                        alt={i18n(
+                            "Riffado dashboard showing a transcribed board meeting with summary and action items",
+                        )}
                         fill
                         priority
                         sizes="(min-width: 1280px) 1216px, 100vw"

@@ -10,6 +10,7 @@ import {
     RefreshCw,
     Sparkles,
 } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MarkdownActions } from "@/components/dashboard/markdown-actions";
 import { TranscribeInBrowserButton } from "@/components/dashboard/transcribe-in-browser-button";
@@ -39,7 +40,7 @@ import {
     type SpeakerAttributions,
 } from "@/lib/knowledge/speaker-references";
 import { describeMultiPass } from "@/lib/summary/multi-pass";
-import { formatSummaryStatus } from "@/lib/summary/progress-stream";
+import { formatElapsed } from "@/lib/summary/progress-stream";
 import {
     formatSpeakerLabel,
     mayBeDiarized,
@@ -85,12 +86,6 @@ interface TranscriptionPanelProps {
     onSeekToTurn?: (startMs: number) => void;
 }
 
-function transcriptSourceLabel(source: string): string {
-    if (source === "plaud") return "Plaud";
-    if (source === "mixed") return "Mix";
-    return "Custom";
-}
-
 function SourceSwitcher({
     ariaLabel,
     sources,
@@ -102,6 +97,7 @@ function SourceSwitcher({
     value: string;
     onSelect: (source: string) => void;
 }) {
+    const i18n = useExtracted();
     return (
         <fieldset
             className="inline-flex shrink-0 rounded-lg bg-muted/70 p-1"
@@ -119,7 +115,11 @@ function SourceSwitcher({
                             : "text-muted-foreground hover:bg-background/50 hover:text-foreground"
                     }`}
                 >
-                    {transcriptSourceLabel(source)}
+                    {source === "plaud"
+                        ? "Plaud"
+                        : source === "mixed"
+                          ? i18n("Mix")
+                          : i18n("Custom")}
                 </button>
             ))}
         </fieldset>
@@ -182,6 +182,7 @@ export function TranscriptionPanel({
     onTranscribeComplete,
     onSeekToTurn,
 }: TranscriptionPanelProps) {
+    const i18n = useExtracted();
     const transcriptList = toTranscriptList(transcripts, transcription);
 
     const [activeSource, setActiveSource] = useState<string | undefined>(
@@ -291,7 +292,69 @@ export function TranscriptionPanel({
     // Null for a single-pass summary, so the badge simply does not
     // render. Derived rather than stored on the client: the shape comes
     // from POST and GET alike, so a reload shows the same badge.
-    const multiPassBadge = describeMultiPass(summaryData?.multiPass);
+    const baseMultiPassBadge = describeMultiPass(summaryData?.multiPass);
+    const multiPassBadge = (() => {
+        const provenance = summaryData?.multiPass;
+        if (!baseMultiPassBadge || !provenance) return null;
+        const { roundsRequested, passesUsed, merged } = provenance;
+        let title: string;
+        if (merged && passesUsed === roundsRequested) {
+            title = i18n("{used} of {requested} passes merged", {
+                used: String(passesUsed),
+                requested: String(roundsRequested),
+            });
+        } else if (passesUsed === 0) {
+            title = i18n(
+                "No pass returned usable output; showing the raw reply of {requested}.",
+                { requested: String(roundsRequested) },
+            );
+        } else if (!merged && passesUsed === 1) {
+            title = i18n(
+                "Only 1 of {requested} passes succeeded, so it is shown unmerged.",
+                { requested: String(roundsRequested) },
+            );
+        } else if (!merged) {
+            title = i18n(
+                "{used} of {requested} passes succeeded, but the merge failed; showing the most complete single pass.",
+                {
+                    used: String(passesUsed),
+                    requested: String(roundsRequested),
+                },
+            );
+        } else {
+            title = i18n(
+                "{used} of {requested} passes succeeded and were merged.",
+                {
+                    used: String(passesUsed),
+                    requested: String(roundsRequested),
+                },
+            );
+        }
+        return {
+            ...baseMultiPassBadge,
+            label: i18n("multi-pass · {passes}", {
+                passes:
+                    passesUsed === roundsRequested
+                        ? String(roundsRequested)
+                        : `${passesUsed}/${roundsRequested}`,
+            }),
+            title,
+        };
+    })();
+    const summaryStatusLabel = !summaryProgress
+        ? i18n("Generating summary…")
+        : summaryProgress.phase === "merging"
+          ? i18n("Merging {count, plural, one {# pass} other {# passes}}…", {
+                count: summaryProgress.total,
+            })
+          : i18n("Summarizing — {completed}/{total} passes", {
+                completed: String(summaryProgress.completed),
+                total: String(summaryProgress.total),
+            });
+    const summaryStatus =
+        summaryElapsedMs > 0
+            ? `${summaryStatusLabel} · ${formatElapsed(summaryElapsedMs)}`
+            : summaryStatusLabel;
     const summarySpeakerNumberOffset = useMemo(() => {
         if (!summaryData) return 0;
         return inferSummarySpeakerNumberOffset(
@@ -311,13 +374,13 @@ export function TranscriptionPanel({
                 <CardHeader>
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
                         <CardTitle className="flex items-center gap-2">
-                            <FileText className="size-5" />
-                            Transcription
+                            <FileText className="size-5" />{" "}
+                            {i18n("Transcription")}
                         </CardTitle>
                         <div className="flex flex-wrap items-center gap-2">
                             {transcriptList.length > 1 && activeTranscript && (
                                 <SourceSwitcher
-                                    ariaLabel="Transcript source"
+                                    ariaLabel={i18n("Transcript source")}
                                     sources={transcriptList.map(
                                         (candidate) => candidate.source,
                                     )}
@@ -347,12 +410,14 @@ export function TranscriptionPanel({
                                     }
                                     title={
                                         recording.audioReaped
-                                            ? "Audio was removed by your retention policy"
+                                            ? i18n(
+                                                  "Audio was removed by your retention policy",
+                                              )
                                             : undefined
                                     }
                                 >
-                                    <RefreshCw className="size-4 mr-2" />
-                                    Re-transcribe
+                                    <RefreshCw className="size-4 mr-2" />{" "}
+                                    {i18n("Re-transcribe")}
                                 </Button>
                             )}
                             {!activeTranscript?.text && !isTranscribing && (
@@ -366,12 +431,14 @@ export function TranscriptionPanel({
                                         }
                                         title={
                                             recording.audioReaped
-                                                ? "Audio was removed by your retention policy"
+                                                ? i18n(
+                                                      "Audio was removed by your retention policy",
+                                                  )
                                                 : undefined
                                         }
                                     >
-                                        <Sparkles className="size-4 mr-2" />
-                                        Transcribe
+                                        <Sparkles className="size-4 mr-2" />{" "}
+                                        {i18n("Transcribe")}
                                     </Button>
                                     <TranscribeInBrowserButton
                                         recordingId={recording.id}
@@ -410,7 +477,7 @@ export function TranscriptionPanel({
                         <div className="flex flex-col items-center justify-center py-12">
                             <div className="animate-spin size-8 border-2 border-primary border-t-transparent rounded-full mb-4" />
                             <p className="text-sm text-muted-foreground">
-                                Transcribing audio…
+                                {i18n("Transcribing audio…")}
                             </p>
                         </div>
                     ) : activeTranscript?.text ? (
@@ -429,13 +496,13 @@ export function TranscriptionPanel({
                                     <ChevronDown className="size-4" />
                                 )}
                                 {transcriptExpanded
-                                    ? "Collapse transcript"
-                                    : "Expand transcript"}
+                                    ? i18n("Collapse transcript")
+                                    : i18n("Expand transcript")}
                             </button>
                             {transcriptExpanded && (
                                 <div className="space-y-4">
                                     <section
-                                        aria-label="Transcript content"
+                                        aria-label={i18n("Transcript content")}
                                         className="max-h-96 overflow-y-auto rounded-lg bg-muted p-4"
                                     >
                                         <TranscriptView
@@ -451,9 +518,12 @@ export function TranscriptionPanel({
                                     </section>
                                     <div className="flex items-center gap-4 border-t pt-2 text-xs text-muted-foreground">
                                         <span className="rounded bg-muted px-2 py-0.5 font-medium">
-                                            {transcriptSourceLabel(
-                                                activeTranscript.source,
-                                            )}
+                                            {activeTranscript.source === "plaud"
+                                                ? "Plaud"
+                                                : activeTranscript.source ===
+                                                    "mixed"
+                                                  ? i18n("Mix")
+                                                  : i18n("Custom")}
                                         </span>
                                         {activeTranscript.provider && (
                                             <span className="rounded bg-muted px-2 py-0.5">
@@ -469,7 +539,7 @@ export function TranscriptionPanel({
                                             <div className="flex items-center gap-1">
                                                 <Languages className="size-3" />
                                                 <span>
-                                                    Language:{" "}
+                                                    {i18n("Language:")}{" "}
                                                     {activeTranscript.language}
                                                 </span>
                                             </div>
@@ -480,11 +550,11 @@ export function TranscriptionPanel({
                                                       .trim()
                                                       .split(/\s+/).length
                                                 : 0}{" "}
-                                            words
+                                            {i18n("words")}
                                         </div>
                                         <div>
                                             {activeTranscript.text.length}{" "}
-                                            characters
+                                            {i18n("characters")}
                                         </div>
                                     </div>
                                 </div>
@@ -494,8 +564,9 @@ export function TranscriptionPanel({
                         <div className="flex flex-col items-center justify-center py-10 text-center">
                             <FileText className="size-10 text-muted-foreground mb-3" />
                             <p className="text-sm text-muted-foreground">
-                                No transcription yet. Use the Transcribe button
-                                above.
+                                {i18n(
+                                    "No transcription yet. Use the Transcribe button above.",
+                                )}
                             </p>
                         </div>
                     )}
@@ -508,13 +579,13 @@ export function TranscriptionPanel({
                     <CardHeader>
                         <div className="flex flex-wrap items-center justify-between gap-3 border-b pb-4">
                             <CardTitle className="flex items-center gap-2">
-                                <ListChecks className="size-5" />
-                                Summary
+                                <ListChecks className="size-5" />{" "}
+                                {i18n("Summary")}
                             </CardTitle>
                             <div className="flex flex-wrap items-center gap-2">
                                 {canHavePlaudSummary && (
                                     <SourceSwitcher
-                                        ariaLabel="Summary source"
+                                        ariaLabel={i18n("Summary source")}
                                         sources={["plaud", "riffado"]}
                                         value={summarySource}
                                         onSelect={(source) =>
@@ -571,18 +642,18 @@ export function TranscriptionPanel({
                                     >
                                         {isSummarizing ? (
                                             <>
-                                                <Loader2 className="size-4 mr-2 animate-spin" />
-                                                Generating…
+                                                <Loader2 className="size-4 mr-2 animate-spin" />{" "}
+                                                {i18n("Generating…")}
                                             </>
                                         ) : summaryData ? (
                                             <>
-                                                <RefreshCw className="size-4 mr-2" />
-                                                Re-summarize
+                                                <RefreshCw className="size-4 mr-2" />{" "}
+                                                {i18n("Re-summarize")}
                                             </>
                                         ) : (
                                             <>
-                                                <Sparkles className="size-4 mr-2" />
-                                                Summarize
+                                                <Sparkles className="size-4 mr-2" />{" "}
+                                                {i18n("Summarize")}
                                             </>
                                         )}
                                     </Button>
@@ -595,10 +666,7 @@ export function TranscriptionPanel({
                             <div className="flex flex-col items-center justify-center py-8">
                                 <Loader2 className="size-8 animate-spin text-primary mb-4" />
                                 <p className="text-sm text-muted-foreground">
-                                    {formatSummaryStatus(
-                                        summaryProgress,
-                                        summaryElapsedMs,
-                                    )}
+                                    {summaryStatus}
                                 </p>
                             </div>
                         ) : summaryData?.summary ? (
@@ -617,13 +685,13 @@ export function TranscriptionPanel({
                                         <ChevronDown className="size-4" />
                                     )}
                                     {summaryExpanded
-                                        ? "Collapse summary"
-                                        : "Expand summary"}
+                                        ? i18n("Collapse summary")
+                                        : i18n("Expand summary")}
                                 </button>
 
                                 {summaryExpanded && (
                                     <section
-                                        aria-label="Summary content"
+                                        aria-label={i18n("Summary content")}
                                         className="max-h-96 space-y-4 overflow-y-auto pr-2"
                                     >
                                         {/* Summary text */}
@@ -646,7 +714,7 @@ export function TranscriptionPanel({
                                                 0 && (
                                                 <div>
                                                     <h4 className="text-sm font-medium mb-2">
-                                                        Key Points
+                                                        {i18n("Key Points")}
                                                     </h4>
                                                     <ul className="space-y-1">
                                                         {summaryData.keyPoints.map(
@@ -687,7 +755,7 @@ export function TranscriptionPanel({
                                                 0 && (
                                                 <div>
                                                     <h4 className="text-sm font-medium mb-2">
-                                                        Action Items
+                                                        {i18n("Action Items")}
                                                     </h4>
                                                     <ul className="space-y-1">
                                                         {summaryData.actionItems.map(
@@ -726,9 +794,9 @@ export function TranscriptionPanel({
                                         <div className="flex items-center border-t pt-2">
                                             <div className="flex items-center gap-3 text-xs text-muted-foreground">
                                                 <span className="px-2 py-0.5 rounded bg-muted font-medium">
-                                                    {transcriptSourceLabel(
-                                                        summarySource,
-                                                    )}
+                                                    {summarySource === "plaud"
+                                                        ? "Plaud"
+                                                        : i18n("Custom")}
                                                 </span>
                                                 {summaryData.provider && (
                                                     <span className="px-2 py-0.5 rounded bg-muted">
@@ -764,10 +832,16 @@ export function TranscriptionPanel({
                                 <ListChecks className="size-10 text-muted-foreground mb-3" />
                                 <p className="text-sm text-muted-foreground">
                                     {summarySource === "plaud"
-                                        ? "No Plaud summary has been imported. It will appear after Plaud sync when available."
+                                        ? i18n(
+                                              "No Plaud summary has been imported. It will appear after Plaud sync when available.",
+                                          )
                                         : summaryTranscript
-                                          ? 'No custom summary yet. Click "Summarize" to generate one.'
-                                          : "A custom transcript is required before generating a custom summary."}
+                                          ? i18n(
+                                                'No custom summary yet. Click "Summarize" to generate one.',
+                                            )
+                                          : i18n(
+                                                "A custom transcript is required before generating a custom summary.",
+                                            )}
                                 </p>
                             </div>
                         )}

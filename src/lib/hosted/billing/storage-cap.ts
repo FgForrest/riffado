@@ -3,6 +3,7 @@ import { db } from "@/db";
 import { users } from "@/db/schema";
 import { env } from "@/lib/env";
 import { canStoreMoreBytes } from "@/lib/hosted/billing/enforcement";
+import { normalizeLocale } from "@/lib/i18n/config";
 import { sendOverCapEmail } from "@/lib/notifications/email";
 
 export interface StorageCapDecision {
@@ -35,7 +36,7 @@ export async function enforceStorageCap(input: {
 
     try {
         const [user] = await db
-            .select({ email: users.email })
+            .select({ email: users.email, uiLocale: users.uiLocale })
             .from(users)
             .where(eq(users.id, input.userId))
             .limit(1);
@@ -48,6 +49,7 @@ export async function enforceStorageCap(input: {
                 settingsUrl: `${base}/settings#storage`,
                 currentBytes: check.currentBytes,
                 limitBytes: check.limitBytes,
+                locale: normalizeLocale(user.uiLocale),
             });
         }
     } catch (error) {

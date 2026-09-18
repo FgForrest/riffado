@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { useExtracted } from "next-intl";
+import { getExtracted } from "next-intl/server";
 import { CopyableCommand } from "@/components/copyable-command";
 import { Footer } from "@/components/footer";
 import { LogoWordmark } from "@/components/icons/logo";
@@ -38,17 +40,22 @@ import { APP_VERSION_TAG } from "@/lib/version";
 // static output instead of the hosted `<LandingFooter>`.
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = marketingMetadata({
-    title: "Install Riffado | Self-host in one command",
-    description:
-        "Self-host Riffado with a single curl command. Docker + Compose v2 required. AGPL-3.0, no telemetry, no license server.",
-    path: "/install",
-});
+export async function generateMetadata(): Promise<Metadata> {
+    const i18n = await getExtracted();
+    return marketingMetadata({
+        title: i18n("Install Riffado | Self-host in one command"),
+        description: i18n(
+            "Self-host Riffado with a single curl command. Docker + Compose v2 required. AGPL-3.0, no telemetry, no license server.",
+        ),
+        path: "/install",
+    });
+}
 
 const ONE_LINER = INSTALL_ONELINER;
 const PINNED_LINER = pinnedInstallCommand(APP_VERSION_TAG);
 
 export default function InstallPage() {
+    const i18n = useExtracted();
     return (
         <div className="flex flex-col min-h-[100vh] bg-background text-foreground">
             <header className="border-b border-border/40">
@@ -56,7 +63,7 @@ export default function InstallPage() {
                     <Link
                         href="/"
                         className="flex items-center hover:opacity-80 transition-opacity"
-                        aria-label="Riffado"
+                        aria-label={i18n("Riffado")}
                     >
                         <LogoWordmark className="h-7 w-auto" />
                     </Link>
@@ -71,7 +78,7 @@ export default function InstallPage() {
                             href="/#deploy"
                             className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                         >
-                            ← Back to landing
+                            {i18n("← Back to landing")}
                         </Link>
                     ) : null}
                 </div>
@@ -81,24 +88,27 @@ export default function InstallPage() {
                 <section className="container mx-auto px-4 max-w-4xl py-16 md:py-24">
                     <div className="max-w-2xl">
                         <div className="inline-flex items-center rounded-full border border-border bg-muted px-3 py-1 text-xs font-medium text-muted-foreground mb-6 font-mono">
-                            Self-host
+                            {i18n("Self-host")}
                         </div>
                         <h1 className="text-4xl md:text-5xl font-semibold tracking-tight mb-6">
-                            Install Riffado
+                            {i18n("Install Riffado")}
                         </h1>
                         <p className="text-lg text-muted-foreground leading-relaxed">
-                            One command on a machine with Docker and Compose v2.
-                            The installer pulls the latest release&apos;s{" "}
+                            {i18n(
+                                "One command on a machine with Docker and Compose v2. The installer pulls the latest release's",
+                            )}{" "}
                             <code className="font-mono text-foreground/80">
-                                docker-compose.yml
+                                {i18n("docker-compose.yml")}
                             </code>{" "}
-                            and{" "}
+                            {i18n("and")}{" "}
                             <code className="font-mono text-foreground/80">
-                                env.example
-                            </code>
-                            , generates secrets, starts the stack, and waits on{" "}
+                                {i18n("env.example")}
+                            </code>{" "}
+                            {i18n(
+                                ", generates secrets, starts the stack, and waits on",
+                            )}{" "}
                             <code className="font-mono text-foreground/80">
-                                /api/health
+                                {i18n("/api/health")}
                             </code>
                             .
                         </p>
@@ -107,7 +117,7 @@ export default function InstallPage() {
                     <div className="mt-10 space-y-3">
                         <div className="flex items-baseline justify-between gap-4">
                             <h2 className="text-xs font-semibold font-mono uppercase tracking-wider text-foreground/80">
-                                Latest release
+                                {i18n("Latest release")}
                             </h2>
                             <Link
                                 href="/install.sh"
@@ -115,34 +125,36 @@ export default function InstallPage() {
                                 rel="noopener noreferrer"
                                 className="text-xs text-muted-foreground hover:text-foreground transition-colors font-mono"
                             >
-                                View raw script →
+                                {i18n("View raw script →")}
                             </Link>
                         </div>
                         <CopyableCommand
                             command={ONE_LINER}
-                            ariaLabel="Copy install command"
+                            ariaLabel={i18n("Copy install command")}
                         />
                     </div>
 
                     <div className="mt-8 space-y-3">
                         <h2 className="text-xs font-semibold font-mono uppercase tracking-wider text-foreground/80">
-                            Pin to a specific version
+                            {i18n("Pin to a specific version")}
                         </h2>
                         <CopyableCommand
                             command={PINNED_LINER}
-                            ariaLabel="Copy version-pinned install command"
+                            ariaLabel={i18n(
+                                "Copy version-pinned install command",
+                            )}
                         />
                         <p className="text-xs text-muted-foreground">
-                            Replace{" "}
+                            {i18n("Replace")}{" "}
                             <code className="font-mono">{APP_VERSION_TAG}</code>{" "}
-                            with any released tag from{" "}
+                            {i18n("with any released tag from")}{" "}
                             <Link
                                 href="https://github.com/riffado/riffado/releases"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="underline decoration-dotted underline-offset-2 hover:text-foreground transition-colors"
                             >
-                                the releases page
+                                {i18n("the releases page")}
                             </Link>
                             .
                         </p>
@@ -151,46 +163,46 @@ export default function InstallPage() {
                     <div className="mt-16 grid gap-8 md:grid-cols-2">
                         <div className="space-y-2">
                             <h2 className="text-sm font-semibold font-mono uppercase tracking-wider text-foreground/80">
-                                Requirements
+                                {i18n("Requirements")}
                             </h2>
                             <ul className="text-sm text-muted-foreground space-y-1.5 list-disc pl-5">
-                                <li>Linux or macOS</li>
-                                <li>Docker (any modern version)</li>
-                                <li>Docker Compose v2</li>
-                                <li>Outbound HTTPS to GitHub</li>
+                                <li>{i18n("Linux or macOS")}</li>
+                                <li>{i18n("Docker (any modern version)")}</li>
+                                <li>{i18n("Docker Compose v2")}</li>
+                                <li>{i18n("Outbound HTTPS to GitHub")}</li>
                             </ul>
                         </div>
                         <div className="space-y-2">
                             <h2 className="text-sm font-semibold font-mono uppercase tracking-wider text-foreground/80">
-                                What the script does
+                                {i18n("What the script does")}
                             </h2>
                             <ul className="text-sm text-muted-foreground space-y-1.5 list-disc pl-5">
-                                <li>Verifies Docker + Compose v2</li>
+                                <li>{i18n("Verifies Docker + Compose v2")}</li>
                                 <li>
-                                    Downloads{" "}
+                                    {i18n("Downloads")}{" "}
                                     <code className="font-mono text-foreground/80">
-                                        docker-compose.yml
+                                        {i18n("docker-compose.yml")}
                                     </code>{" "}
-                                    + env template
+                                    {i18n("+ env template")}
                                 </li>
                                 <li>
-                                    Generates{" "}
+                                    {i18n("Generates")}{" "}
                                     <code className="font-mono text-foreground/80">
-                                        BETTER_AUTH_SECRET
+                                        {i18n("BETTER_AUTH_SECRET")}
                                     </code>
                                     ,{" "}
                                     <code className="font-mono text-foreground/80">
-                                        ENCRYPTION_KEY
+                                        {i18n("ENCRYPTION_KEY")}
                                     </code>
                                     ,{" "}
                                     <code className="font-mono text-foreground/80">
-                                        POSTGRES_PASSWORD
+                                        {i18n("POSTGRES_PASSWORD")}
                                     </code>
                                 </li>
                                 <li>
-                                    Starts the stack, waits on{" "}
+                                    {i18n("Starts the stack, waits on")}{" "}
                                     <code className="font-mono text-foreground/80">
-                                        /api/health
+                                        {i18n("/api/health")}
                                     </code>
                                 </li>
                             </ul>
@@ -199,29 +211,30 @@ export default function InstallPage() {
 
                     <div className="mt-12 rounded-lg border border-border bg-muted/30 p-5">
                         <h2 className="text-sm font-semibold mb-2">
-                            Don&apos;t want to pipe to shell?
+                            {i18n("Don't want to pipe to shell?")}
                         </h2>
                         <p className="text-sm text-muted-foreground leading-relaxed">
-                            Fair. Read the source at{" "}
+                            {i18n("Fair. Read the source at")}{" "}
                             <Link
                                 href="https://github.com/riffado/riffado/blob/main/scripts/install.sh"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-foreground underline decoration-dotted underline-offset-2 hover:text-foreground/80 transition-colors"
                             >
-                                scripts/install.sh
+                                {i18n("scripts/install.sh")}
                             </Link>{" "}
-                            on GitHub, or follow the manual{" "}
+                            {i18n("on GitHub, or follow the manual")}{" "}
                             <Link
                                 href="https://github.com/riffado/riffado#self-host"
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="text-foreground underline decoration-dotted underline-offset-2 hover:text-foreground/80 transition-colors"
                             >
-                                self-host instructions
+                                {i18n("self-host instructions")}
                             </Link>{" "}
-                            in the README. The whole project is AGPL-3.0,
-                            inspect everything before you run it.
+                            {i18n(
+                                "in the README. The whole project is AGPL-3.0, inspect everything before you run it.",
+                            )}
                         </p>
                     </div>
                 </section>

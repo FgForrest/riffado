@@ -2,6 +2,7 @@
 
 import { Command } from "cmdk";
 import { Search } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useMemo, useRef, useState } from "react";
 import {
     ActionsGroup,
@@ -57,6 +58,7 @@ export function CommandPalette({
     onSetTheme,
     onTranscribeRecording,
 }: CommandPaletteProps) {
+    const i18n = useExtracted();
     // Wrap action handlers so the palette closes first, then the
     // action runs on the next tick. Without the defer, dialogs the
     // action opens (settings, shortcuts) race the palette's own
@@ -128,10 +130,12 @@ export function CommandPalette({
                 className="max-w-xl gap-0 overflow-hidden p-0"
                 showCloseButton={false}
             >
-                <DialogTitle className="sr-only">Command palette</DialogTitle>
+                <DialogTitle className="sr-only">
+                    {i18n("Command palette")}
+                </DialogTitle>
                 <Command
                     className="command-palette"
-                    label="Command palette"
+                    label={i18n("Command palette")}
                     value={activeValue}
                     onValueChange={setActiveValue}
                     onKeyDownCapture={handleKeyDownCapture}
@@ -141,15 +145,21 @@ export function CommandPalette({
                             className="cmd-input-icon size-4"
                             aria-hidden="true"
                         />
-                        <Command.Input placeholder="Search recordings, transcripts, or actions…" />
-                        <Kbd>⌘K</Kbd>
+                        <Command.Input
+                            placeholder={i18n(
+                                "Search recordings, transcripts, or actions…",
+                            )}
+                        />
+                        <Kbd>{i18n("⌘K")}</Kbd>
                     </div>
 
                     <Command.List className="max-h-[60vh] overflow-y-auto p-2">
                         <Command.Empty>
-                            No matches.
+                            {i18n("No matches.")}{" "}
                             <div className="cmd-empty-hint">
-                                Try searching by something you talked about.
+                                {i18n(
+                                    "Try searching by something you talked about.",
+                                )}
                             </div>
                         </Command.Empty>
 

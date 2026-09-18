@@ -1,4 +1,5 @@
 import { Cpu, LayoutDashboard, RefreshCw } from "lucide-react";
+import { useExtracted } from "next-intl";
 import type { ReactNode } from "react";
 
 /**
@@ -17,56 +18,64 @@ type Beat = {
     body: string;
 };
 
-const BEATS: Beat[] = [
-    {
-        step: "01",
-        icon: <RefreshCw className="size-5" />,
-        title: "Sign in once, sync forever.",
-        body: "Log in with the same email you use for your recorder. Riffado sends you a code, just like the app. New recordings show up on their own, and you get a notification when they're ready.",
-    },
-    {
-        step: "02",
-        icon: <Cpu className="size-5" />,
-        title: "Pick the AI. Get the transcript.",
-        body: "Hosted Pro includes 15 hours of Mynah transcription every month. Need more, or want another model? Use OpenAI or Groq for transcription, plug in Anthropic or others for summaries, and pay providers directly at their published rate. No account anywhere? Transcription also runs free, right in your browser.",
-    },
-    {
-        step: "03",
-        icon: <LayoutDashboard className="size-5" />,
-        title: "Search, listen, send it anywhere.",
-        body: "Player and transcript side-by-side. Search across every word you've ever recorded. Send a single recording to Notion, Obsidian, or your video editor, or download everything as one archive. Open source, end to end.",
-    },
-];
-
 export function Features() {
+    const i18n = useExtracted();
+    const beats: Beat[] = [
+        {
+            step: "01",
+            icon: <RefreshCw className="size-5" />,
+            title: i18n("Sign in once, sync forever."),
+            body: i18n(
+                "Log in with the same email you use for your recorder. Riffado sends you a code, just like the app. New recordings show up on their own, and you get a notification when they're ready.",
+            ),
+        },
+        {
+            step: "02",
+            icon: <Cpu className="size-5" />,
+            title: i18n("Pick the AI. Get the transcript."),
+            body: i18n(
+                "Hosted Pro includes 15 hours of Mynah transcription every month. Need more, or want another model? Use OpenAI or Groq for transcription, plug in Anthropic or others for summaries, and pay providers directly at their published rate. No account anywhere? Transcription also runs free, right in your browser.",
+            ),
+        },
+        {
+            step: "03",
+            icon: <LayoutDashboard className="size-5" />,
+            title: i18n("Search, listen, send it anywhere."),
+            body: i18n(
+                "Player and transcript side-by-side. Search across every word you've ever recorded. Send a single recording to Notion, Obsidian, or your video editor, or download everything as one archive. Open source, end to end.",
+            ),
+        },
+    ];
     return (
         <section id="features" className="py-20 md:py-24">
             <div className="container mx-auto px-4">
                 <div className="mx-auto max-w-5xl">
                     <div className="max-w-3xl mb-12">
                         <p className="text-sm font-mono text-muted-foreground uppercase tracking-wider mb-4">
-                            How it works
+                            {i18n("How it works")}
                         </p>
                         <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-4 text-balance">
-                            A workstation around the recorder you already have.
+                            {i18n(
+                                "A workstation around the recorder you already have.",
+                            )}
                         </h2>
                         <p className="text-muted-foreground text-lg leading-relaxed text-pretty">
-                            Your recorder keeps recording. Riffado picks up
-                            after the audio leaves the device. You pick the AI,
-                            the storage, and where it all lives.
+                            {i18n(
+                                "Your recorder keeps recording. Riffado picks up after the audio leaves the device. You pick the AI, the storage, and where it all lives.",
+                            )}
                         </p>
                     </div>
 
                     <ol className="grid grid-cols-1 lg:grid-cols-3 lg:divide-x divide-y lg:divide-y-0 divide-border/60 border-y border-border/60">
-                        {BEATS.map((b) => (
+                        {beats.map((b) => (
                             <BeatItem key={b.step} {...b} />
                         ))}
                     </ol>
 
                     <p className="mt-8 text-sm text-muted-foreground text-pretty">
-                        Hosted Pro includes Mynah transcription. Free in your
-                        browser still works, and you can always plug in OpenAI
-                        or Groq directly.
+                        {i18n(
+                            "Hosted Pro includes Mynah transcription. Free in your browser still works, and you can always plug in OpenAI or Groq directly.",
+                        )}
                     </p>
                 </div>
             </div>

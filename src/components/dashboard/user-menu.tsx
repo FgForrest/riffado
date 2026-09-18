@@ -10,6 +10,7 @@ import {
     Sun,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useExtracted } from "next-intl";
 import posthog from "posthog-js";
 import { Button } from "@/components/ui/button";
 import {
@@ -53,13 +54,14 @@ export function UserMenu({
     onOpenSettings,
     onOpenShortcuts,
 }: UserMenuProps) {
+    const i18n = useExtracted();
     const { push, refresh } = useRouter();
     const { theme, setTheme } = useTheme(initialTheme);
 
     const themeOptions = [
-        { value: "light" as const, label: "Light", icon: Sun },
-        { value: "dark" as const, label: "Dark", icon: Moon },
-        { value: "system" as const, label: "Auto", icon: Monitor },
+        { value: "light" as const, label: i18n("Light"), icon: Sun },
+        { value: "dark" as const, label: i18n("Dark"), icon: Moon },
+        { value: "system" as const, label: i18n("Auto"), icon: Monitor },
     ];
 
     return (
@@ -68,7 +70,7 @@ export function UserMenu({
                 <Button
                     variant="outline"
                     size="icon"
-                    aria-label="Account menu"
+                    aria-label={i18n("Account menu")}
                     className="font-semibold"
                 >
                     {emailInitial(userEmail)}
@@ -84,10 +86,10 @@ export function UserMenu({
                     </div>
                     <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">
-                            {userEmail || "Signed in"}
+                            {userEmail || i18n("Signed in")}
                         </p>
                         <p className="text-xs text-muted-foreground">
-                            {isAdmin ? "Admin" : "Signed in"}
+                            {isAdmin ? i18n("Admin") : i18n("Signed in")}
                         </p>
                     </div>
                 </div>
@@ -95,29 +97,33 @@ export function UserMenu({
                 <div className="p-1">
                     <DropdownMenuItem onSelect={onOpenSettings}>
                         <Settings />
-                        <span className="flex-1">Settings</span>
+                        <span className="flex-1">{i18n("Settings")}</span>
                         <Kbd>,</Kbd>
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={onOpenShortcuts}>
                         <Keyboard />
-                        <span className="flex-1">Keyboard shortcuts</span>
+                        <span className="flex-1">
+                            {i18n("Keyboard shortcuts")}
+                        </span>
                         <Kbd>?</Kbd>
                     </DropdownMenuItem>
                     {isAdmin && (
                         <DropdownMenuItem onSelect={() => push("/admin")}>
                             <Shield />
-                            <span className="flex-1">Admin dashboard</span>
+                            <span className="flex-1">
+                                {i18n("Admin dashboard")}
+                            </span>
                         </DropdownMenuItem>
                     )}
                 </div>
 
                 <div className="border-t px-3 py-2">
                     <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/80">
-                        Theme
+                        {i18n("Theme")}
                     </div>
                     <div
                         role="radiogroup"
-                        aria-label="Theme"
+                        aria-label={i18n("Theme")}
                         className="grid grid-cols-3 gap-1 rounded-md border bg-muted/40 p-0.5"
                     >
                         {themeOptions.map((opt) => {
@@ -164,8 +170,7 @@ export function UserMenu({
                             refresh();
                         }}
                     >
-                        <LogOut />
-                        Log out
+                        <LogOut /> {i18n("Log out")}
                     </DropdownMenuItem>
                 </div>
             </DropdownMenuContent>

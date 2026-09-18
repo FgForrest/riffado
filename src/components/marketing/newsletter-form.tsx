@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { useExtracted, useLocale } from "next-intl";
 import { type FormEvent, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,9 +20,11 @@ interface NewsletterFormProps {
 
 export function NewsletterForm({
     source = "landing",
-    placeholder = "you@example.com",
-    submitLabel = "Subscribe",
+    placeholder,
+    submitLabel,
 }: NewsletterFormProps) {
+    const i18n = useExtracted();
+    const locale = useLocale();
     const [email, setEmail] = useState("");
     const [company, setCompany] = useState("");
     const [status, setStatus] = useState<Status>({ kind: "idle" });
@@ -34,7 +37,7 @@ export function NewsletterForm({
         if (!trimmed) {
             setStatus({
                 kind: "error",
-                message: "Please enter an email address.",
+                message: i18n("Please enter an email address."),
             });
             return;
         }
@@ -48,28 +51,22 @@ export function NewsletterForm({
                     email: trimmed,
                     company,
                     source,
+                    locale,
                 }),
             });
 
             if (response.status === 429) {
                 setStatus({
                     kind: "error",
-                    message:
+                    message: i18n(
                         "Too many submissions from this network. Try again in a minute.",
+                    ),
                 });
                 return;
             }
 
             if (!response.ok) {
-                let message = "Something went wrong. Please try again.";
-                try {
-                    const body = (await response.json()) as {
-                        error?: unknown;
-                    };
-                    if (typeof body.error === "string") message = body.error;
-                } catch {
-                    // ignore
-                }
+                const message = i18n("Something went wrong. Please try again.");
                 setStatus({ kind: "error", message });
                 return;
             }
@@ -79,8 +76,9 @@ export function NewsletterForm({
             console.error("Newsletter subscribe failed:", error);
             setStatus({
                 kind: "error",
-                message:
+                message: i18n(
                     "Couldn't reach the server. Check your connection and try again.",
+                ),
             });
         }
     };
@@ -91,10 +89,12 @@ export function NewsletterForm({
                 className="rounded-md border border-border bg-muted/40 p-4 text-sm"
                 aria-live="polite"
             >
-                <p className="font-medium text-foreground">Check your email.</p>
+                <p className="font-medium text-foreground">
+                    {i18n("Check your email.")}
+                </p>
                 <p className="mt-1 text-muted-foreground">
-                    We just sent a confirmation link to {email.trim()}. Click it
-                    and you're subscribed.
+                    {i18n("We just sent a confirmation link to")} {email.trim()}
+                    {i18n(". Click it and you're subscribed.")}
                 </p>
             </div>
         );
@@ -121,7 +121,9 @@ export function NewsletterForm({
                  * when visually hidden and autocomplete="off" is set,
                  * silently misclassifying real subscribers as bots.
                  */}
-                <label htmlFor="newsletter-hp">Leave this field empty</label>
+                <label htmlFor="newsletter-hp">
+                    {i18n("Leave this field empty")}
+                </label>
                 <input
                     id="newsletter-hp"
                     name="hp_check"
@@ -137,14 +139,14 @@ export function NewsletterForm({
                 <Input
                     id="newsletter-email"
                     type="email"
-                    placeholder={placeholder}
+                    placeholder={placeholder ?? i18n("you@example.com")}
                     autoComplete="email"
                     inputMode="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     disabled={isSubmitting}
-                    aria-label="Email address"
+                    aria-label={i18n("Email address")}
                     className="sm:flex-1"
                 />
                 <Button type="submit" disabled={isSubmitting}>
@@ -153,11 +155,11 @@ export function NewsletterForm({
                             <Loader2
                                 className="size-4 animate-spin"
                                 aria-hidden
-                            />
-                            Subscribing
+                            />{" "}
+                            {i18n("Subscribing")}
                         </>
                     ) : (
-                        submitLabel
+                        (submitLabel ?? i18n("Subscribe"))
                     )}
                 </Button>
             </div>
@@ -173,9 +175,9 @@ export function NewsletterForm({
             ) : null}
 
             <p className="text-xs text-muted-foreground">
-                Double-opt-in: you'll get a confirmation email and have to click
-                the link before we ever send you anything else. Unsubscribe at
-                any time.
+                {i18n(
+                    "Double-opt-in: you'll get a confirmation email and have to click the link before we ever send you anything else. Unsubscribe at any time.",
+                )}
             </p>
         </form>
     );

@@ -8,6 +8,7 @@ import {
     Loader2,
     Receipt,
 } from "lucide-react";
+import { useExtracted, useLocale } from "next-intl";
 import posthog from "posthog-js";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -110,8 +111,8 @@ function formatMoney(value: string, currency: string): string {
     }
 }
 
-function formatDate(iso: string): string {
-    return new Date(iso).toLocaleDateString(undefined, {
+function formatDate(iso: string, locale: string): string {
+    return new Date(iso).toLocaleDateString(locale, {
         year: "numeric",
         month: "long",
         day: "numeric",
@@ -140,25 +141,14 @@ function pickPrice(
     );
 }
 
-function formatProPrice(
+function proPriceAmount(
     catalog: PriceCatalogSide,
-    interval: BillingInterval,
     preferredCurrency: "usd" | "eur",
-): string {
-    const suffix = interval === "year" ? "/year" : "/month";
+): string | null {
     const price = pickPrice(catalog, preferredCurrency);
-    if (!price?.displayAmount) {
-        return interval === "year" ? "Pro annual" : "Pro monthly";
-    }
+    if (!price?.displayAmount) return null;
     const symbol = price.currency === "usd" ? "$" : "€";
-    return `${symbol}${trimAmount(price.displayAmount)}${suffix}`;
-}
-
-/** Mirrored Stripe interval ("1 month", "1 year") to a display suffix. */
-function subscriptionIntervalSuffix(interval: string): string {
-    if (interval === "1 month") return "/month";
-    if (interval === "1 year") return "/year";
-    return interval ? ` every ${interval}` : "";
+    return `${symbol}${trimAmount(price.displayAmount)}`;
 }
 
 function billingIntervalFromMirroredInterval(
@@ -231,6 +221,8 @@ function UsageMeter({
 }
 
 export function BillingSection() {
+    const i18n = useExtracted();
+    const locale = useLocale();
     const confirm = useConfirm();
     const [state, setState] = useState<BillingState | null>(null);
     const [loading, setLoading] = useState(true);
@@ -255,13 +247,13 @@ export function BillingSection() {
             const message =
                 err instanceof Error
                     ? err.message
-                    : "Failed to load billing state";
+                    : i18n("Failed to load billing state");
             setLoadError(message);
             toast.error(message);
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [i18n]);
 
     useEffect(() => {
         void load();
@@ -303,20 +295,20 @@ export function BillingSection() {
                 return;
             }
             if (body.reactivated) {
-                toast.success("Your subscription will continue");
+                toast.success(i18n("Your subscription will continue"));
                 await load();
                 return;
             }
-            throw new Error("Unexpected checkout response");
+            throw new Error(i18n("Unexpected checkout response"));
         },
-        [buyingAsBusiness, businessName, businessVatId, load],
+        [buyingAsBusiness, businessName, businessVatId, load, i18n],
     );
 
     const handleSubscribe = useCallback(
         async (checkoutInterval: BillingInterval) => {
             if (!waiver) {
                 toast.error(
-                    "Please confirm the consumer-law waiver to continue.",
+                    i18n("Please confirm the consumer-law waiver to continue."),
                 );
                 return;
             }
@@ -324,7 +316,7 @@ export function BillingSection() {
                 buyingAsBusiness &&
                 (!businessName.trim() || !businessVatId.trim())
             ) {
-                toast.error("Enter your business name and EU VAT ID.");
+                toast.error(i18n("Enter your business name and EU VAT ID."));
                 return;
             }
             setSubmitting(true);
@@ -332,13 +324,22 @@ export function BillingSection() {
                 await startCheckout(checkoutInterval);
             } catch (err) {
                 toast.error(
-                    err instanceof Error ? err.message : "Checkout failed",
+                    err instanceof Error
+                        ? err.message
+                        : i18n("Checkout failed"),
                 );
             } finally {
                 setSubmitting(false);
             }
         },
-        [waiver, buyingAsBusiness, businessName, businessVatId, startCheckout],
+        [
+            waiver,
+            buyingAsBusiness,
+            businessName,
+            businessVatId,
+            startCheckout,
+            i18n,
+        ],
     );
 
     const handleResume = useCallback(async () => {
@@ -355,12 +356,12 @@ export function BillingSection() {
             toast.error(
                 err instanceof Error
                     ? err.message
-                    : "Failed to resume subscription",
+                    : i18n("Failed to resume subscription"),
             );
         } finally {
             setSubmitting(false);
         }
-    }, [startCheckout, state?.subscription?.interval]);
+    }, [startCheckout, state?.subscription?.interval, i18n]);
 
     const handlePortal = useCallback(async () => {
         setPortalLoading(true);
@@ -378,19 +379,20 @@ export function BillingSection() {
             toast.error(
                 err instanceof Error
                     ? err.message
-                    : "Failed to open the billing portal",
+                    : i18n("Failed to open the billing portal"),
             );
             setPortalLoading(false);
         }
-    }, []);
+    }, [i18n]);
 
     const handleDeleteNow = useCallback(() => {
         void confirm({
-            title: "Delete your account now?",
-            description:
+            title: i18n("Delete your account now?"),
+            description: i18n(
                 "Your subscription will end immediately without a prorated refund. All recordings, transcripts, and summaries will then be permanently removed. This cannot be undone. Export your data first if you want a copy.",
-            confirmLabel: "Delete everything",
-            pendingLabel: "Deleting…",
+            ),
+            confirmLabel: i18n("Delete everything"),
+            pendingLabel: i18n("Deleting…"),
             destructive: true,
             onConfirm: async () => {
                 const res = await fetch("/api/billing/delete-now", {
@@ -401,31 +403,37 @@ export function BillingSection() {
                     throw new Error(body.error ?? `HTTP ${res.status}`);
                 }
                 toast.success(
-                    "Deletion queued. Your account will be removed within 5 minutes.",
+                    i18n(
+                        "Deletion queued. Your account will be removed within 5 minutes.",
+                    ),
                 );
                 await load();
             },
         });
-    }, [confirm, load]);
+    }, [confirm, load, i18n]);
 
     const handleCancel = useCallback(
         (periodEnd: string | null) => {
             void confirm({
-                title: "Cancel your subscription?",
+                title: i18n("Cancel your subscription?"),
                 description: (
                     <>
-                        You keep full access
+                        {i18n("You keep full access")}{" "}
                         {periodEnd
-                            ? ` until ${formatDate(periodEnd)}`
-                            : " until the end of your current paid period"}
-                        . After that your account becomes read-only. Your
-                        recordings and transcripts stay put, but sync, upload,
-                        and transcription pause until you resubscribe.
+                            ? i18n(" until {date}", {
+                                  date: formatDate(periodEnd, locale),
+                              })
+                            : i18n(
+                                  " until the end of your current paid period",
+                              )}{" "}
+                        {i18n(
+                            ". After that your account becomes read-only. Your recordings and transcripts stay put, but sync, upload, and transcription pause until you resubscribe.",
+                        )}
                     </>
                 ),
-                confirmLabel: "Cancel subscription",
-                cancelLabel: "Keep subscription",
-                pendingLabel: "Canceling…",
+                confirmLabel: i18n("Cancel subscription"),
+                cancelLabel: i18n("Keep subscription"),
+                pendingLabel: i18n("Canceling…"),
                 destructive: true,
                 onConfirm: async () => {
                     const res = await fetch("/api/billing/cancel", {
@@ -438,12 +446,12 @@ export function BillingSection() {
                     if (posthog.__loaded) {
                         posthog.capture("subscription_canceled");
                     }
-                    toast.success("Subscription canceled");
+                    toast.success(i18n("Subscription canceled"));
                     await load();
                 },
             });
         },
-        [confirm, load],
+        [confirm, load, i18n, locale],
     );
 
     if (loading) {
@@ -458,10 +466,10 @@ export function BillingSection() {
         return (
             <div className="flex flex-col items-center gap-3 py-16 text-center">
                 <p className="text-sm text-muted-foreground">
-                    {loadError ?? "Failed to load billing state."}
+                    {loadError ?? i18n("Failed to load billing state.")}
                 </p>
                 <Button variant="outline" size="sm" onClick={() => void load()}>
-                    Try again
+                    {i18n("Try again")}
                 </Button>
             </div>
         );
@@ -472,15 +480,18 @@ export function BillingSection() {
             <>
                 <SettingsSectionHeader
                     icon={CreditCard}
-                    title="Billing"
-                    description="Hosted billing is not configured on this instance."
+                    title={i18n("Billing")}
+                    description={i18n(
+                        "Hosted billing is not configured on this instance.",
+                    )}
                 />
                 <SettingsCard>
                     <p className="text-sm text-muted-foreground">
-                        Self-host instances run on the AGPL source with no paid
-                        plan. To enable hosted billing, the operator must set{" "}
-                        <code>BILLING_ENABLED=true</code> and
-                        <code> STRIPE_SECRET_KEY</code>.
+                        {i18n(
+                            "Self-host instances run on the AGPL source with no paid plan. To enable hosted billing, the operator must set",
+                        )}{" "}
+                        <code>{i18n("BILLING_ENABLED=true")}</code>{" "}
+                        {i18n("and")} <code>{i18n("STRIPE_SECRET_KEY")}</code>.
                     </p>
                 </SettingsCard>
             </>
@@ -497,44 +508,64 @@ export function BillingSection() {
     let planNote: string | null = null;
     switch (state.plan) {
         case "self_host":
-            planName = "Self-hosted";
+            planName = i18n("Self-hosted");
             break;
         case "hosted_pro":
             if (isTrial) {
-                planName = "Free trial";
+                planName = i18n("Free trial");
                 planNote = state.planTransitionUntil
-                    ? `Your trial ends on ${formatDate(state.planTransitionUntil)}. Add a card below to keep your recordings syncing.`
-                    : "Add a card below to keep your recordings syncing after the trial.";
+                    ? i18n(
+                          "Your trial ends on {date}. Add a card below to keep your recordings syncing.",
+                          {
+                              date: formatDate(
+                                  state.planTransitionUntil,
+                                  locale,
+                              ),
+                          },
+                      )
+                    : i18n(
+                          "Add a card below to keep your recordings syncing after the trial.",
+                      );
             } else {
-                planName = "Pro";
+                planName = i18n("Pro");
             }
             break;
         case "hosted_free": {
-            planName = "Free";
+            planName = i18n("Free");
             const inTransition =
                 state.planTransitionUntil !== null &&
                 new Date(state.planTransitionUntil) > new Date();
             planNote =
                 inTransition && state.planTransitionUntil
-                    ? `You keep full access until ${formatDate(state.planTransitionUntil)}. Subscribe before then to avoid interruption.`
-                    : "Your recordings and transcripts are safe, but syncing, uploads, and new transcriptions are paused until you subscribe.";
+                    ? i18n(
+                          "You keep full access until {date}. Subscribe before then to avoid interruption.",
+                          {
+                              date: formatDate(
+                                  state.planTransitionUntil,
+                                  locale,
+                              ),
+                          },
+                      )
+                    : i18n(
+                          "Your recordings and transcripts are safe, but syncing, uploads, and new transcriptions are paused until you subscribe.",
+                      );
             break;
         }
     }
 
     let status: { label: string; tone: StatusTone };
     if (state.plan === "self_host") {
-        status = { label: "Self-hosted", tone: "neutral" };
+        status = { label: i18n("Self-hosted"), tone: "neutral" };
     } else if (isTrial) {
-        status = { label: "Trial", tone: "warn" };
+        status = { label: i18n("Trial"), tone: "warn" };
     } else if (isLapsed) {
-        status = { label: "Read-only", tone: "neutral" };
+        status = { label: i18n("Read-only"), tone: "neutral" };
     } else if (sub?.status === "past_due") {
-        status = { label: "Past due", tone: "warn" };
+        status = { label: i18n("Past due"), tone: "warn" };
     } else if (cancelPending) {
-        status = { label: "Canceling", tone: "warn" };
+        status = { label: i18n("Canceling"), tone: "warn" };
     } else {
-        status = { label: "Active", tone: "active" };
+        status = { label: i18n("Active"), tone: "active" };
     }
 
     const storagePct =
@@ -571,20 +602,31 @@ export function BillingSection() {
         (effectiveInterval === "year"
             ? state.resolvedCurrency?.annual
             : state.resolvedCurrency?.monthly) ?? "usd";
-    const proPrice = formatProPrice(
+    const amount = proPriceAmount(
         effectiveInterval === "year" ? state.pricing.annual : monthlyCatalog,
-        effectiveInterval,
         preferredCurrency,
     );
+    const proPrice = amount
+        ? effectiveInterval === "year"
+            ? i18n("{price}/year", { price: amount })
+            : i18n("{price}/month", { price: amount })
+        : effectiveInterval === "year"
+          ? i18n("Pro annual")
+          : i18n("Pro monthly");
     const foundingAvailability = state.pricing.monthly.foundingAvailability;
     const proPriceNote =
         effectiveInterval === "month" &&
         foundingAvailability &&
         foundingAvailability.remaining > 0
-            ? `${foundingAvailability.remaining} founding monthly spot${foundingAvailability.remaining === 1 ? "" : "s"} left. Stripe confirms the exact charge before you subscribe.`
+            ? i18n(
+                  "{count, plural, one {# founding monthly spot} other {# founding monthly spots}} left. Stripe confirms the exact charge before you subscribe.",
+                  { count: foundingAvailability.remaining },
+              )
             : isTrial
-              ? "Add a card before your trial ends. Stripe confirms the exact charge before you subscribe."
-              : "Stripe confirms the exact charge before you subscribe.";
+              ? i18n(
+                    "Add a card before your trial ends. Stripe confirms the exact charge before you subscribe.",
+                )
+              : i18n("Stripe confirms the exact charge before you subscribe.");
 
     const graceBanner =
         state.grace !== null ? (
@@ -595,20 +637,23 @@ export function BillingSection() {
                         <div>
                             <h3 className="text-sm font-semibold text-foreground">
                                 {state.grace.path === "trial"
-                                    ? "Your trial has ended"
-                                    : "Your subscription has ended"}
+                                    ? i18n("Your trial has ended")
+                                    : i18n("Your subscription has ended")}
                             </h3>
                             <p className="mt-1 text-sm text-muted-foreground">
-                                Your account will be permanently deleted on{" "}
-                                {formatDate(state.grace.deletionAt)} (in{" "}
-                                {daysBetween(
-                                    new Date(state.grace.deletionAt),
-                                    new Date(),
-                                )}{" "}
-                                day(s)). Until then you can still play and
-                                export your recordings; syncing and new
-                                transcriptions are paused. Subscribe below to
-                                keep everything.
+                                {i18n(
+                                    "Your account will be permanently deleted on {date} (in {days, plural, one {# day} other {# days}}). Until then you can still play and export your recordings; syncing and new transcriptions are paused. Subscribe below to keep everything.",
+                                    {
+                                        date: formatDate(
+                                            state.grace.deletionAt,
+                                            locale,
+                                        ),
+                                        days: daysBetween(
+                                            new Date(state.grace.deletionAt),
+                                            new Date(),
+                                        ),
+                                    },
+                                )}
                             </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
@@ -619,8 +664,8 @@ export function BillingSection() {
                                     window.location.hash = "export";
                                 }}
                             >
-                                <Download className="mr-2 size-4" />
-                                Export my data
+                                <Download className="mr-2 size-4" />{" "}
+                                {i18n("Export my data")}
                             </Button>
                             <Button
                                 variant="destructive"
@@ -628,7 +673,7 @@ export function BillingSection() {
                                 onClick={handleDeleteNow}
                                 disabled={submitting}
                             >
-                                Delete now
+                                {i18n("Delete now")}
                             </Button>
                         </div>
                     </div>
@@ -640,14 +685,14 @@ export function BillingSection() {
         <div className="space-y-6">
             <SettingsSectionHeader
                 icon={CreditCard}
-                title="Billing"
-                description="Manage your plan, usage, and subscription."
+                title={i18n("Billing")}
+                description={i18n("Manage your plan, usage, and subscription.")}
             />
 
             <div className="space-y-3">
                 {graceBanner}
 
-                <SettingsCard title="Plan">
+                <SettingsCard title={i18n("Plan")}>
                     <div className="flex items-start justify-between gap-4">
                         <div className="min-w-0 space-y-1">
                             <div className="flex items-center gap-2">
@@ -656,7 +701,7 @@ export function BillingSection() {
                                 </span>
                                 {state.foundingMember && (
                                     <span className="inline-flex items-center rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-                                        Founding member
+                                        {i18n("Founding member")}
                                     </span>
                                 )}
                             </div>
@@ -666,11 +711,29 @@ export function BillingSection() {
                                         sub.amountValue,
                                         sub.amountCurrency,
                                     )}
-                                    {subscriptionIntervalSuffix(sub.interval)}
+                                    {sub.interval === "1 month"
+                                        ? i18n("/month")
+                                        : sub.interval === "1 year"
+                                          ? i18n("/year")
+                                          : sub.interval
+                                            ? i18n(" every {interval}", {
+                                                  interval: sub.interval,
+                                              })
+                                            : ""}
                                     {cancelPending && sub.canceledAt
-                                        ? ` · ends ${formatDate(sub.canceledAt)}`
+                                        ? i18n(" · ends {date}", {
+                                              date: formatDate(
+                                                  sub.canceledAt,
+                                                  locale,
+                                              ),
+                                          })
                                         : sub.nextPaymentAt
-                                          ? ` · renews ${formatDate(sub.nextPaymentAt)}`
+                                          ? i18n(" · renews {date}", {
+                                                date: formatDate(
+                                                    sub.nextPaymentAt,
+                                                    locale,
+                                                ),
+                                            })
                                           : ""}
                                 </p>
                             )}
@@ -681,9 +744,9 @@ export function BillingSection() {
                             )}
                             {hasLiveSub && sub?.status === "past_due" && (
                                 <p className="text-sm text-foreground">
-                                    Your last payment didn't go through. Update
-                                    your payment method to keep your
-                                    subscription.
+                                    {i18n(
+                                        "Your last payment didn't go through. Update your payment method to keep your subscription.",
+                                    )}
                                 </p>
                             )}
                         </div>
@@ -691,27 +754,44 @@ export function BillingSection() {
                     </div>
                 </SettingsCard>
 
-                <SettingsCard title="Usage">
+                <SettingsCard title={i18n("Usage")}>
                     <div className="space-y-4">
                         <UsageMeter
-                            label="Storage"
-                            detail={`${prettyBytes(state.usage.storageBytes)} of ${
-                                state.entitlements.maxStorageBytes !== null
-                                    ? prettyBytes(
-                                          state.entitlements.maxStorageBytes,
-                                      )
-                                    : "unlimited"
-                            }`}
+                            label={i18n("Storage")}
+                            detail={i18n("{used} of {total}", {
+                                used: prettyBytes(state.usage.storageBytes),
+                                total:
+                                    state.entitlements.maxStorageBytes !== null
+                                        ? prettyBytes(
+                                              state.entitlements
+                                                  .maxStorageBytes,
+                                          )
+                                        : i18n("unlimited"),
+                            })}
                             usedPct={storagePct}
                         />
                         <UsageMeter
-                            label="Included transcription"
-                            detail={`${formatSeconds(mynahUsed)} of ${formatSeconds(mynahTotal)}`}
+                            label={i18n("Included transcription")}
+                            detail={i18n("{used} of {total}", {
+                                used: formatSeconds(mynahUsed),
+                                total: formatSeconds(mynahTotal),
+                            })}
                             usedPct={mynahPct}
                             footer={[
-                                `${formatSeconds(state.usage.monthlyMynahSecondsRemaining)} left this cycle`,
+                                i18n("{time} left this cycle", {
+                                    time: formatSeconds(
+                                        state.usage
+                                            .monthlyMynahSecondsRemaining,
+                                    ),
+                                }),
                                 state.usage.monthlyMynahGrantResetAt
-                                    ? `resets ${formatDate(state.usage.monthlyMynahGrantResetAt)}`
+                                    ? i18n("resets {date}", {
+                                          date: formatDate(
+                                              state.usage
+                                                  .monthlyMynahGrantResetAt,
+                                              locale,
+                                          ),
+                                      })
                                     : null,
                             ]
                                 .filter(Boolean)
@@ -724,22 +804,22 @@ export function BillingSection() {
                     <SettingsCard
                         title={
                             isTrial
-                                ? "Keep Pro after your trial"
+                                ? i18n("Keep Pro after your trial")
                                 : isLapsed && state.everPaidAt
-                                  ? "Resubscribe to Pro"
-                                  : "Upgrade to Pro"
+                                  ? i18n("Resubscribe to Pro")
+                                  : i18n("Upgrade to Pro")
                         }
                     >
                         <div className="space-y-4">
                             {showIntervalPicker && (
                                 <fieldset className="inline-flex rounded-md border p-0.5">
                                     <legend className="sr-only">
-                                        Billing interval
+                                        {i18n("Billing interval")}
                                     </legend>
                                     {(
                                         [
-                                            ["month", "Monthly"],
-                                            ["year", "Annual"],
+                                            ["month", i18n("Monthly")],
+                                            ["year", i18n("Annual")],
                                         ] as const
                                     ).map(([value, label]) => (
                                         <button
@@ -770,12 +850,15 @@ export function BillingSection() {
                                 </p>
                             </div>
                             <ul className="ml-5 list-disc space-y-1 text-sm text-muted-foreground">
-                                <li>50 GB storage</li>
+                                <li>{i18n("50 GB storage")}</li>
                                 <li>
-                                    15 hours of Mynah transcription every 30
-                                    days
+                                    {i18n(
+                                        "15 hours of Mynah transcription every 30 days",
+                                    )}
                                 </li>
-                                <li>Unlimited devices, background sync</li>
+                                <li>
+                                    {i18n("Unlimited devices, background sync")}
+                                </li>
                             </ul>
                             <div className="space-y-3 rounded-md border p-3">
                                 <div className="flex items-start gap-2">
@@ -794,14 +877,14 @@ export function BillingSection() {
                                         htmlFor="business-purchase"
                                         className="text-sm"
                                     >
-                                        Buying as an EU business
+                                        {i18n("Buying as an EU business")}
                                     </Label>
                                 </div>
                                 {buyingAsBusiness && (
                                     <div className="grid gap-3 sm:grid-cols-2">
                                         <div className="space-y-1.5">
                                             <Label htmlFor="business-name">
-                                                Legal business name
+                                                {i18n("Legal business name")}
                                             </Label>
                                             <Input
                                                 id="business-name"
@@ -817,7 +900,7 @@ export function BillingSection() {
                                         </div>
                                         <div className="space-y-1.5">
                                             <Label htmlFor="business-vat-id">
-                                                EU VAT ID
+                                                {i18n("EU VAT ID")}
                                             </Label>
                                             <Input
                                                 id="business-vat-id"
@@ -828,14 +911,16 @@ export function BillingSection() {
                                                     )
                                                 }
                                                 autoComplete="off"
-                                                placeholder="DE123456789"
+                                                placeholder={i18n(
+                                                    "DE123456789",
+                                                )}
                                                 maxLength={32}
                                             />
                                         </div>
                                         <p className="text-xs text-muted-foreground sm:col-span-2">
-                                            Stripe verifies the VAT ID before
-                                            checkout. Eligible cross-border EU
-                                            purchases use reverse charge.
+                                            {i18n(
+                                                "Stripe verifies the VAT ID before checkout. Eligible cross-border EU purchases use reverse charge.",
+                                            )}
                                         </p>
                                     </div>
                                 )}
@@ -854,10 +939,9 @@ export function BillingSection() {
                                     htmlFor="waiver"
                                     className="text-xs leading-snug text-muted-foreground"
                                 >
-                                    Start Pro immediately after checkout. I
-                                    understand the service begins right away and
-                                    that the usual 14-day EU withdrawal right no
-                                    longer applies once the paid plan starts.
+                                    {i18n(
+                                        "Start Pro immediately after checkout. I understand the service begins right away and that the usual 14-day EU withdrawal right no longer applies once the paid plan starts.",
+                                    )}
                                 </Label>
                             </div>
                             <Button
@@ -870,23 +954,24 @@ export function BillingSection() {
                                     <Loader2 className="mr-2 size-4 animate-spin" />
                                 ) : (
                                     <ExternalLink className="mr-2 size-4" />
-                                )}
-                                Subscribe via Stripe
+                                )}{" "}
+                                {i18n("Subscribe via Stripe")}
                             </Button>
                         </div>
                     </SettingsCard>
                 ) : (
-                    <SettingsCard title="Manage subscription">
+                    <SettingsCard title={i18n("Manage subscription")}>
                         <div className="space-y-3">
                             {cancelPending && sub?.canceledAt ? (
                                 <>
                                     <p className="text-sm text-muted-foreground">
-                                        Your subscription is set to end on{" "}
-                                        {formatDate(sub.canceledAt)}. You keep
-                                        full access until then. Resume any time
-                                        before that date at no extra charge.
-                                        Your next payment simply continues as
-                                        scheduled.
+                                        {i18n(
+                                            "Your subscription is set to end on",
+                                        )}{" "}
+                                        {formatDate(sub.canceledAt, locale)}
+                                        {i18n(
+                                            ". You keep full access until then. Resume any time before that date at no extra charge. Your next payment simply continues as scheduled.",
+                                        )}
                                     </p>
                                     <div className="flex flex-wrap gap-2">
                                         <Button
@@ -895,8 +980,8 @@ export function BillingSection() {
                                         >
                                             {submitting && (
                                                 <Loader2 className="mr-2 size-4 animate-spin" />
-                                            )}
-                                            Resume subscription
+                                            )}{" "}
+                                            {i18n("Resume subscription")}
                                         </Button>
                                         <Button
                                             variant="outline"
@@ -907,16 +992,17 @@ export function BillingSection() {
                                                 <Loader2 className="mr-2 size-4 animate-spin" />
                                             ) : (
                                                 <Receipt className="mr-2 size-4" />
-                                            )}
-                                            Payment method & invoices
+                                            )}{" "}
+                                            {i18n("Payment method & invoices")}
                                         </Button>
                                     </div>
                                 </>
                             ) : (
                                 <>
                                     <p className="text-sm text-muted-foreground">
-                                        Update your card or download invoices
-                                        anytime in the billing portal.
+                                        {i18n(
+                                            "Update your card or download invoices anytime in the billing portal.",
+                                        )}
                                     </p>
                                     <div className="flex flex-wrap items-center justify-between gap-2">
                                         <Button
@@ -928,8 +1014,8 @@ export function BillingSection() {
                                                 <Loader2 className="mr-2 size-4 animate-spin" />
                                             ) : (
                                                 <Receipt className="mr-2 size-4" />
-                                            )}
-                                            Payment method & invoices
+                                            )}{" "}
+                                            {i18n("Payment method & invoices")}
                                         </Button>
                                         <Button
                                             variant="ghost"
@@ -941,7 +1027,7 @@ export function BillingSection() {
                                                 )
                                             }
                                         >
-                                            Cancel subscription
+                                            {i18n("Cancel subscription")}
                                         </Button>
                                     </div>
                                 </>
@@ -950,14 +1036,13 @@ export function BillingSection() {
                     </SettingsCard>
                 )}
 
-                <SettingsCard title="Delete account">
+                <SettingsCard title={i18n("Delete account")}>
                     <div className="flex flex-wrap items-center justify-between gap-3">
                         <div className="max-w-xl">
                             <p className="text-sm text-muted-foreground">
-                                Export your data first. Deletion ends any active
-                                subscription immediately without a prorated
-                                refund, then permanently removes your account
-                                and its data.
+                                {i18n(
+                                    "Export your data first. Deletion ends any active subscription immediately without a prorated refund, then permanently removes your account and its data.",
+                                )}
                             </p>
                         </div>
                         <Button
@@ -966,7 +1051,7 @@ export function BillingSection() {
                             onClick={handleDeleteNow}
                             disabled={submitting}
                         >
-                            Delete account
+                            {i18n("Delete account")}
                         </Button>
                     </div>
                 </SettingsCard>

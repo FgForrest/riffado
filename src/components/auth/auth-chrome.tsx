@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { useExtracted } from "next-intl";
 import type { ReactNode } from "react";
 import { LogoWordmark } from "@/components/icons/logo";
 import { Panel } from "@/components/panel";
@@ -27,18 +28,25 @@ export function HostedAuthChrome({
     subtitle,
     children,
 }: AuthChromeProps) {
+    const i18n = useExtracted();
     const bullets = [
         {
-            label: "Choose your AI",
-            body: "OpenAI or Groq for transcription, Anthropic and others for summaries, or Whisper running locally on your machine.",
+            label: i18n("Choose your AI"),
+            body: i18n(
+                "OpenAI or Groq for transcription, Anthropic and others for summaries, or Whisper running locally on your machine.",
+            ),
         },
         {
-            label: "Own your transcripts",
-            body: "Local disk, your own cloud storage, or ours. Export anytime.",
+            label: i18n("Own your transcripts"),
+            body: i18n(
+                "Local disk, your own cloud storage, or ours. Export anytime.",
+            ),
         },
         {
-            label: "Multi-device ready",
-            body: "Plaud Note family today. More device support on the way.",
+            label: i18n("Multi-device ready"),
+            body: i18n(
+                "Plaud Note family today. More device support on the way.",
+            ),
         },
     ];
 
@@ -51,14 +59,15 @@ export function HostedAuthChrome({
                     className="pointer-events-none absolute inset-0 opacity-[0.06] [background-image:radial-gradient(circle_at_1px_1px,currentColor_1px,transparent_0)] [background-size:14px_14px]"
                 />
                 <div className="relative">
-                    <Link href="/" aria-label="Riffado">
+                    <Link href="/" aria-label={i18n("Riffado")}>
                         <LogoWordmark className="h-9 w-auto text-auth-brand-foreground" />
                     </Link>
                 </div>
                 <div className="relative space-y-8">
                     <p className="max-w-md text-2xl font-semibold leading-tight tracking-tight">
-                        Open-source AI transcription for the recorder you
-                        already own.
+                        {i18n(
+                            "Open-source AI transcription for the recorder you already own.",
+                        )}
                     </p>
                     <ul className="space-y-5 max-w-md">
                         {bullets.map((b) => (
@@ -80,14 +89,14 @@ export function HostedAuthChrome({
                     </ul>
                 </div>
                 <p className="relative text-xs text-auth-brand-foreground/50 font-mono">
-                    AGPL-3.0 ·{" "}
+                    {i18n("AGPL-3.0 ·")}{" "}
                     <Link
                         href="https://github.com/riffado/riffado"
                         className="hover:text-auth-brand-foreground/80"
                         target="_blank"
                         rel="noopener noreferrer"
                     >
-                        github.com/riffado/riffado
+                        {i18n("github.com/riffado/riffado")}
                     </Link>
                 </p>
             </aside>
@@ -109,7 +118,7 @@ export function HostedAuthChrome({
                 />
                 <div className="relative z-10 w-full max-w-sm space-y-8">
                     <div className="lg:hidden">
-                        <Link href="/" aria-label="Riffado">
+                        <Link href="/" aria-label={i18n("Riffado")}>
                             <LogoWordmark className="h-8 w-auto text-foreground" />
                         </Link>
                     </div>
@@ -125,19 +134,19 @@ export function HostedAuthChrome({
                     </div>
                     {children}
                     <p className="text-center text-xs text-muted-foreground">
-                        By continuing you agree to our{" "}
+                        {i18n("By continuing you agree to our")}{" "}
                         <Link
                             href="/terms"
                             className="underline hover:text-foreground"
                         >
-                            Terms
+                            {i18n("Terms")}
                         </Link>{" "}
-                        and{" "}
+                        {i18n("and")}{" "}
                         <Link
                             href="/privacy"
                             className="underline hover:text-foreground"
                         >
-                            Privacy Policy
+                            {i18n("Privacy Policy")}
                         </Link>
                         .
                     </p>
@@ -173,11 +182,12 @@ export function SelfHostAuthChrome({
     subtitle,
     children,
 }: AuthChromeProps) {
+    const i18n = useExtracted();
     return (
         <div className="relative flex min-h-screen items-center justify-center px-4 py-12">
             <div className="relative z-10 w-full max-w-md space-y-6">
                 <div className="flex justify-center">
-                    <Link href="/" aria-label="Riffado">
+                    <Link href="/" aria-label={i18n("Riffado")}>
                         <LogoWordmark className="h-7 w-auto text-foreground" />
                     </Link>
                 </div>
@@ -201,6 +211,7 @@ export function SelfHostAuthChrome({
 }
 
 function InstanceFooter() {
+    const i18n = useExtracted();
     return (
         <div className="flex justify-center text-xs text-muted-foreground font-mono">
             <div className="flex items-center gap-4">
@@ -210,7 +221,7 @@ function InstanceFooter() {
                     rel="noopener noreferrer"
                     className="hover:text-foreground"
                 >
-                    Docs
+                    {i18n("Docs")}
                 </Link>
                 <span aria-hidden className="text-muted-foreground/40">
                     ·
@@ -221,7 +232,7 @@ function InstanceFooter() {
                     rel="noopener noreferrer"
                     className="hover:text-foreground"
                 >
-                    GitHub
+                    {i18n("GitHub")}
                 </Link>
                 <span aria-hidden className="text-muted-foreground/40">
                     ·
@@ -232,7 +243,7 @@ function InstanceFooter() {
                     rel="noopener noreferrer"
                     className="hover:text-foreground"
                 >
-                    Discord
+                    {i18n("Discord")}
                 </Link>
             </div>
         </div>

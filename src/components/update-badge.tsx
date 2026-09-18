@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getExtracted } from "next-intl/server";
 import { env } from "@/lib/env";
 import { fetchLatestReleaseTag } from "@/lib/install-script";
 
@@ -24,6 +25,7 @@ import { APP_VERSION, compareSemver, releaseUrlFor } from "@/lib/version";
  * the client.
  */
 export async function UpdateBadge() {
+    const i18n = await getExtracted();
     if (env.IS_HOSTED) return null;
     if (env.DISABLE_UPDATE_CHECK) return null;
 
@@ -44,10 +46,15 @@ export async function UpdateBadge() {
             target="_blank"
             rel="noopener noreferrer"
             className="text-[10px] text-primary/70 hover:text-primary transition-colors font-mono uppercase tracking-wider underline decoration-dotted underline-offset-2"
-            aria-label={`Update available: ${latestTag}`}
-            title={`Update available: ${latestTag} (running ${APP_VERSION})`}
+            aria-label={i18n("Update available: {version}", {
+                version: latestTag,
+            })}
+            title={i18n(
+                "Update available: {version} (running {currentVersion})",
+                { version: latestTag, currentVersion: APP_VERSION },
+            )}
         >
-            {latestTag} available
+            {i18n("{version} available", { version: latestTag })}
         </Link>
     );
 }

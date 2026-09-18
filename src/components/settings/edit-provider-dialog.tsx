@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, Shield } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { MetalButton } from "@/components/metal-button";
@@ -56,6 +57,7 @@ export function EditProviderDialog({
     onSuccess,
     isHosted = false,
 }: EditProviderDialogProps) {
+    const i18n = useExtracted();
     const visiblePresets = getVisiblePresets({ isHosted });
     // Legacy case: a hosted user has an existing LM Studio / Ollama provider
     // (added before hosted enforcement, or imported). Keep their currently
@@ -112,12 +114,12 @@ export function EditProviderDialog({
         e.preventDefault();
 
         if (!providerName) {
-            toast.error("Provider name is required");
+            toast.error(i18n("Provider name is required"));
             return;
         }
 
         if (!provider?.id) {
-            toast.error("Provider ID is missing");
+            toast.error(i18n("Provider ID is missing"));
             return;
         }
 
@@ -158,7 +160,7 @@ export function EditProviderDialog({
                 throw new Error(error.error || "Failed to update provider");
             }
 
-            toast.success("AI provider updated successfully");
+            toast.success(i18n("AI provider updated successfully"));
             onSuccess();
             onOpenChange(false);
 
@@ -172,7 +174,7 @@ export function EditProviderDialog({
             toast.error(
                 error instanceof Error
                     ? error.message
-                    : "Failed to update AI provider",
+                    : i18n("Failed to update AI provider"),
             );
         } finally {
             setIsLoading(false);
@@ -189,19 +191,21 @@ export function EditProviderDialog({
         <Dialog open={open} onOpenChange={onOpenChange} key={provider.id}>
             <DialogContent className="max-w-md">
                 <DialogHeader>
-                    <DialogTitle>Edit AI Provider</DialogTitle>
+                    <DialogTitle>{i18n("Edit AI Provider")}</DialogTitle>
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-2">
-                        <Label>Provider</Label>
+                        <Label>{i18n("Provider")}</Label>
                         <Select
                             value={providerName}
                             onValueChange={handleProviderChange}
                             disabled={isLoading}
                         >
                             <SelectTrigger>
-                                <SelectValue placeholder="Select a provider" />
+                                <SelectValue
+                                    placeholder={i18n("Select a provider")}
+                                />
                             </SelectTrigger>
                             <SelectContent>
                                 {visiblePresets.map((preset) => (
@@ -218,8 +222,8 @@ export function EditProviderDialog({
                                         value={legacyLocalProvider}
                                         disabled
                                     >
-                                        {legacyLocalProvider} (not available on
-                                        hosted)
+                                        {legacyLocalProvider}{" "}
+                                        {i18n("(not available on hosted)")}
                                     </SelectItem>
                                 )}
                             </SelectContent>
@@ -228,13 +232,12 @@ export function EditProviderDialog({
                             <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-300">
                                 <AlertTriangle className="size-3.5 shrink-0 mt-0.5" />
                                 <span>
-                                    {legacyLocalProvider} isn&apos;t usable on
-                                    the hosted app. We can&apos;t reach your
-                                    machine. Delete this provider and re-add one
-                                    with a public endpoint, or self-host Riffado
-                                    (
+                                    {legacyLocalProvider}{" "}
+                                    {i18n(
+                                        "isn't usable on the hosted app. We can't reach your machine. Delete this provider and re-add one with a public endpoint, or self-host Riffado (",
+                                    )}{" "}
                                     <code className="font-mono">
-                                        docker compose up
+                                        {i18n("docker compose up")}
                                     </code>
                                     ).
                                 </span>
@@ -243,7 +246,7 @@ export function EditProviderDialog({
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="apiKey">API Key</Label>
+                        <Label htmlFor="apiKey">{i18n("API Key")}</Label>
                         <Input
                             id="apiKey"
                             type="password"
@@ -254,7 +257,9 @@ export function EditProviderDialog({
                             // the stored key and an empty box looks like
                             // data loss. It is not: a blank field leaves
                             // the saved key untouched (PATCH route).
-                            placeholder="Leave blank to keep the current key"
+                            placeholder={i18n(
+                                "Leave blank to keep the current key",
+                            )}
                             value={apiKey}
                             onChange={(e) => setApiKey(e.target.value)}
                             disabled={isLoading}
@@ -263,19 +268,21 @@ export function EditProviderDialog({
                         <div className="text-xs text-muted-foreground flex items-center gap-2">
                             <Shield className="size-3.5 shrink-0" />
                             <span>
-                                For security, the saved API key is never shown.
-                                Leave this blank to keep your current key, or
-                                enter a new key to replace it.
+                                {i18n(
+                                    "For security, the saved API key is never shown. Leave this blank to keep your current key, or enter a new key to replace it.",
+                                )}
                             </span>
                         </div>
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="baseUrl">Base URL (Optional)</Label>
+                        <Label htmlFor="baseUrl">
+                            {i18n("Base URL (Optional)")}
+                        </Label>
                         <Input
                             id="baseUrl"
                             type="text"
-                            placeholder="https://api.example.com/v1"
+                            placeholder={i18n("https://api.example.com/v1")}
                             value={baseUrl}
                             onChange={(e) => setBaseUrl(e.target.value)}
                             disabled={isLoading}
@@ -283,12 +290,15 @@ export function EditProviderDialog({
                         />
                         {isHosted && (
                             <p className="text-xs text-muted-foreground">
-                                We can&apos;t reach{" "}
-                                <code className="font-mono">localhost</code> or
-                                other private addresses from the hosted app. To
-                                use LM Studio or Ollama, self-host Riffado (
+                                {i18n("We can't reach")}{" "}
                                 <code className="font-mono">
-                                    docker compose up
+                                    {i18n("localhost")}
+                                </code>{" "}
+                                {i18n(
+                                    "or other private addresses from the hosted app. To use LM Studio or Ollama, self-host Riffado (",
+                                )}{" "}
+                                <code className="font-mono">
+                                    {i18n("docker compose up")}
                                 </code>
                                 ).
                             </p>
@@ -322,7 +332,7 @@ export function EditProviderDialog({
                                 }
                                 disabled={isLoading || enhancementOnly}
                             />
-                            <span>Use for transcription</span>
+                            <span>{i18n("Use for transcription")}</span>
                         </label>
                         <label
                             className={
@@ -341,18 +351,22 @@ export function EditProviderDialog({
                                 }
                                 disabled={isLoading || transcriptionOnly}
                             />
-                            <span>Use for AI enhancements</span>
+                            <span>{i18n("Use for AI enhancements")}</span>
                         </label>
                         {transcriptionOnly && (
                             <p className="text-xs text-muted-foreground">
-                                {providerName} transcribes only. Summaries need
-                                an OpenAI-compatible provider.
+                                {providerName}{" "}
+                                {i18n(
+                                    "transcribes only. Summaries need an OpenAI-compatible provider.",
+                                )}
                             </p>
                         )}
                         {enhancementOnly && (
                             <p className="text-xs text-muted-foreground">
-                                {providerName} summarizes only. Transcription
-                                needs a provider that accepts audio.
+                                {providerName}{" "}
+                                {i18n(
+                                    "summarizes only. Transcription needs a provider that accepts audio.",
+                                )}
                             </p>
                         )}
                     </Panel>
@@ -364,14 +378,16 @@ export function EditProviderDialog({
                             disabled={isLoading}
                             className="flex-1"
                         >
-                            Cancel
+                            {i18n("Cancel")}
                         </MetalButton>
                         <MetalButton
                             type="submit"
                             disabled={isLoading}
                             className="flex-1"
                         >
-                            {isLoading ? "Updating..." : "Update Provider"}
+                            {isLoading
+                                ? i18n("Updating...")
+                                : i18n("Update Provider")}
                         </MetalButton>
                     </div>
                 </form>

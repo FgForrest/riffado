@@ -1,4 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
+import { getEmailTranslator } from "../email-template-i18n";
 import { EmailLayout } from "./_layout";
 import { emailStyles } from "./styles";
 
@@ -9,22 +10,31 @@ interface Props {
 }
 
 export function VerifyEmailEmail({ verificationUrl, expiresInHours }: Props) {
+    const i18n = getEmailTranslator();
     return (
-        <EmailLayout previewText="Confirm your email address to finish setting up your Riffado account.">
-            <Heading style={emailStyles.h1}>Confirm your email.</Heading>
+        <EmailLayout
+            previewText={i18n(
+                "Confirm your email address to finish setting up your Riffado account.",
+            )}
+        >
+            <Heading style={emailStyles.h1}>
+                {i18n("Confirm your email.")}
+            </Heading>
             <Text style={emailStyles.text}>
-                Click the button below to confirm this is your email address and
-                finish setting up your Riffado account. The link expires in{" "}
-                {expiresInHours} {expiresInHours === 1 ? "hour" : "hours"}.
+                {i18n(
+                    "Click the button below to confirm this is your email address and finish setting up your Riffado account. The link expires in {hours, plural, one {# hour} other {# hours}}.",
+                    { hours: expiresInHours },
+                )}
             </Text>
             <Section style={emailStyles.buttonSection}>
                 <Button style={emailStyles.button} href={verificationUrl}>
-                    Confirm email
+                    {i18n("Confirm email")}
                 </Button>
             </Section>
             <Text style={emailStyles.text}>
-                If you didn't sign up for Riffado, you can safely ignore this
-                message.
+                {i18n(
+                    "If you didn't sign up for Riffado, you can safely ignore this message.",
+                )}
             </Text>
         </EmailLayout>
     );

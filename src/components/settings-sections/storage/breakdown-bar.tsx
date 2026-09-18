@@ -1,5 +1,6 @@
 "use client";
 
+import { useExtracted } from "next-intl";
 import { formatBytes } from "@/lib/format-bytes";
 
 /**
@@ -38,6 +39,7 @@ interface BreakdownBarProps {
  * donut (linear extent vs. arc length). Same data, less guesswork.
  */
 export function BreakdownBar({ segments, totalBytes }: BreakdownBarProps) {
+    const i18n = useExtracted();
     if (totalBytes <= 0 || segments.length === 0) return null;
 
     const topBytes = segments.reduce((sum, s) => sum + s.bytes, 0);
@@ -52,33 +54,51 @@ export function BreakdownBar({ segments, totalBytes }: BreakdownBarProps) {
     return (
         <div className="space-y-2">
             <div className="flex items-baseline justify-between gap-3">
-                <div className="text-sm font-medium">Storage breakdown</div>
+                <div className="text-sm font-medium">
+                    {i18n("Storage breakdown")}
+                </div>
                 <div className="text-xs text-muted-foreground tabular-nums">
-                    Top {segments.length} ={" "}
+                    {i18n("Top {count}", {
+                        count: String(segments.length),
+                    })}{" "}
+                    ={" "}
                     <span className="font-medium text-foreground">
                         {topPct.toFixed(0)}%
                     </span>{" "}
-                    of {formatBytes(totalBytes)}
+                    {i18n("of {total}", {
+                        total: formatBytes(totalBytes),
+                    })}
                 </div>
             </div>
             <div
                 className="flex h-3 w-full overflow-hidden rounded-full bg-muted"
                 role="img"
-                aria-label={`Top ${segments.length} recordings account for ${topPct.toFixed(0)} percent of storage`}
+                aria-label={i18n(
+                    "Top {count} recordings account for {percent} percent of storage",
+                    {
+                        count: String(segments.length),
+                        percent: topPct.toFixed(0),
+                    },
+                )}
             >
                 {segments.map((s, i) => (
                     <div
                         key={s.id}
                         className={`${BREAKDOWN_COLORS[i % BREAKDOWN_COLORS.length]} h-full`}
                         style={{ width: `${widths[i]}%` }}
-                        title={`${formatBytes(s.bytes)} (${((s.bytes / totalBytes) * 100).toFixed(1)}%)`}
+                        title={i18n("{size} ({percent}%)", {
+                            size: formatBytes(s.bytes),
+                            percent: ((s.bytes / totalBytes) * 100).toFixed(1),
+                        })}
                     />
                 ))}
                 {restBytes > 0 && (
                     <div
                         className={`${REST_COLOR} h-full`}
                         style={{ width: `${restWidth}%` }}
-                        title={`Everything else: ${formatBytes(restBytes)}`}
+                        title={i18n("Everything else: {size}", {
+                            size: formatBytes(restBytes),
+                        })}
                     />
                 )}
             </div>

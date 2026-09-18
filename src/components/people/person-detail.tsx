@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useExtracted, useLocale } from "next-intl";
 import { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -38,6 +39,8 @@ export interface PersonDetailProps {
 }
 
 export function PersonDetail({ person, appearances }: PersonDetailProps) {
+    const i18n = useExtracted();
+    const locale = useLocale();
     const router = useRouter();
     const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -71,8 +74,7 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                 href="/people"
                 className="inline-flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
-                <ArrowLeft className="size-4" />
-                People
+                <ArrowLeft className="size-4" /> {i18n("People")}
             </Link>
 
             <header className="flex items-start gap-4">
@@ -90,9 +92,10 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                         </p>
                     )}
                     <p className="mt-1 text-sm text-muted-foreground">
-                        {heard.length === 1
-                            ? "Heard in 1 recording"
-                            : `Heard in ${heard.length} recordings`}
+                        {i18n(
+                            "Heard in {count, plural, one {# recording} other {# recordings}}",
+                            { count: heard.length },
+                        )}
                     </p>
                 </div>
                 {confirmingDelete ? (
@@ -102,14 +105,14 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                             variant="destructive"
                             onClick={() => void erase()}
                         >
-                            Erase
+                            {i18n("Erase")}
                         </Button>
                         <Button
                             size="sm"
                             variant="ghost"
                             onClick={() => setConfirmingDelete(false)}
                         >
-                            Cancel
+                            {i18n("Cancel")}
                         </Button>
                     </div>
                 ) : (
@@ -119,24 +122,23 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                         className="shrink-0"
                         onClick={() => setConfirmingDelete(true)}
                     >
-                        <Trash2 className="mr-2 size-4" />
-                        Erase
+                        <Trash2 className="mr-2 size-4" /> {i18n("Erase")}
                     </Button>
                 )}
             </header>
 
             {confirmingDelete && (
                 <p className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
-                    Erasing removes this person and every attribution pointing
-                    at them. The recordings and transcripts stay; their turns go
-                    back to showing the raw speaker label.
+                    {i18n(
+                        "Erasing removes this person and every attribution pointing at them. The recordings and transcripts stay; their turns go back to showing the raw speaker label.",
+                    )}
                 </p>
             )}
 
             {person.notes && (
                 <section className="space-y-2">
                     <h2 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                        Notes
+                        {i18n("Notes")}
                     </h2>
                     <p className="whitespace-pre-wrap text-sm">
                         {person.notes}
@@ -148,22 +150,24 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                 <CardHeader className="border-b">
                     <div className="flex items-center justify-between gap-3">
                         <CardTitle className="flex items-center gap-2">
-                            <AudioLines className="size-5 text-primary" />
-                            Recordings
+                            <AudioLines className="size-5 text-primary" />{" "}
+                            {i18n("Recordings")}
                         </CardTitle>
                         <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
                             {heard.length}
                         </span>
                     </div>
                     <p className="text-sm text-muted-foreground">
-                        Recordings where this person has been identified as a
-                        speaker.
+                        {i18n(
+                            "Recordings where this person has been identified as a speaker.",
+                        )}
                     </p>
                 </CardHeader>
                 {heard.length === 0 ? (
                     <CardContent className="py-10 text-center text-sm text-muted-foreground">
-                        Not attributed to any recording yet. Open a diarized
-                        transcript and name one of its speakers.
+                        {i18n(
+                            "Not attributed to any recording yet. Open a diarized transcript and name one of its speakers.",
+                        )}
                     </CardContent>
                 ) : (
                     <CardContent className="p-0">
@@ -187,10 +191,12 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                                                 )}
                                                 {appearance.status !==
                                                     "confirmed" &&
-                                                    " · suggested"}
+                                                    i18n(" · suggested")}
                                                 {" · "}
                                                 {formatDateTime(
                                                     appearance.recordedAt,
+                                                    "relative",
+                                                    locale,
                                                 )}
                                             </span>
                                         </span>

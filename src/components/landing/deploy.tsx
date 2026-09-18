@@ -1,5 +1,6 @@
 import { Check, Terminal } from "lucide-react";
 import Link from "next/link";
+import { useExtracted } from "next-intl";
 import { CopyableCommand } from "@/components/copyable-command";
 import { INSTALL_ONELINER } from "@/lib/install-commands";
 
@@ -49,14 +50,16 @@ import { INSTALL_ONELINER } from "@/lib/install-commands";
  *   (`/#deploy`). Keep the id.
  */
 
-const PROOF_POINTS = [
-    "AGPL-3.0, full source on GitHub, no proprietary fork",
-    "No telemetry, no phone home, no license server",
-    "Local disk, or push to Cloudflare R2, Backblaze B2, or AWS S3",
-    "Bring OpenAI or Groq for cloud transcription, or run Whisper and Ollama locally",
-];
-
 export function Deploy() {
+    const i18n = useExtracted();
+    const proofPoints = [
+        i18n("AGPL-3.0, full source on GitHub, no proprietary fork"),
+        i18n("No telemetry, no phone home, no license server"),
+        i18n("Local disk, or push to Cloudflare R2, Backblaze B2, or AWS S3"),
+        i18n(
+            "Bring OpenAI or Groq for cloud transcription, or run Whisper and Ollama locally",
+        ),
+    ];
     return (
         <section
             id="deploy"
@@ -66,21 +69,20 @@ export function Deploy() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 lg:gap-16 items-center max-w-6xl mx-auto">
                     <div className="space-y-6">
                         <div className="inline-flex items-center rounded-full border border-border bg-card px-3 py-1 text-xs font-mono uppercase tracking-wider text-muted-foreground">
-                            <Terminal className="mr-2 size-3" aria-hidden />
-                            Self-host, if you want to
+                            <Terminal className="mr-2 size-3" aria-hidden />{" "}
+                            {i18n("Self-host, if you want to")}
                         </div>
                         <h2 className="text-3xl md:text-4xl font-semibold tracking-tight text-balance">
-                            One command. Your server. Yours forever.
+                            {i18n("One command. Your server. Yours forever.")}
                         </h2>
                         <p className="text-muted-foreground text-lg leading-relaxed text-pretty">
-                            Riffado ships as a Docker Compose stack: the app, a
-                            database, your storage. Move from Hosted whenever
-                            you want via full-archive export. Same source, your
-                            machine.
+                            {i18n(
+                                "Riffado ships as a Docker Compose stack: the app, a database, your storage. Move from Hosted whenever you want via full-archive export. Same source, your machine.",
+                            )}
                         </p>
 
                         <ul className="space-y-3 pt-2">
-                            {PROOF_POINTS.map((point) => (
+                            {proofPoints.map((point) => (
                                 <li
                                     key={point}
                                     className="flex items-start gap-2.5 text-sm leading-snug"
@@ -99,7 +101,7 @@ export function Deploy() {
                                 href="/install"
                                 className="font-mono text-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:decoration-foreground transition-colors"
                             >
-                                Deploy with Docker →
+                                {i18n("Deploy with Docker →")}
                             </Link>
                         </p>
                     </div>
@@ -107,13 +109,13 @@ export function Deploy() {
                     <div className="w-full space-y-4">
                         <CopyableCommand
                             command={INSTALL_ONELINER}
-                            ariaLabel="Copy install command"
+                            ariaLabel={i18n("Copy install command")}
                         />
 
                         <div className="rounded-2xl border border-border bg-card overflow-hidden shadow-sm">
                             <div className="px-4 py-2.5 border-b border-border bg-background/40">
                                 <div className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                                    Installer output
+                                    {i18n("Installer output")}
                                 </div>
                             </div>
                             <div className="p-5 md:p-6 font-mono text-xs md:text-sm leading-relaxed text-muted-foreground space-y-1.5">
@@ -121,30 +123,30 @@ export function Deploy() {
                                     <span className="text-green-600 dark:text-green-500">
                                         ✓
                                     </span>{" "}
-                                    Verified Docker + Compose v2
+                                    {i18n("Verified Docker + Compose v2")}
                                 </div>
                                 <div>
                                     <span className="text-green-600 dark:text-green-500">
                                         ✓
                                     </span>{" "}
-                                    Wrote .env (secrets generated)
+                                    {i18n("Wrote .env (secrets generated)")}
                                 </div>
                                 <div>
                                     <span className="text-green-600 dark:text-green-500">
                                         ✓
                                     </span>{" "}
-                                    Pulled riffado-web, riffado-db
+                                    {i18n("Pulled riffado-web, riffado-db")}
                                 </div>
                                 <div>
                                     <span className="text-green-600 dark:text-green-500">
                                         ✓
                                     </span>{" "}
-                                    Health check passed on /api/health
+                                    {i18n("Health check passed on /api/health")}
                                 </div>
                                 <div className="pt-1.5 text-foreground">
                                     →{" "}
                                     <span className="font-medium">
-                                        http://localhost:3000
+                                        {i18n("http://localhost:3000")}
                                     </span>
                                 </div>
                             </div>

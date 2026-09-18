@@ -1,6 +1,7 @@
 "use client";
 
 import { CheckCircle2, Link2Off, Mic, RefreshCw } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { PlaudConnectTabs } from "@/components/plaud-connect-tabs";
@@ -33,18 +34,6 @@ interface ConnectionInfo {
  * apiBase for "custom" entries (custom-server users want to see exactly
  * which host they're talking to).
  */
-function regionLabel(
-    server: PlaudServerKey | undefined,
-    apiBase?: string,
-): string {
-    if (!server) return "Unknown";
-    if (server === "custom") return apiBase ?? PLAUD_SERVERS.custom.label;
-    if (server === "global") return "Global";
-    if (server === "eu") return "EU (Frankfurt)";
-    if (server === "apse1") return "Asia Pacific (Singapore)";
-    return server;
-}
-
 interface PlaudAccountSectionProps {
     /**
      * Called after a successful reconnect or account switch, in addition
@@ -60,6 +49,18 @@ interface PlaudAccountSectionProps {
 export function PlaudAccountSection({
     onReconnected,
 }: PlaudAccountSectionProps = {}) {
+    const i18n = useExtracted();
+    const localizedRegionLabel = (
+        server: PlaudServerKey | undefined,
+        apiBase?: string,
+    ) => {
+        if (!server) return i18n("Unknown");
+        if (server === "custom") return apiBase ?? PLAUD_SERVERS.custom.label;
+        if (server === "global") return i18n("Global");
+        if (server === "eu") return i18n("EU (Frankfurt)");
+        if (server === "apse1") return i18n("Asia Pacific (Singapore)");
+        return server;
+    };
     const [info, setInfo] = useState<ConnectionInfo | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [confirmOpen, setConfirmOpen] = useState<
@@ -104,12 +105,14 @@ export function PlaudAccountSection({
         setIsMutating(true);
         try {
             await disconnect();
-            toast.success("Plaud account disconnected");
+            toast.success(i18n("Plaud account disconnected"));
             setConfirmOpen(null);
             await fetchConnection();
         } catch (error) {
             toast.error(
-                error instanceof Error ? error.message : "Failed to disconnect",
+                error instanceof Error
+                    ? error.message
+                    : i18n("Failed to disconnect"),
             );
         } finally {
             setIsMutating(false);
@@ -136,7 +139,7 @@ export function PlaudAccountSection({
             toast.error(
                 error instanceof Error
                     ? error.message
-                    : "Failed to unlink current account",
+                    : i18n("Failed to unlink current account"),
             );
         } finally {
             setIsMutating(false);
@@ -170,14 +173,16 @@ export function PlaudAccountSection({
         <div className="space-y-6">
             <div>
                 <SettingsSectionHeader
-                    title="Plaud Account"
-                    description="Your connection to the Plaud cloud used to pull recordings."
+                    title={i18n("Plaud Account")}
+                    description={i18n(
+                        "Your connection to the Plaud cloud used to pull recordings.",
+                    )}
                     icon={Mic}
                 />
                 <p className="text-sm text-muted-foreground mt-1">
-                    The Plaud account Riffado pulls recordings from. Switching
-                    accounts keeps your existing recordings; only future syncs
-                    change.
+                    {i18n(
+                        "The Plaud account Riffado pulls recordings from. Switching accounts keeps your existing recordings; only future syncs change.",
+                    )}
                 </p>
             </div>
 
@@ -194,19 +199,23 @@ export function PlaudAccountSection({
                                         </span>
                                     ) : (
                                         <span className="text-muted-foreground">
-                                            Connected (email unknown)
+                                            {i18n("Connected (email unknown)")}
                                         </span>
                                     )}
                                 </p>
                                 <p className="text-sm text-muted-foreground">
-                                    Region:{" "}
-                                    {regionLabel(info.server, info.apiBase)}
+                                    {i18n("Region:")}{" "}
+                                    {localizedRegionLabel(
+                                        info.server,
+                                        info.apiBase,
+                                    )}
                                     {!currentEmail && (
                                         <>
                                             {" · "}
                                             <span>
-                                                Use “Switch account” below to
-                                                display the email
+                                                {i18n(
+                                                    "Use “Switch account” below to display the email",
+                                                )}
                                             </span>
                                         </>
                                     )}
@@ -216,9 +225,9 @@ export function PlaudAccountSection({
 
                         {info.needsReconnect && (
                             <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-500">
-                                Plaud stopped accepting this sign-in, so syncing
-                                is paused. Reconnect to resume — your recordings
-                                stay put.
+                                {i18n(
+                                    "Plaud stopped accepting this sign-in, so syncing is paused. Reconnect to resume — your recordings stay put.",
+                                )}
                             </p>
                         )}
 
@@ -227,24 +236,24 @@ export function PlaudAccountSection({
                                 <Button
                                     onClick={() => setReconnectDialogOpen(true)}
                                 >
-                                    <RefreshCw className="size-4 mr-2" />
-                                    Reconnect
+                                    <RefreshCw className="size-4 mr-2" />{" "}
+                                    {i18n("Reconnect")}
                                 </Button>
                             )}
                             <Button
                                 variant="outline"
                                 onClick={() => setConfirmOpen("switch")}
                             >
-                                <RefreshCw className="size-4 mr-2" />
-                                Switch account
+                                <RefreshCw className="size-4 mr-2" />{" "}
+                                {i18n("Switch account")}
                             </Button>
                             <Button
                                 variant="ghost"
                                 onClick={() => setConfirmOpen("disconnect")}
                                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
                             >
-                                <Link2Off className="size-4 mr-2" />
-                                Disconnect
+                                <Link2Off className="size-4 mr-2" />{" "}
+                                {i18n("Disconnect")}
                             </Button>
                         </div>
                     </CardContent>
@@ -253,8 +262,9 @@ export function PlaudAccountSection({
                 <Card className="py-4">
                     <CardContent className="space-y-4">
                         <p className="text-sm text-muted-foreground">
-                            No Plaud account connected. Sign in below to start
-                            syncing recordings.
+                            {i18n(
+                                "No Plaud account connected. Sign in below to start syncing recordings.",
+                            )}
                         </p>
                         <PlaudConnectTabs
                             onConnected={() => fetchConnection()}
@@ -274,30 +284,30 @@ export function PlaudAccountSection({
                     <DialogHeader>
                         <DialogTitle>
                             {confirmOpen === "switch"
-                                ? "Switch Plaud account?"
-                                : "Disconnect Plaud account?"}
+                                ? i18n("Switch Plaud account?")
+                                : i18n("Disconnect Plaud account?")}
                         </DialogTitle>
                         <DialogDescription asChild>
                             <div className="space-y-2 pt-2">
                                 {confirmOpen === "switch" ? (
                                     <p>
-                                        This will unlink{" "}
+                                        {i18n("This will unlink")}{" "}
                                         <span className="font-mono text-foreground">
                                             {currentEmailDisplay}
                                         </span>{" "}
-                                        and let you sign in with a different
-                                        Plaud account. Your existing recordings
-                                        stay; only future syncs will come from
-                                        the new account.
+                                        {i18n(
+                                            "and let you sign in with a different Plaud account. Your existing recordings stay; only future syncs will come from the new account.",
+                                        )}
                                     </p>
                                 ) : (
                                     <p>
-                                        This will unlink{" "}
+                                        {i18n("This will unlink")}{" "}
                                         <span className="font-mono text-foreground">
                                             {currentEmailDisplay}
-                                        </span>
-                                        . Your existing recordings stay, but
-                                        sync will stop until you reconnect.
+                                        </span>{" "}
+                                        {i18n(
+                                            ". Your existing recordings stay, but sync will stop until you reconnect.",
+                                        )}
                                     </p>
                                 )}
                             </div>
@@ -309,14 +319,16 @@ export function PlaudAccountSection({
                             onClick={() => setConfirmOpen(null)}
                             disabled={isMutating}
                         >
-                            Cancel
+                            {i18n("Cancel")}
                         </Button>
                         {confirmOpen === "switch" ? (
                             <Button
                                 onClick={handleSwitchConfirmed}
                                 disabled={isMutating}
                             >
-                                {isMutating ? "Unlinking…" : "Continue"}
+                                {isMutating
+                                    ? i18n("Unlinking…")
+                                    : i18n("Continue")}
                             </Button>
                         ) : (
                             <Button
@@ -324,7 +336,9 @@ export function PlaudAccountSection({
                                 onClick={handleDisconnect}
                                 disabled={isMutating}
                             >
-                                {isMutating ? "Disconnecting…" : "Disconnect"}
+                                {isMutating
+                                    ? i18n("Disconnecting…")
+                                    : i18n("Disconnect")}
                             </Button>
                         )}
                     </DialogFooter>
@@ -339,10 +353,13 @@ export function PlaudAccountSection({
             >
                 <DialogContent className="max-w-lg">
                     <DialogHeader>
-                        <DialogTitle>Sign in to new Plaud account</DialogTitle>
+                        <DialogTitle>
+                            {i18n("Sign in to new Plaud account")}
+                        </DialogTitle>
                         <DialogDescription>
-                            Choose how you want to connect the Plaud account
-                            you’re switching to.
+                            {i18n(
+                                "Choose how you want to connect the Plaud account you’re switching to.",
+                            )}
                         </DialogDescription>
                     </DialogHeader>
                     {switchDialogOpen && (
@@ -363,10 +380,13 @@ export function PlaudAccountSection({
             >
                 <DialogContent className="max-w-lg">
                     <DialogHeader>
-                        <DialogTitle>Reconnect your Plaud account</DialogTitle>
+                        <DialogTitle>
+                            {i18n("Reconnect your Plaud account")}
+                        </DialogTitle>
                         <DialogDescription>
-                            Sign back in to resume syncing. Your existing
-                            recordings and transcripts are unaffected.
+                            {i18n(
+                                "Sign back in to resume syncing. Your existing recordings and transcripts are unaffected.",
+                            )}
                         </DialogDescription>
                     </DialogHeader>
                     {reconnectDialogOpen && (

@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { useExtracted } from "next-intl";
+import { getExtracted } from "next-intl/server";
 import { RIFFADO_REPO_URL } from "@/components/landing/github-stars-pill";
 import { LandingNav } from "@/components/landing/landing-nav";
 import { LandingFooter } from "@/components/landing-footer";
@@ -27,12 +29,16 @@ const TECHNICAL_CHANGELOG_URL = `${RIFFADO_REPO_URL}/blob/main/CHANGELOG.md`;
 // cached static output at build time.
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = marketingMetadata({
-    title: "What's new | Riffado",
-    description:
-        "Plain-language changelog for Riffado. New features, improvements, and fixes, written for the people who use the app.",
-    path: "/changelog",
-});
+export async function generateMetadata(): Promise<Metadata> {
+    const i18n = await getExtracted();
+    return marketingMetadata({
+        title: i18n("What's new | Riffado"),
+        description: i18n(
+            "Plain-language changelog for Riffado. New features, improvements, and fixes, written for the people who use the app.",
+        ),
+        path: "/changelog",
+    });
+}
 
 /**
  * Hosted-user-facing changelog at `/changelog`.
@@ -48,6 +54,7 @@ export const metadata: Metadata = marketingMetadata({
  * One section per version, newest-first.
  */
 export default function ChangelogPage() {
+    const i18n = useExtracted();
     if (!env.IS_HOSTED) {
         redirect(TECHNICAL_CHANGELOG_URL);
     }
@@ -63,21 +70,22 @@ export default function ChangelogPage() {
             <main className="flex-1">
                 <section className="container mx-auto px-4 max-w-3xl pt-16 md:pt-24 pb-12">
                     <p className="text-xs font-mono uppercase tracking-wider text-muted-foreground mb-3">
-                        Changelog
+                        {i18n("Changelog")}
                     </p>
                     <h1 className="text-4xl md:text-5xl font-semibold tracking-tight text-balance">
-                        What&apos;s new in Riffado
+                        {i18n("What's new in Riffado")}
                     </h1>
                     <p className="mt-4 text-lg text-muted-foreground leading-relaxed max-w-xl">
-                        Updates to Riffado, in plain language. Looking for the
-                        technical changelog?{" "}
+                        {i18n(
+                            "Updates to Riffado, in plain language. Looking for the technical changelog?",
+                        )}{" "}
                         <Link
                             href={TECHNICAL_CHANGELOG_URL}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-foreground hover:text-foreground/80 underline decoration-dotted underline-offset-2"
                         >
-                            Read it on GitHub
+                            {i18n("Read it on GitHub")}
                         </Link>
                         .
                     </p>
@@ -86,8 +94,9 @@ export default function ChangelogPage() {
                 <section className="container mx-auto px-4 max-w-3xl pb-24 md:pb-32">
                     {releases.length === 0 ? (
                         <p className="text-muted-foreground">
-                            We haven&apos;t shipped a user-visible change since
-                            this page was added. Watch this space.
+                            {i18n(
+                                "We haven't shipped a user-visible change since this page was added. Watch this space.",
+                            )}
                         </p>
                     ) : (
                         <div className="flex flex-col gap-16">

@@ -10,6 +10,12 @@ import {
     type UnsubscribeAudience,
     verifyUnsubscribeToken,
 } from "@/lib/email/unsubscribe-token";
+import {
+    type AppLocale,
+    localeFromAcceptLanguage,
+    normalizeLocale,
+} from "@/lib/i18n/config";
+import { createEmailTranslator } from "@/lib/i18n/email-messages";
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
     return handleGet(req);
@@ -46,16 +52,30 @@ function parseAndVerify(req: NextRequest): ParsedParams | string {
 }
 
 async function handleGet(req: NextRequest): Promise<NextResponse> {
+    const requestLocale = localeFromAcceptLanguage(
+        req.headers.get("accept-language"),
+    );
     const result = parseAndVerify(req);
-    if (typeof result === "string") return badRequest(result);
-    return confirmPage(result);
+    if (typeof result === "string") return badRequest(requestLocale);
+    const locale = await recipientLocale(
+        result.audience,
+        result.id,
+        requestLocale,
+    );
+    if (!locale) return badRequest(requestLocale);
+    return confirmPage(result, locale);
 }
 
 async function handlePost(req: NextRequest): Promise<NextResponse> {
+    const requestLocale = localeFromAcceptLanguage(
+        req.headers.get("accept-language"),
+    );
     const result = parseAndVerify(req);
-    if (typeof result === "string") return badRequest(result);
+    if (typeof result === "string") return badRequest(requestLocale);
 
     const { audience, id } = result;
+    const locale = await recipientLocale(audience, id, requestLocale);
+    if (!locale) return badRequest(requestLocale);
     if (audience === "user") {
         await db
             .update(users)
@@ -66,24 +86,45 @@ async function handlePost(req: NextRequest): Promise<NextResponse> {
             .where(eq(users.id, id));
     } else {
         const existing = await getSubscriberById(id);
-        if (!existing) return badRequest("unknown subscriber");
+        if (!existing) return badRequest(requestLocale);
         await unsubscribeSubscriber(id);
     }
 
-    return successPage();
+    return successPage(locale);
 }
 
-function confirmPage(params: ParsedParams): NextResponse {
+async function recipientLocale(
+    audience: UnsubscribeAudience,
+    id: string,
+    fallback: AppLocale,
+): Promise<AppLocale | null> {
+    if (audience === "subscriber") {
+        const subscriber = await getSubscriberById(id);
+        return subscriber
+            ? (normalizeLocale(subscriber.locale) ?? fallback)
+            : null;
+    }
+    const [user] = await db
+        .select({ uiLocale: users.uiLocale })
+        .from(users)
+        .where(eq(users.id, id))
+        .limit(1);
+    return user ? (normalizeLocale(user.uiLocale) ?? fallback) : null;
+}
+
+function confirmPage(params: ParsedParams, locale: AppLocale): NextResponse {
+    const t = createEmailTranslator(locale);
     const idParam = params.audience === "user" ? "u" : "s";
     const action = `/api/email/unsubscribe?${idParam}=${encodeURIComponent(params.id)}&t=${encodeURIComponent(params.token)}`;
     return new NextResponse(
         renderPage({
-            title: "Unsubscribe from product updates?",
+            locale,
+            title: t("unsubscribeTitle"),
             body: `
-                <p>Click the button below to stop receiving Riffado product updates at this address.</p>
-                <p>You'll still receive transactional email -- password resets, sync notifications you've opted into, and security advisories. Those are sent regardless of marketing preferences.</p>
+                <p>${escapeHtml(t("unsubscribeBody"))}</p>
+                <p>${escapeHtml(t("unsubscribeTransactional"))}</p>
                 <form method="POST" action="${escapeAttr(action)}" style="margin-top:1.5rem;">
-                  <button type="submit" style="appearance:none;border:0;border-radius:6px;padding:0.7rem 1.2rem;background:#111;color:#fff;font:inherit;cursor:pointer;">Unsubscribe</button>
+                  <button type="submit" style="appearance:none;border:0;border-radius:6px;padding:0.7rem 1.2rem;background:#111;color:#fff;font:inherit;cursor:pointer;">${escapeHtml(t("unsubscribeButton"))}</button>
                 </form>
             `,
         }),
@@ -94,11 +135,13 @@ function confirmPage(params: ParsedParams): NextResponse {
     );
 }
 
-function badRequest(message: string): NextResponse {
+function badRequest(locale: AppLocale): NextResponse {
+    const t = createEmailTranslator(locale);
     return new NextResponse(
         renderPage({
-            title: "Unsubscribe link is not valid",
-            body: `<p>${escapeHtml(message)}.</p><p>If you keep getting marketing emails, reply to one and we'll remove you manually.</p>`,
+            locale,
+            title: t("unsubscribeInvalidTitle"),
+            body: `<p>${escapeHtml(t("unsubscribeInvalidBody"))}</p><p>${escapeHtml(t("unsubscribeInvalidHelp"))}</p>`,
         }),
         {
             status: 400,
@@ -107,14 +150,16 @@ function badRequest(message: string): NextResponse {
     );
 }
 
-function successPage(): NextResponse {
+function successPage(locale: AppLocale): NextResponse {
+    const t = createEmailTranslator(locale);
     return new NextResponse(
         renderPage({
-            title: "You have been unsubscribed",
+            locale,
+            title: t("unsubscribedTitle"),
             body: `
-                <p>You will no longer receive product updates from Riffado at this address.</p>
-                <p>You'll still receive transactional email -- password resets, sync notifications you've opted into, and security advisories.</p>
-                <p>Changed your mind? Marketing preferences live in your <a href="/settings">account settings</a>.</p>
+                <p>${escapeHtml(t("unsubscribedBody"))}</p>
+                <p>${escapeHtml(t("unsubscribeTransactional"))}</p>
+                <p>${escapeHtml(t("unsubscribedChangedMind"))} <a href="/settings">${escapeHtml(t("accountSettings"))}</a>.</p>
             `,
         }),
         {
@@ -124,9 +169,17 @@ function successPage(): NextResponse {
     );
 }
 
-function renderPage({ title, body }: { title: string; body: string }): string {
+function renderPage({
+    locale,
+    title,
+    body,
+}: {
+    locale: AppLocale;
+    title: string;
+    body: string;
+}): string {
     return `<!doctype html>
-<html lang="en">
+<html lang="${locale}">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />

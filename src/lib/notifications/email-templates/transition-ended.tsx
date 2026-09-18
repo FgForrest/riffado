@@ -1,4 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
+import { getEmailLocale, getEmailTranslator } from "../email-template-i18n";
 import { EmailLayout } from "./_layout";
 import { formatEmailPrice } from "./format-price";
 import { emailStyles } from "./styles";
@@ -26,37 +27,50 @@ export function TransitionEndedEmail({
     exportUrl,
     selfHostUrl,
 }: Props) {
+    const i18n = getEmailTranslator();
+    const locale = getEmailLocale();
     return (
         <EmailLayout
-            previewText="Your hosted account is now read-only. Your data is safe, and you can subscribe anytime to resume."
-            footerLink={{ href: billingUrl, label: "Manage billing" }}
+            previewText={i18n(
+                "Your hosted account is now read-only. Your data is safe, and you can subscribe anytime to resume.",
+            )}
+            footerLink={{ href: billingUrl, label: i18n("Manage billing") }}
         >
             <Heading style={emailStyles.h1}>
-                Your free Hosted Pro window has ended.
+                {i18n("Your free Hosted Pro window has ended.")}
             </Heading>
             <Text style={emailStyles.text}>
-                Your account is now read-only. Your recordings, transcripts, and
-                summaries are all still here and fully exportable, but sync,
-                uploads, and new transcriptions are paused until you subscribe.
+                {i18n(
+                    "Your account is now read-only. Your recordings, transcripts, and summaries are all still here and fully exportable, but sync, uploads, and new transcriptions are paused until you subscribe.",
+                )}
             </Text>
             <Text style={emailStyles.text}>
-                Nothing will be deleted. Pick this back up whenever you're
-                ready. Subscribe and everything resumes instantly at{" "}
-                {formatEmailPrice(amountValue, amountCurrency)}.
+                {i18n(
+                    "Nothing will be deleted. Pick this back up whenever you're ready. Subscribe and everything resumes instantly at",
+                )}{" "}
+                {formatEmailPrice(
+                    amountValue,
+                    amountCurrency,
+                    undefined,
+                    locale,
+                )}
+                .
             </Text>
             <Section style={emailStyles.buttonSection}>
                 <Button style={emailStyles.button} href={billingUrl}>
-                    Subscribe and resume
+                    {i18n("Subscribe and resume")}
                 </Button>
             </Section>
             <Text style={emailStyles.text}>
-                Want to keep Riffado free? You can{" "}
+                {i18n("Want to keep Riffado free? You can")}{" "}
                 <a href={selfHostUrl} style={emailStyles.link}>
-                    self-host
+                    {i18n("self-host")}
                 </a>{" "}
-                the open-source version and bring your data with you. You can{" "}
+                {i18n(
+                    "the open-source version and bring your data with you. You can",
+                )}{" "}
                 <a href={exportUrl} style={emailStyles.link}>
-                    export everything here
+                    {i18n("export everything here")}
                 </a>
                 .
             </Text>

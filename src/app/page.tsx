@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { getExtracted } from "next-intl/server";
 import { Deploy } from "@/components/landing/deploy";
 import { FAQ } from "@/components/landing/faq";
 import { Features } from "@/components/landing/features";
@@ -22,13 +23,19 @@ import {
 } from "@/lib/hosted/billing/pricing";
 import { marketingMetadata } from "@/lib/seo/marketing-metadata";
 
-export const metadata: Metadata = marketingMetadata({
-    title: "Riffado | Open-source AI transcription for voice recorders",
-    description:
-        "Open-source transcription for the voice recorder you already own. Choose your AI, own your transcripts, deploy where you want. Currently supports the Plaud Note family: Note, Note Pro, and NotePin.",
-    path: "/",
-    ogImage: "/og-home.png",
-});
+export async function generateMetadata(): Promise<Metadata> {
+    const i18n = await getExtracted();
+    return marketingMetadata({
+        title: i18n(
+            "Riffado | Open-source AI transcription for voice recorders",
+        ),
+        description: i18n(
+            "Open-source transcription for the voice recorder you already own. Choose your AI, own your transcripts, deploy where you want. Currently supports the Plaud Note family: Note, Note Pro, and NotePin.",
+        ),
+        path: "/",
+        ogImage: "/og-home.png",
+    });
+}
 
 export default async function HomePage() {
     const session = await getSession();

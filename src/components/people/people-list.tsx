@@ -3,6 +3,7 @@
 import { ChevronRight, Plus, Search, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useExtracted, useLocale } from "next-intl";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { AppHeader } from "@/components/app-header";
@@ -22,6 +23,8 @@ export interface PersonSummary {
 }
 
 export function PeopleList({ people }: { people: PersonSummary[] }) {
+    const i18n = useExtracted();
+    const locale = useLocale();
     const router = useRouter();
     const [query, setQuery] = useState("");
     const [creating, setCreating] = useState(false);
@@ -50,18 +53,18 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
                 body: JSON.stringify({ displayName }),
             });
             if (!response.ok) {
-                throw new Error("Could not add this person");
+                throw new Error(i18n("Could not add this person"));
             }
 
             setNewName("");
             setCreating(false);
             router.refresh();
-            toast.success(`${displayName} added`);
+            toast.success(i18n("{name} added", { name: displayName }));
         } catch (error) {
             toast.error(
                 error instanceof Error
                     ? error.message
-                    : "Could not add this person",
+                    : i18n("Could not add this person"),
             );
         } finally {
             setSaving(false);
@@ -83,7 +86,7 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
         >
             <label className="min-w-0 flex-1" htmlFor="person-display-name">
                 <span className="mb-2 block text-sm font-medium">
-                    Who would you like to remember?
+                    {i18n("Who would you like to remember?")}
                 </span>
                 <Input
                     id="person-display-name"
@@ -93,17 +96,17 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
                     onKeyDown={(event) => {
                         if (event.key === "Escape") closeCreator();
                     }}
-                    placeholder="Full name"
-                    aria-label="Name of the person to add"
+                    placeholder={i18n("Full name")}
+                    aria-label={i18n("Name of the person to add")}
                     className="bg-background"
                 />
             </label>
             <div className="flex gap-2">
                 <Button type="button" variant="ghost" onClick={closeCreator}>
-                    Cancel
+                    {i18n("Cancel")}
                 </Button>
                 <Button type="submit" disabled={!newName.trim() || saving}>
-                    {saving ? "Adding…" : "Add person"}
+                    {saving ? i18n("Adding…") : i18n("Add person")}
                 </Button>
             </div>
         </form>
@@ -124,10 +127,10 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
                 >
                     <Plus className="size-4" />
                     <span className="hidden sm:inline">
-                        {creating ? "Cancel" : "Add person"}
+                        {creating ? i18n("Cancel") : i18n("Add person")}
                     </span>
                     <span className="sm:hidden">
-                        {creating ? "Cancel" : "Add"}
+                        {creating ? i18n("Cancel") : i18n("Add")}
                     </span>
                 </Button>
             </AppHeader>
@@ -144,23 +147,23 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
                                 <UsersRound className="size-7 text-primary" />
                             </div>
                             <p className="mb-3 rounded-full border bg-background/80 px-3 py-1 text-xs font-medium text-foreground/70 shadow-xs">
-                                Speaker memory
+                                {i18n("Speaker memory")}
                             </p>
                             <h1 className="text-balance text-2xl font-semibold tracking-tight sm:text-3xl">
-                                Put a name to every voice
+                                {i18n("Put a name to every voice")}
                             </h1>
                             <p className="mt-3 max-w-md text-pretty text-sm leading-6 text-foreground/70 sm:text-base">
-                                Name a speaker once and Riffado remembers them
-                                across recordings, keeping every conversation
-                                easier to follow.
+                                {i18n(
+                                    "Name a speaker once and Riffado remembers them across recordings, keeping every conversation easier to follow.",
+                                )}
                             </p>
                             <div className="mt-7 w-full">
                                 {creating ? (
                                     creatorForm
                                 ) : (
                                     <Button onClick={() => setCreating(true)}>
-                                        <Plus className="size-4" />
-                                        Add your first person
+                                        <Plus className="size-4" />{" "}
+                                        {i18n("Add your first person")}
                                     </Button>
                                 )}
                             </div>
@@ -171,13 +174,15 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
                             <div>
                                 <p className="text-sm font-medium">
-                                    {people.length === 1
-                                        ? "1 person"
-                                        : `${people.length} people`}
+                                    {i18n(
+                                        "{count, plural, one {# person} other {# people}}",
+                                        { count: people.length },
+                                    )}
                                 </p>
                                 <p className="mt-1 text-sm text-foreground/70">
-                                    Familiar speakers remembered across your
-                                    recordings.
+                                    {i18n(
+                                        "Familiar speakers remembered across your recordings.",
+                                    )}
                                 </p>
                             </div>
                             <div className="relative w-full sm:max-w-sm">
@@ -187,9 +192,9 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
                                     onChange={(event) =>
                                         setQuery(event.target.value)
                                     }
-                                    placeholder="Search people"
+                                    placeholder={i18n("Search people")}
                                     className="bg-card pl-9 shadow-xs"
-                                    aria-label="Search people"
+                                    aria-label={i18n("Search people")}
                                 />
                             </div>
                         </div>
@@ -218,19 +223,24 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
                                                 </span>
                                                 <span className="mt-1 block truncate text-xs text-foreground/70">
                                                     {person.primaryEmail ??
-                                                        "No email added"}
+                                                        i18n("No email added")}
                                                 </span>
                                             </span>
                                             <span className="mt-auto flex items-end justify-between gap-3 pt-5 text-xs text-foreground/70">
                                                 <span>
-                                                    {person.recordingCount === 1
-                                                        ? "1 recording"
-                                                        : `${person.recordingCount} recordings`}
+                                                    {i18n(
+                                                        "{count, plural, one {# recording} other {# recordings}}",
+                                                        {
+                                                            count: person.recordingCount,
+                                                        },
+                                                    )}
                                                 </span>
                                                 {person.lastSeen && (
                                                     <span className="truncate text-right">
                                                         {formatDateTime(
                                                             person.lastSeen,
+                                                            "relative",
+                                                            locale,
                                                         )}
                                                     </span>
                                                 )}
@@ -245,11 +255,13 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
                             <div className="rounded-xl border bg-card px-6 py-12 text-center shadow-sm">
                                 <Search className="mx-auto size-6 text-muted-foreground" />
                                 <p className="mt-3 text-sm font-medium">
-                                    No matching people
+                                    {i18n("No matching people")}
                                 </p>
                                 <p className="mt-1 text-sm text-foreground/70">
-                                    Nobody matches “{query}”. Try another name
-                                    or email.
+                                    {i18n(
+                                        "Nobody matches “{query}”. Try another name or email.",
+                                        { query },
+                                    )}
                                 </p>
                             </div>
                         )}

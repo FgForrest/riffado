@@ -1,6 +1,7 @@
 "use client";
 
 import { Pause, Play, Volume2, VolumeX } from "lucide-react";
+import { useExtracted } from "next-intl";
 import type { ReactNode } from "react";
 import { Waveform } from "@/components/dashboard/waveform";
 import { Button } from "@/components/ui/button";
@@ -47,6 +48,7 @@ export function RecordingPlayerControls({
     waveformPeaks,
     trailingAction,
 }: Props) {
+    const i18n = useExtracted();
     const seekDisabled = !duration || duration === 0;
     const seekRatio = duration > 0 ? currentTime / duration : 0;
     const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
@@ -66,7 +68,7 @@ export function RecordingPlayerControls({
             <Button
                 onClick={onTogglePlay}
                 size="lg"
-                aria-label={isPlaying ? "Pause" : "Play"}
+                aria-label={isPlaying ? i18n("Pause") : i18n("Play")}
                 className="size-12 shrink-0 rounded-full"
             >
                 {isPlaying ? (
@@ -130,8 +132,10 @@ export function RecordingPlayerControls({
                 variant="outline"
                 size="sm"
                 className="h-8 w-12 shrink-0 px-0 font-mono text-xs tabular-nums"
-                title="Click to cycle playback speed"
-                aria-label={`Playback speed ${speedLabel}. Click to change.`}
+                title={i18n("Click to cycle playback speed")}
+                aria-label={i18n("Playback speed {speed}. Click to change.", {
+                    speed: speedLabel,
+                })}
             >
                 {speedLabel}
             </Button>
@@ -141,8 +145,8 @@ export function RecordingPlayerControls({
                     type="button"
                     onClick={onToggleMute}
                     className="text-muted-foreground transition-colors hover:text-foreground"
-                    aria-label={volume === 0 ? "Unmute" : "Mute"}
-                    title={volume === 0 ? "Unmute" : "Mute"}
+                    aria-label={volume === 0 ? i18n("Unmute") : i18n("Mute")}
+                    title={volume === 0 ? i18n("Unmute") : i18n("Mute")}
                 >
                     {speakerIcon}
                 </button>
@@ -151,7 +155,7 @@ export function RecordingPlayerControls({
                     onValueChange={(value) => onVolumeChange(value[0] ?? 75)}
                     max={100}
                     className="w-20"
-                    aria-label="Volume"
+                    aria-label={i18n("Volume")}
                 />
             </div>
 

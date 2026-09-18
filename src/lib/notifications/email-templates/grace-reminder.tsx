@@ -1,4 +1,5 @@
 import { Button, Heading, Section, Text } from "@react-email/components";
+import { getEmailLocale, getEmailTranslator } from "../email-template-i18n";
 import { EmailLayout } from "./_layout";
 import { formatEmailDate } from "./format-date";
 import { emailStyles } from "./styles";
@@ -18,30 +19,46 @@ export function GraceReminderEmail({
     exportUrl,
     reactivateUrl,
 }: Props) {
+    const i18n = getEmailTranslator();
+    const locale = getEmailLocale();
     return (
         <EmailLayout
-            previewText={`${daysLeft} days left to export your Riffado data before the account is deleted.`}
-            footerLink={{ href: reactivateUrl, label: "Reactivate account" }}
+            previewText={i18n(
+                "{days, plural, one {# day} other {# days}} left to export your Riffado data before the account is deleted.",
+                { days: daysLeft },
+            )}
+            footerLink={{
+                href: reactivateUrl,
+                label: i18n("Reactivate account"),
+            }}
         >
             <Heading style={emailStyles.h1}>
-                {daysLeft} days left to export.
+                {i18n(
+                    "{days, plural, one {# day} other {# days}} left to export.",
+                    { days: daysLeft },
+                )}
             </Heading>
             <Text style={emailStyles.text}>
-                A reminder: your Riffado account and every recording in it will
-                be permanently deleted on {formatEmailDate(deletionAt)}. You
-                have {daysLeft} days to export the data or reactivate.
+                {i18n(
+                    "A reminder: your Riffado account and every recording in it will be permanently deleted on",
+                )}{" "}
+                {formatEmailDate(deletionAt, undefined, locale)}
+                {i18n(
+                    ". You have {days, plural, one {# day} other {# days}} to export the data or reactivate.",
+                    { days: daysLeft },
+                )}
             </Text>
             <Section style={emailStyles.buttonSection}>
                 <Button style={emailStyles.button} href={exportUrl}>
-                    Export my data
+                    {i18n("Export my data")}
                 </Button>
             </Section>
             <Text style={emailStyles.text}>
-                Or{" "}
+                {i18n("Or")}{" "}
                 <a href={reactivateUrl} style={emailStyles.link}>
-                    add a card to reactivate
+                    {i18n("add a card to reactivate")}
                 </a>{" "}
-                and pick up where you left off.
+                {i18n("and pick up where you left off.")}
             </Text>
         </EmailLayout>
     );

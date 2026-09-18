@@ -1,5 +1,6 @@
 "use client";
 
+import { useExtracted } from "next-intl";
 import { useCallback } from "react";
 import { SettingsNavMobile } from "@/components/settings-nav-mobile";
 import { SettingsNavSidebar } from "@/components/settings-nav-sidebar";
@@ -44,6 +45,7 @@ export function SettingsDialog({
     isHosted = false,
     onPlaudReconnected,
 }: SettingsDialogProps) {
+    const i18n = useExtracted();
     const onClose = useCallback(() => onOpenChange(false), [onOpenChange]);
     const { activeSection, setActiveSection, keyboardSelectedIndex } =
         useSettingsNav(open, onClose, isHosted);
@@ -68,10 +70,13 @@ export function SettingsDialog({
               to cap at 900px no matter how wide the screen got.
             */}
             <DialogContent className="overflow-hidden p-0 [--settings-h:min(85dvh,900px)] md:max-h-[var(--settings-h)] md:max-w-[800px] lg:max-w-[900px] xl:max-w-[1100px] 2xl:max-w-[1280px]">
-                <DialogTitle className="sr-only">Settings</DialogTitle>
+                <DialogTitle className="sr-only">
+                    {i18n("Settings")}
+                </DialogTitle>
                 <DialogDescription className="sr-only">
-                    Customize your settings here. Use arrow keys to navigate
-                    sections, Enter or Space to select, and Escape to close.
+                    {i18n(
+                        "Customize your settings here. Use arrow keys to navigate sections, Enter or Space to select, and Escape to close.",
+                    )}
                 </DialogDescription>
                 <SidebarProvider className="items-start">
                     <SettingsNavSidebar

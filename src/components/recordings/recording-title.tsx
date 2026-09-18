@@ -1,6 +1,7 @@
 "use client";
 
 import { Pencil } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { getApiErrorMessage } from "@/lib/api-errors";
@@ -21,6 +22,7 @@ export function RecordingTitle({
     onRenamed?: (filename: string) => void;
     className?: string;
 }) {
+    const i18n = useExtracted();
     const [editing, setEditing] = useState(false);
     const [draft, setDraft] = useState(filename);
     const [saving, setSaving] = useState(false);
@@ -41,14 +43,17 @@ export function RecordingTitle({
     const commit = async () => {
         const next = normalizeRecordingTitle(draft);
         if (!next) {
-            toast.error("Name cannot be empty");
+            toast.error(i18n("Name cannot be empty"));
             setDraft(filename);
             setEditing(false);
             return;
         }
         if (next.length > MAX_RECORDING_TITLE_LENGTH) {
             toast.error(
-                `Name must be ${MAX_RECORDING_TITLE_LENGTH} characters or fewer`,
+                i18n(
+                    "Name must be {count, plural, one {# character} other {# characters}} or fewer",
+                    { count: MAX_RECORDING_TITLE_LENGTH },
+                ),
             );
             return;
         }
@@ -67,7 +72,10 @@ export function RecordingTitle({
             });
             if (!response.ok) {
                 toast.error(
-                    await getApiErrorMessage(response, "Failed to rename"),
+                    await getApiErrorMessage(
+                        response,
+                        i18n("Failed to rename"),
+                    ),
                 );
                 return;
             }
@@ -77,7 +85,7 @@ export function RecordingTitle({
             setDraft(saved);
             onRenamed?.(saved);
         } catch {
-            toast.error("Failed to rename");
+            toast.error(i18n("Failed to rename"));
         } finally {
             setSaving(false);
         }
@@ -90,7 +98,7 @@ export function RecordingTitle({
                 value={draft}
                 disabled={saving}
                 maxLength={MAX_RECORDING_TITLE_LENGTH}
-                aria-label="Recording name"
+                aria-label={i18n("Recording name")}
                 onChange={(e) => setDraft(e.target.value)}
                 onBlur={() => {
                     if (!saving) void commit();
@@ -120,8 +128,8 @@ export function RecordingTitle({
         <button
             type="button"
             onClick={() => setEditing(true)}
-            title="Rename"
-            aria-label={`Rename ${filename}`}
+            title={i18n("Rename")}
+            aria-label={i18n("Rename {name}", { name: filename })}
             className={cn(
                 "group/title inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md text-left",
                 "hover:bg-accent/60 focus-visible:ring-ring/50 focus-visible:ring-[3px] focus-visible:outline-none",

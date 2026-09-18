@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useExtracted } from "next-intl";
 import posthog from "posthog-js";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -28,6 +29,7 @@ interface RegisterFormProps {
  * Page chrome (logo, headings, panel, background) is owned by the route.
  */
 export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
+    const i18n = useExtracted();
     const [name, setName] = useState("");
     const [email, setEmail] = useState("");
     const [password, setPassword] = useState("");
@@ -42,12 +44,12 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
         e.preventDefault();
 
         if (password !== confirmPassword) {
-            toast.error("Passwords do not match");
+            toast.error(i18n("Passwords do not match"));
             return;
         }
 
         if (password.length < 8) {
-            toast.error("Password must be at least 8 characters");
+            toast.error(i18n("Password must be at least 8 characters"));
             return;
         }
 
@@ -67,7 +69,9 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
             });
 
             if (result.error) {
-                toast.error(result.error.message || "Failed to create account");
+                toast.error(
+                    result.error.message || i18n("Failed to create account"),
+                );
                 return;
             }
 
@@ -83,7 +87,7 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
                 posthog.capture("user_signed_up");
             }
 
-            toast.success("Account created successfully");
+            toast.success(i18n("Account created successfully"));
             push("/dashboard");
             refresh();
         } catch (error) {
@@ -103,7 +107,12 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
             const secs = Math.ceil(
                 (RESEND_COOLDOWN_MS - (now - lastResentAt)) / 1000,
             );
-            toast.error(`Please wait ${secs}s before resending`);
+            toast.error(
+                i18n(
+                    "Please wait {seconds, plural, one {# second} other {# seconds}} before resending",
+                    { seconds: secs },
+                ),
+            );
             return;
         }
 
@@ -117,13 +126,13 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
             if (result.error) {
                 toast.error(
                     result.error.message ||
-                        "Failed to resend verification email",
+                        i18n("Failed to resend verification email"),
                 );
                 return;
             }
 
             setLastResentAt(Date.now());
-            toast.success("Verification email resent");
+            toast.success(i18n("Verification email resent"));
         } catch (error) {
             const message =
                 error instanceof Error
@@ -139,12 +148,13 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
         <div className="space-y-6">
             {awaitingVerification ? (
                 <div className="space-y-3 rounded-md border border-border bg-muted/40 p-4 text-sm">
-                    <p className="font-medium">Check your email.</p>
+                    <p className="font-medium">{i18n("Check your email.")}</p>
                     <p className="text-muted-foreground">
-                        We sent a verification link to{" "}
-                        <span className="font-mono text-xs">{email}</span>.
-                        Click the link to activate your account -- you won't be
-                        able to sign in until it's verified.
+                        {i18n("We sent a verification link to")}{" "}
+                        <span className="font-mono text-xs">{email}</span>
+                        {i18n(
+                            ". Click the link to activate your account -- you won't be able to sign in until it's verified.",
+                        )}
                     </p>
                     <button
                         type="button"
@@ -152,17 +162,19 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
                         disabled={isResending}
                         className="text-accent-cyan hover:underline disabled:opacity-50"
                     >
-                        {isResending ? "Resending..." : "Resend email"}
+                        {isResending
+                            ? i18n("Resending...")
+                            : i18n("Resend email")}
                     </button>
                 </div>
             ) : (
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="space-y-2">
-                        <Label htmlFor="name">Name</Label>
+                        <Label htmlFor="name">{i18n("Name")}</Label>
                         <Input
                             id="name"
                             type="text"
-                            placeholder="John Doe"
+                            placeholder={i18n("John Doe")}
                             value={name}
                             onChange={(e) => setName(e.target.value)}
                             required
@@ -172,11 +184,11 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="email">Email</Label>
+                        <Label htmlFor="email">{i18n("Email")}</Label>
                         <Input
                             id="email"
                             type="email"
-                            placeholder="you@example.com"
+                            placeholder={i18n("you@example.com")}
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             required
@@ -186,7 +198,7 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="password">Password</Label>
+                        <Label htmlFor="password">{i18n("Password")}</Label>
                         <Input
                             id="password"
                             type="password"
@@ -202,7 +214,7 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
 
                     <div className="space-y-2">
                         <Label htmlFor="confirmPassword">
-                            Confirm Password
+                            {i18n("Confirm Password")}
                         </Label>
                         <Input
                             id="confirmPassword"
@@ -222,20 +234,22 @@ export function RegisterForm({ requireEmailVerification }: RegisterFormProps) {
                         variant="cyan"
                         disabled={isLoading}
                     >
-                        {isLoading ? "Creating account..." : "Create Account"}
+                        {isLoading
+                            ? i18n("Creating account...")
+                            : i18n("Create Account")}
                     </MetalButton>
                 </form>
             )}
 
             <div className="text-center text-sm">
                 <span className="text-muted-foreground">
-                    Already have an account?{" "}
+                    {i18n("Already have an account?")}{" "}
                 </span>
                 <Link
                     href="/login"
                     className="text-accent-cyan hover:underline"
                 >
-                    Sign in
+                    {i18n("Sign in")}
                 </Link>
             </div>
         </div>

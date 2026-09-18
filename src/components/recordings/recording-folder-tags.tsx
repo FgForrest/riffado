@@ -1,6 +1,7 @@
 "use client";
 
 import { Folder, FolderPlus, X } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { Button } from "@/components/ui/button";
 import {
     DropdownMenu,
@@ -31,6 +32,7 @@ export function RecordingFolderTags({
     onAdd,
     onRemove,
 }: RecordingFolderTagsProps) {
+    const i18n = useExtracted();
     const assignedIds = new Set(
         assignments
             .filter((assignment) => assignment.recordingId === recordingId)
@@ -43,7 +45,7 @@ export function RecordingFolderTags({
 
     return (
         <fieldset className="flex min-w-0 flex-wrap items-center gap-2 border-0 p-0">
-            <legend className="sr-only">Folders</legend>
+            <legend className="sr-only">{i18n("Folders")}</legend>
             {assigned.map((folder) => (
                 <span
                     key={folder.id}
@@ -65,7 +67,9 @@ export function RecordingFolderTags({
                             );
                         }}
                         className="inline-flex h-full items-center border-l border-primary/15 px-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                        aria-label={`Remove from ${folder.name}`}
+                        aria-label={i18n("Remove from {folder}", {
+                            folder: folder.name,
+                        })}
                     >
                         <X className="size-3.5" />
                     </button>
@@ -79,15 +83,15 @@ export function RecordingFolderTags({
                         size="sm"
                         className="h-7 rounded-full border border-dashed px-2.5 text-xs text-muted-foreground"
                     >
-                        <FolderPlus className="size-3.5" />
-                        Add to folder
+                        <FolderPlus className="size-3.5" />{" "}
+                        {i18n("Add to folder")}
                     </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent
                     align="start"
                     className="max-h-72 overflow-y-auto"
                 >
-                    <DropdownMenuLabel>Folders</DropdownMenuLabel>
+                    <DropdownMenuLabel>{i18n("Folders")}</DropdownMenuLabel>
                     {available.map((folder) => (
                         <DropdownMenuItem
                             key={folder.id}
@@ -103,7 +107,7 @@ export function RecordingFolderTags({
                     ))}
                     {available.length === 0 && (
                         <DropdownMenuItem disabled>
-                            No other folders
+                            {i18n("No other folders")}
                         </DropdownMenuItem>
                     )}
                 </DropdownMenuContent>

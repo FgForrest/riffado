@@ -7,6 +7,7 @@ import {
 } from "@/db/queries/billing";
 import { users } from "@/db/schema";
 import { env } from "@/lib/env";
+import { normalizeLocale } from "@/lib/i18n/config";
 import { sendGraceStartedEmail } from "@/lib/notifications/email";
 import {
     classifyGracePath,
@@ -91,7 +92,7 @@ async function sendGraceStartedNotice(input: {
     const base = env.APP_URL?.replace(/\/$/, "");
     if (!base) return;
     const [row] = await db
-        .select({ email: users.email })
+        .select({ email: users.email, uiLocale: users.uiLocale })
         .from(users)
         .where(eq(users.id, input.userId))
         .limit(1);
@@ -106,6 +107,7 @@ async function sendGraceStartedNotice(input: {
             deletionAt: input.scheduledAt,
             exportUrl: `${base}/settings#export`,
             reactivateUrl: `${base}/settings#billing`,
+            locale: normalizeLocale(row.uiLocale),
         });
     } catch (error) {
         console.error(

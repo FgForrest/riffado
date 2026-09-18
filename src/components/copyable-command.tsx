@@ -1,6 +1,7 @@
 "use client";
 
 import { Check, Copy } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 
 /**
@@ -20,6 +21,7 @@ export function CopyableCommand({
     command: string;
     ariaLabel?: string;
 }) {
+    const i18n = useExtracted();
     const [copied, setCopied] = useState(false);
     // Tracked so we can cancel a pending "flip back to Copy" timer if
     // the component unmounts (route change, parent re-render) before
@@ -58,7 +60,9 @@ export function CopyableCommand({
     return (
         <div className="rounded-lg border border-zinc-800 bg-zinc-950 text-zinc-50 overflow-hidden">
             <div className="flex items-center gap-2 px-4 py-2.5 border-b border-zinc-800 bg-zinc-900">
-                <div className="text-xs font-mono text-zinc-500">~/riffado</div>
+                <div className="text-xs font-mono text-zinc-500">
+                    {i18n("~/riffado")}
+                </div>
             </div>
             <div className="flex items-center gap-3 p-4 font-mono text-sm">
                 <div className="flex-1 overflow-x-auto">
@@ -70,18 +74,18 @@ export function CopyableCommand({
                 <button
                     type="button"
                     onClick={handleCopy}
-                    aria-label={ariaLabel ?? "Copy command"}
+                    aria-label={ariaLabel ?? i18n("Copy command")}
                     className="shrink-0 inline-flex items-center gap-1.5 rounded-md border border-zinc-800 bg-zinc-900 px-2.5 py-1.5 text-xs text-zinc-400 hover:text-zinc-100 hover:border-zinc-700 transition-colors"
                 >
                     {copied ? (
                         <>
                             <Check className="size-3.5 text-green-400" />
-                            <span>Copied</span>
+                            <span>{i18n("Copied")}</span>
                         </>
                     ) : (
                         <>
                             <Copy className="size-3.5" />
-                            <span>Copy</span>
+                            <span>{i18n("Copy")}</span>
                         </>
                     )}
                 </button>

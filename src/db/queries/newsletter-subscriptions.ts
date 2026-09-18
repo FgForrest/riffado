@@ -1,6 +1,7 @@
 import { and, eq, gt, isNotNull, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import { newsletterSubscriptions } from "@/db/schema";
+import type { AppLocale } from "@/lib/i18n/config";
 
 export type SubscriptionSource = "landing" | "install" | "admin";
 
@@ -8,6 +9,7 @@ export interface SubscriberRow {
     id: string;
     email: string;
     source: SubscriptionSource;
+    locale: AppLocale;
     consentedAt: Date;
     confirmedAt: Date | null;
     unsubscribedAt: Date | null;
@@ -17,6 +19,7 @@ export interface SubscriberRow {
 export async function upsertSubscriber(input: {
     email: string;
     source: SubscriptionSource;
+    locale: AppLocale;
 }): Promise<SubscriberRow> {
     const email = input.email.trim().toLowerCase();
     const now = new Date();
@@ -26,6 +29,7 @@ export async function upsertSubscriber(input: {
         .values({
             email,
             source: input.source,
+            locale: input.locale,
             consentedAt: now,
         })
         .onConflictDoUpdate({
@@ -34,6 +38,7 @@ export async function upsertSubscriber(input: {
                 consentedAt: now,
                 unsubscribedAt: null,
                 source: input.source,
+                locale: input.locale,
                 updatedAt: now,
             },
         })
@@ -144,6 +149,7 @@ function mapRow(
         id: row.id,
         email: row.email,
         source: row.source as SubscriptionSource,
+        locale: row.locale as AppLocale,
         consentedAt: row.consentedAt,
         confirmedAt: row.confirmedAt,
         unsubscribedAt: row.unsubscribedAt,

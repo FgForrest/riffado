@@ -1,4 +1,5 @@
 import type { CampaignKind } from "@/db/queries/email-campaigns";
+import type { AppLocale } from "@/lib/i18n/config";
 
 export type { CampaignKind };
 
@@ -8,11 +9,13 @@ export interface Recipient {
     email: string;
     name: string | null;
     marketingConsent: boolean | null;
+    locale?: AppLocale;
 }
 
 export interface RenderedEmail {
     html: string;
     text?: string;
+    subject?: string;
 }
 
 export interface CampaignDefinition {

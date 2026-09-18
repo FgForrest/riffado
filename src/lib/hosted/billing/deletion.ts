@@ -7,6 +7,7 @@ import {
 } from "@/db/queries/billing";
 import { users } from "@/db/schema";
 import { env } from "@/lib/env";
+import { normalizeLocale } from "@/lib/i18n/config";
 import { sendAccountDeletedEmail } from "@/lib/notifications/email";
 import { createStorageProvider } from "@/lib/storage/factory";
 
@@ -35,7 +36,7 @@ export async function deleteUserAccount(userId: string): Promise<{
     storageErrors: number;
 }> {
     const [emailRow] = await db
-        .select({ email: users.email })
+        .select({ email: users.email, uiLocale: users.uiLocale })
         .from(users)
         .where(eq(users.id, userId))
         .limit(1);
@@ -65,6 +66,7 @@ export async function deleteUserAccount(userId: string): Promise<{
             await sendAccountDeletedEmail({
                 email: capturedEmail,
                 signupUrl: base ? `${base}/register` : "https://riffado.com",
+                locale: normalizeLocale(emailRow.uiLocale),
             });
         } catch (error) {
             console.error(

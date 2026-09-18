@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { NextIntlClientProvider } from "next-intl";
+import { getExtracted, getLocale, getMessages } from "next-intl/server";
 import { AppProgress } from "@/components/app-progress";
 import { ConfirmDialogProvider } from "@/components/confirm-dialog";
 import { PostHogAnalytics } from "@/components/posthog-analytics";
@@ -12,54 +14,64 @@ import "./globals.css";
 
 const geistSans = Geist({
     variable: "--font-geist-sans",
-    subsets: ["latin"],
+    subsets: ["latin", "latin-ext"],
 });
 
 const geistMono = Geist_Mono({
     variable: "--font-geist-mono",
-    subsets: ["latin"],
+    subsets: ["latin", "latin-ext"],
 });
 
-export const metadata: Metadata = {
-    // Resolves relative URLs in `openGraph.images` / `twitter.images`
-    // (e.g. `/docs-og/<slug>.png` emitted by per-doc `generateMetadata`)
-    // against the deployment origin. Without this, Next falls back to
-    // `http://localhost:3000` in production and ships broken social
-    // previews. `APP_URL` is allowed to be unset during `next build`
-    // (see `src/lib/env.ts`); the fallback keeps the build green and
-    // self-host deployments override it at runtime via env.
-    metadataBase: new URL(env.APP_URL ?? "https://riffado.com"),
-    title: {
-        default: "Riffado — Open-source AI transcription for voice recorders",
-        template: "%s · Riffado",
-    },
-    description:
+export async function generateMetadata(): Promise<Metadata> {
+    const t = await getExtracted();
+    const title = t(
+        "Riffado — Open-source AI transcription for voice recorders",
+    );
+    const description = t(
         "Open-source transcription for the voice recorder you already own. Choose your AI, own your transcripts, deploy where you want. Currently supports the Plaud Note family: Note, Note Pro, and NotePin.",
-    applicationName: "Riffado",
-    manifest: "/manifest.webmanifest",
-    openGraph: {
-        type: "website",
-        siteName: "Riffado",
-        title: "Riffado — Open-source AI transcription for voice recorders",
-        description:
-            "Open-source transcription for the voice recorder you already own. Choose your AI, own your transcripts, deploy where you want.",
-        images: [{ url: "/og-home.png", width: 1200, height: 630 }],
-    },
-    twitter: {
-        card: "summary_large_image",
-        site: "@riffadohq",
-        creator: "@riffadohq",
-        title: "Riffado — Open-source AI transcription for voice recorders",
-        description:
-            "Open-source transcription for the voice recorder you already own. Choose your AI, own your transcripts, deploy where you want.",
-        images: ["/og-home.png"],
-    },
-    appleWebApp: {
-        capable: true,
-        title: "Riffado",
-        statusBarStyle: "black-translucent",
-    },
-};
+    );
+    const socialDescription = t(
+        "Open-source transcription for the voice recorder you already own. Choose your AI, own your transcripts, deploy where you want.",
+    );
+
+    return {
+        // Resolves relative URLs in `openGraph.images` / `twitter.images`
+        // (e.g. `/docs-og/<slug>.png` emitted by per-doc `generateMetadata`)
+        // against the deployment origin. Without this, Next falls back to
+        // `http://localhost:3000` in production and ships broken social
+        // previews. `APP_URL` is allowed to be unset during `next build`
+        // (see `src/lib/env.ts`); the fallback keeps the build green and
+        // self-host deployments override it at runtime via env.
+        metadataBase: new URL(env.APP_URL ?? "https://riffado.com"),
+        title: {
+            default: title,
+            template: "%s · Riffado",
+        },
+        description,
+        applicationName: "Riffado",
+        manifest: "/manifest.webmanifest",
+        openGraph: {
+            type: "website",
+            siteName: "Riffado",
+            title,
+            description: socialDescription,
+            images: [{ url: "/og-home.png", width: 1200, height: 630 }],
+        },
+        twitter: {
+            card: "summary_large_image",
+            site: "@riffadohq",
+            creator: "@riffadohq",
+            title,
+            description: socialDescription,
+            images: ["/og-home.png"],
+        },
+        appleWebApp: {
+            capable: true,
+            title: "Riffado",
+            statusBarStyle: "black-translucent",
+        },
+    };
+}
 
 export const viewport: Viewport = {
     themeColor: [
@@ -68,32 +80,35 @@ export const viewport: Viewport = {
     ],
 };
 
-export default function RootLayout({
+export default async function RootLayout({
     children,
 }: Readonly<{
     children: React.ReactNode;
 }>) {
+    const [locale, messages] = await Promise.all([getLocale(), getMessages()]);
+
     return (
-        <html lang="en" suppressHydrationWarning>
+        <html lang={locale} suppressHydrationWarning>
             <body
                 className={`${geistSans.variable} ${geistMono.variable} antialiased`}
             >
-                <AppProgress>
-                    <ThemeProvider
-                        attribute="class"
-                        defaultTheme="system"
-                        enableSystem
-                        disableTransitionOnChange
-                    >
-                        {/*
+                <NextIntlClientProvider locale={locale} messages={messages}>
+                    <AppProgress>
+                        <ThemeProvider
+                            attribute="class"
+                            defaultTheme="system"
+                            enableSystem
+                            disableTransitionOnChange
+                        >
+                            {/*
                           Tooltip provider wraps the app so any descendant
                           `<Tooltip>` works without a local provider. 200ms
                           delay is the shadcn default-ish: short enough to
                           feel responsive, long enough to avoid firing on
                           incidental mouseovers.
                         */}
-                        <TooltipProvider delayDuration={200}>
-                            {/*
+                            <TooltipProvider delayDuration={200}>
+                                {/*
                               App-wide imperative confirm dialog. Any
                               client component can `useConfirm()` to get
                               a Promise-returning function for destructive
@@ -102,15 +117,16 @@ export default function RootLayout({
                               One instance, one dialog node, consistent
                               look + pending-state handling.
                             */}
-                            <ConfirmDialogProvider>
-                                {children}
-                                <Toaster />
-                            </ConfirmDialogProvider>
-                        </TooltipProvider>
-                    </ThemeProvider>
-                    <RybbitAnalytics />
-                    <PostHogAnalytics />
-                </AppProgress>
+                                <ConfirmDialogProvider>
+                                    {children}
+                                    <Toaster />
+                                </ConfirmDialogProvider>
+                            </TooltipProvider>
+                        </ThemeProvider>
+                        <RybbitAnalytics />
+                        <PostHogAnalytics />
+                    </AppProgress>
+                </NextIntlClientProvider>
             </body>
         </html>
     );

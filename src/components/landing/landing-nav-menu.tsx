@@ -3,7 +3,11 @@
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { docsNavLinks, productNavLinks } from "@/components/landing/nav-links";
+import { useExtracted } from "next-intl";
+import {
+    useDocsNavLinks,
+    useProductNavLinks,
+} from "@/components/landing/nav-links";
 import {
     NavigationMenu,
     NavigationMenuContent,
@@ -18,7 +22,10 @@ const topLevelLinkClassName =
     "inline-flex h-9 items-center rounded-md px-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/50 data-[active]:bg-accent data-[active]:text-accent-foreground";
 
 export function LandingNavMenu() {
+    const i18n = useExtracted();
     const pathname = usePathname();
+    const docsNavLinks = useDocsNavLinks();
+    const productNavLinks = useProductNavLinks();
     const productActive = pathname === "/for-professionals";
 
     return (
@@ -30,7 +37,7 @@ export function LandingNavMenu() {
                             productActive && "bg-accent text-accent-foreground",
                         )}
                     >
-                        Product
+                        {i18n("Product")}
                     </NavigationMenuTrigger>
                     <NavigationMenuContent>
                         <div className="grid w-[42rem] grid-cols-[minmax(0,1fr)_14rem] p-2">
@@ -68,7 +75,7 @@ export function LandingNavMenu() {
 
                             <div className="border-l border-border/60 bg-muted/30 p-3">
                                 <p className="font-mono text-xs font-semibold uppercase text-foreground/70">
-                                    Start here
+                                    {i18n("Start here")}
                                 </p>
                                 <div className="mt-2 flex flex-col">
                                     {docsNavLinks.map((item) => (
@@ -95,7 +102,7 @@ export function LandingNavMenu() {
                                         href="/docs"
                                         className="mt-2 inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-foreground outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring/50"
                                     >
-                                        All documentation
+                                        {i18n("All documentation")}{" "}
                                         <ArrowRight
                                             aria-hidden="true"
                                             className="size-3.5"
@@ -113,7 +120,7 @@ export function LandingNavMenu() {
                         active={pathname.startsWith("/docs")}
                     >
                         <Link href="/docs" className={topLevelLinkClassName}>
-                            Docs
+                            {i18n("Docs")}
                         </Link>
                     </NavigationMenuLink>
                 </NavigationMenuItem>
@@ -127,7 +134,7 @@ export function LandingNavMenu() {
                             href="/changelog"
                             className={topLevelLinkClassName}
                         >
-                            Changelog
+                            {i18n("Changelog")}
                         </Link>
                     </NavigationMenuLink>
                 </NavigationMenuItem>

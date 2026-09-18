@@ -7,6 +7,7 @@ import {
 } from "@/db/queries/billing";
 import { users } from "@/db/schema";
 import { env } from "@/lib/env";
+import { normalizeLocale } from "@/lib/i18n/config";
 import { sendPaymentFailedEmail } from "@/lib/notifications/email";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { mirrorCheckoutSession, mirrorSubscriptionById } from "./mirror";
@@ -120,7 +121,7 @@ async function handleInvoicePaymentFailed(
     if (!userId) return;
 
     const [row] = await db
-        .select({ email: users.email })
+        .select({ email: users.email, uiLocale: users.uiLocale })
         .from(users)
         .where(eq(users.id, userId))
         .limit(1);
@@ -138,5 +139,6 @@ async function handleInvoicePaymentFailed(
         billingUrl: `${base}/settings#billing`,
         nextRetryAt: unixToDate(invoice.next_payment_attempt),
         accessUntil: unixToDate(sub.items.data[0]?.current_period_end ?? null),
+        locale: normalizeLocale(row.uiLocale),
     });
 }

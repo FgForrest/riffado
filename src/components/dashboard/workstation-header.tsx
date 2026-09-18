@@ -1,6 +1,7 @@
 "use client";
 
 import { Command, Upload } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { AppHeader } from "@/components/app-header";
 import { AppNav } from "@/components/app-nav";
 import { UserMenu } from "@/components/dashboard/user-menu";
@@ -67,6 +68,7 @@ export function WorkstationHeader({
     onOpenSettings,
     onOpenShortcuts,
 }: Props) {
+    const i18n = useExtracted();
     return (
         <AppHeader>
             <div className="flex min-w-0 items-center gap-3">
@@ -90,17 +92,17 @@ export function WorkstationHeader({
                             variant="outline"
                             size="sm"
                             className="hidden h-9 md:inline-flex"
-                            aria-label="Open command palette"
+                            aria-label={i18n("Open command palette")}
                         >
                             <Command className="mr-2 size-4" />
-                            <span>Search</span>
+                            <span>{i18n("Search")}</span>
                             <kbd className="ml-2 hidden rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:inline">
-                                ⌘K
+                                {i18n("⌘K")}
                             </kbd>
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
-                        Search recordings, transcripts, and actions
+                        {i18n("Search recordings, transcripts, and actions")}
                     </TooltipContent>
                 </Tooltip>
                 <SyncButton
@@ -125,16 +127,22 @@ export function WorkstationHeader({
                             variant="outline"
                             size="sm"
                             className="h-9"
-                            aria-label={isUploading ? "Uploading" : "Upload"}
+                            aria-label={
+                                isUploading ? i18n("Uploading") : i18n("Upload")
+                            }
                         >
                             <Upload className="size-4 sm:mr-2" />
                             <span className="hidden sm:inline">
-                                {isUploading ? "Uploading…" : "Upload"}
+                                {isUploading
+                                    ? i18n("Uploading…")
+                                    : i18n("Upload")}
                             </span>
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">
-                        Upload an audio or video file from your computer
+                        {i18n(
+                            "Upload an audio or video file from your computer",
+                        )}
                     </TooltipContent>
                 </Tooltip>
                 <UserMenu

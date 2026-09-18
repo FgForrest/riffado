@@ -2,6 +2,7 @@
 
 import { ArrowRight, X } from "lucide-react";
 import Link from "next/link";
+import { useExtracted } from "next-intl";
 import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "riffado:rebrand:in-app-banner";
@@ -26,6 +27,7 @@ const EXPIRES_AT = new Date("2026-07-28T00:00:00Z");
  * see this surface (layout-level gate).
  */
 export function RebrandBanner() {
+    const i18n = useExtracted();
     const [dismissed, setDismissed] = useState(false);
 
     useEffect(() => {
@@ -44,19 +46,21 @@ export function RebrandBanner() {
 
     return (
         <section
-            aria-label="Announcement"
+            aria-label={i18n("Announcement")}
             className="relative border-b border-primary/20 bg-primary/8 text-foreground"
         >
             <div className="container mx-auto px-4 py-2.5 pr-12 flex items-center justify-center gap-2 text-sm text-pretty">
-                <span className="font-medium">OpenPlaud is now Riffado.</span>
+                <span className="font-medium">
+                    {i18n("OpenPlaud is now Riffado.")}
+                </span>
                 <span className="text-muted-foreground hidden sm:inline">
-                    Same project, same code, same team.
+                    {i18n("Same project, same code, same team.")}
                 </span>
                 <Link
                     href="/rebrand"
                     className="inline-flex items-center gap-1 text-foreground/80 hover:text-foreground transition-colors underline decoration-dotted underline-offset-2"
                 >
-                    Read more
+                    {i18n("Read more")}{" "}
                     <ArrowRight className="size-3.5" aria-hidden />
                 </Link>
             </div>
@@ -71,7 +75,7 @@ export function RebrandBanner() {
                         // banner simply reappears next visit. Acceptable.
                     }
                 }}
-                aria-label="Dismiss announcement"
+                aria-label={i18n("Dismiss announcement")}
                 className="absolute right-3 top-1/2 -translate-y-1/2 inline-flex items-center justify-center size-7 rounded text-muted-foreground hover:text-foreground hover:bg-foreground/5 transition-colors"
             >
                 <X className="size-4" aria-hidden />

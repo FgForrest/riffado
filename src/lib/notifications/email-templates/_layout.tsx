@@ -10,6 +10,7 @@ import {
     Text,
 } from "@react-email/components";
 import type React from "react";
+import { getEmailTranslator } from "../email-template-i18n";
 import { emailStyles } from "./styles";
 
 interface EmailLayoutProps {
@@ -31,6 +32,7 @@ export function EmailLayout({
     footerLink,
     children,
 }: EmailLayoutProps) {
+    const i18n = getEmailTranslator();
     return (
         <Html>
             <Head>
@@ -48,7 +50,7 @@ export function EmailLayout({
                         <div style={{ textAlign: "center" }}>
                             <Img
                                 src="https://riffado.com/logo.png"
-                                alt="Riffado"
+                                alt={i18n("Riffado")}
                                 width="32"
                                 height="32"
                                 style={emailStyles.logo}
@@ -70,7 +72,9 @@ export function EmailLayout({
                             </Text>
                         ) : null}
                         <Text style={emailStyles.footerText}>
-                            Riffado. Your recordings, your transcripts.
+                            {i18n(
+                                "Riffado. Your recordings, your transcripts.",
+                            )}
                         </Text>
                     </Section>
                 </Container>

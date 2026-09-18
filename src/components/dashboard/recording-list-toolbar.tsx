@@ -1,6 +1,7 @@
 "use client";
 
 import { ArrowDownAZ, FolderTree, Search, X } from "lucide-react";
+import { useExtracted } from "next-intl";
 import type * as React from "react";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,6 +37,7 @@ export function RecordingListToolbar({
     onSortOrderChange: (next: SortOrder) => void;
     onOrganize: () => void;
 }) {
+    const i18n = useExtracted();
     return (
         <div className="flex flex-col gap-2 border-b p-3">
             <div className="relative">
@@ -50,15 +52,15 @@ export function RecordingListToolbar({
                             onEnterSelectFirst();
                         }
                     }}
-                    placeholder="Search recordings, transcripts..."
+                    placeholder={i18n("Search recordings, transcripts...")}
                     className="h-9 pl-8 pr-8"
-                    aria-label="Search recordings"
+                    aria-label={i18n("Search recordings")}
                 />
                 {query && (
                     <button
                         type="button"
                         onClick={() => onQueryChange("")}
-                        aria-label="Clear search"
+                        aria-label={i18n("Clear search")}
                         className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
                     >
                         <X className="size-4" />
@@ -68,8 +70,8 @@ export function RecordingListToolbar({
             <div className="flex items-center justify-between text-xs text-muted-foreground">
                 <span>
                     {filteredCount}
-                    {query ? " matching" : ""} of {totalCount} recording
-                    {totalCount !== 1 ? "s" : ""}
+                    {query ? i18n(" matching") : ""} {i18n("of")} {totalCount}{" "}
+                    {i18n("recording")} {totalCount !== 1 ? i18n("s") : ""}
                 </span>
                 <div className="flex items-center gap-1">
                     <DropdownMenu>
@@ -78,20 +80,22 @@ export function RecordingListToolbar({
                                 variant="ghost"
                                 size="sm"
                                 className="h-7 px-2 text-xs"
-                                aria-label="Sort"
+                                aria-label={i18n("Sort")}
                             >
                                 <ArrowDownAZ className="size-3.5" />
                                 <span>
                                     {sortOrder === "newest"
-                                        ? "Newest"
+                                        ? i18n("Newest")
                                         : sortOrder === "oldest"
-                                          ? "Oldest"
-                                          : "Name"}
+                                          ? i18n("Oldest")
+                                          : i18n("Name")}
                                 </span>
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
-                            <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+                            <DropdownMenuLabel>
+                                {i18n("Sort by")}
+                            </DropdownMenuLabel>
                             <DropdownMenuRadioGroup
                                 value={sortOrder}
                                 onValueChange={(v) =>
@@ -99,13 +103,13 @@ export function RecordingListToolbar({
                                 }
                             >
                                 <DropdownMenuRadioItem value="newest">
-                                    Newest first
+                                    {i18n("Newest first")}
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem value="oldest">
-                                    Oldest first
+                                    {i18n("Oldest first")}
                                 </DropdownMenuRadioItem>
                                 <DropdownMenuRadioItem value="name">
-                                    Name
+                                    {i18n("Name")}
                                 </DropdownMenuRadioItem>
                             </DropdownMenuRadioGroup>
                         </DropdownMenuContent>
@@ -116,8 +120,7 @@ export function RecordingListToolbar({
                         className="h-7 px-2 text-xs"
                         onClick={onOrganize}
                     >
-                        <FolderTree className="size-3.5" />
-                        Organize
+                        <FolderTree className="size-3.5" /> {i18n("Organize")}
                     </Button>
                 </div>
             </div>

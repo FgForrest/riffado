@@ -17,6 +17,7 @@ import {
 } from "@/db/queries/billing";
 import { users } from "@/db/schema";
 import { env } from "@/lib/env";
+import { normalizeLocale } from "@/lib/i18n/config";
 import {
     sendGraceStartedEmail,
     sendWelcomeHostedProEmail,
@@ -393,6 +394,7 @@ async function scheduleDeletionForLapsedUser(userId: string): Promise<void> {
             email: users.email,
             createdAt: users.createdAt,
             everPaidAt: users.everPaidAt,
+            uiLocale: users.uiLocale,
         })
         .from(users)
         .where(eq(users.id, userId))
@@ -419,6 +421,7 @@ async function scheduleDeletionForLapsedUser(userId: string): Promise<void> {
             deletionAt: scheduledAt,
             exportUrl: `${base}/settings#export`,
             reactivateUrl: `${base}/settings#billing`,
+            locale: normalizeLocale(row.uiLocale),
         });
     } catch (error) {
         console.error(
@@ -442,6 +445,7 @@ async function sendActivationWelcome(
         .select({
             email: users.email,
             foundingMember: users.foundingMember,
+            uiLocale: users.uiLocale,
         })
         .from(users)
         .where(eq(users.id, userId))
@@ -465,6 +469,7 @@ async function sendActivationWelcome(
             interval: plan.interval,
             recordingCount: activity.recordingCount,
             totalDurationMs: activity.totalDurationMs,
+            locale: normalizeLocale(row.uiLocale),
         });
     } catch (error) {
         console.error(

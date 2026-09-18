@@ -1,3 +1,4 @@
+import { useExtracted } from "next-intl";
 import type { FoundingMemberAvailabilityRow } from "@/db/queries/billing";
 import { env } from "@/lib/env";
 import {
@@ -26,30 +27,6 @@ import {
  * upstream provider's published per-minute/per-hour rate. Always the
  * vendor's own number -- never a derived "savings" claim.
  */
-const SUBSCRIPTION_SERVICES = [
-    {
-        name: "Plaud Pro",
-        price: "$17.99",
-        unit: "/ month",
-        scope: "1,200 transcription minutes",
-        perHour: "$0.90 / hr",
-    },
-    {
-        name: "Otter Business",
-        price: "$30",
-        unit: "/ user / month",
-        scope: "6,000 transcription minutes",
-        perHour: "$0.30 / hr",
-    },
-    {
-        name: "Rev Essentials",
-        price: "$29.99",
-        unit: "/ seat / month",
-        scope: "5,000 transcription minutes",
-        perHour: "$0.36 / hr",
-    },
-];
-
 const HOSTED_PRO_INCLUDED_HOURS = env.BILLING_PRO_INCLUDED_SECONDS / 3600;
 
 export function TheMath({
@@ -59,6 +36,7 @@ export function TheMath({
     availability: FoundingMemberAvailabilityRow;
     currency: BillingCurrency;
 }) {
+    const i18n = useExtracted();
     const catalog = billingPriceCatalog(availability);
     const foundingPrice = pickDisplayPrice(catalog.monthly.founding, currency);
     const standardPrice = pickDisplayPrice(catalog.monthly.standard, currency);
@@ -69,37 +47,70 @@ export function TheMath({
     const currencySymbol = monthlyPrice?.currency === "eur" ? "€" : "$";
     const displayPrice = monthlyAmount
         ? `${currencySymbol}${trimDisplayAmount(monthlyAmount)}`
-        : "Unavailable";
+        : i18n("Unavailable");
+    const subscriptionServices: Row[] = [
+        {
+            name: "Plaud Pro",
+            price: "$17.99",
+            unit: i18n("/ month"),
+            scope: i18n("1,200 transcription minutes"),
+            perHour: i18n("$0.90 / hr"),
+        },
+        {
+            name: "Otter Business",
+            price: "$30",
+            unit: i18n("/ user / month"),
+            scope: i18n("6,000 transcription minutes"),
+            perHour: i18n("$0.30 / hr"),
+        },
+        {
+            name: "Rev Essentials",
+            price: "$29.99",
+            unit: i18n("/ seat / month"),
+            scope: i18n("5,000 transcription minutes"),
+            perHour: i18n("$0.36 / hr"),
+        },
+    ];
     const riffadoOptions: Row[] = [
         {
             name: "Hosted Pro + Mynah",
             notice: foundingOfferActive
-                ? `Limited founding offer · ${availability.remaining} spot${availability.remaining === 1 ? "" : "s"} left`
+                ? i18n(
+                      "Limited founding offer · {count, plural, one {# spot} other {# spots}} left",
+                      { count: availability.remaining },
+                  )
                 : undefined,
             price: displayPrice,
-            unit: monthlyAmount ? "/ month" : "",
-            scope: `${HOSTED_PRO_INCLUDED_HOURS} hours of included cloud transcription + 50 GB storage`,
+            unit: monthlyAmount ? i18n("/ month") : "",
+            scope: i18n(
+                "{hours} hours of included cloud transcription + 50 GB storage",
+                { hours: String(HOSTED_PRO_INCLUDED_HOURS) },
+            ),
             perHour:
                 monthlyAmount && HOSTED_PRO_INCLUDED_HOURS > 0
-                    ? `${currencySymbol}${(
-                          Number.parseFloat(monthlyAmount) /
-                              HOSTED_PRO_INCLUDED_HOURS
-                      ).toFixed(2)} / included hr`
+                    ? i18n("{price} / included hr", {
+                          price: `${currencySymbol}${(
+                              Number.parseFloat(monthlyAmount) /
+                                  HOSTED_PRO_INCLUDED_HOURS
+                          ).toFixed(2)}`,
+                      })
                     : "—",
         },
         {
-            name: "Riffado in your browser",
+            name: i18n("Riffado in your browser"),
             price: "$0.00",
-            unit: "free",
-            scope: "Whisper via Transformers.js, no key required",
-            perHour: "$0.00 / hr",
+            unit: i18n("free"),
+            scope: i18n("Whisper via Transformers.js, no key required"),
+            perHour: i18n("$0.00 / hr"),
         },
         {
-            name: "Bring your own AI provider",
-            price: "At cost",
-            unit: "no markup",
-            scope: "OpenAI, Groq, Ollama, LM Studio, or another compatible provider",
-            perHour: "provider rate",
+            name: i18n("Bring your own AI provider"),
+            price: i18n("At cost"),
+            unit: i18n("no markup"),
+            scope: i18n(
+                "OpenAI, Groq, Ollama, LM Studio, or another compatible provider",
+            ),
+            perHour: i18n("provider rate"),
         },
     ];
 
@@ -109,29 +120,29 @@ export function TheMath({
                 <div className="mx-auto max-w-5xl">
                     <div className="max-w-2xl">
                         <p className="text-sm font-mono text-muted-foreground uppercase tracking-wider mb-4">
-                            What your monthly price includes
+                            {i18n("What your monthly price includes")}
                         </p>
                         <h2 className="text-3xl md:text-4xl font-semibold tracking-tight mb-4 text-balance">
-                            {HOSTED_PRO_INCLUDED_HOURS} hours of transcription.
-                            No separate AI bill.
+                            {HOSTED_PRO_INCLUDED_HOURS}{" "}
+                            {i18n(
+                                "hours of transcription. No separate AI bill.",
+                            )}
                         </h2>
                         <p className="text-muted-foreground text-lg leading-relaxed text-pretty">
-                            Hosted Pro includes Mynah cloud transcription for
-                            everyday use. You can also transcribe free in your
-                            browser, or connect OpenAI, Groq, Ollama, or another
-                            provider. Riffado adds no markup when you bring your
-                            own.
+                            {i18n(
+                                "Hosted Pro includes Mynah cloud transcription for everyday use. You can also transcribe free in your browser, or connect OpenAI, Groq, Ollama, or another provider. Riffado adds no markup when you bring your own.",
+                            )}
                         </p>
                     </div>
 
                     <div className="mt-10 grid gap-4 lg:grid-cols-2 lg:gap-6 items-stretch">
                         <PriceTable
-                            label="Subscription services"
-                            rows={SUBSCRIPTION_SERVICES}
+                            label={i18n("Subscription services")}
+                            rows={subscriptionServices}
                             tone="muted"
                         />
                         <PriceTable
-                            label="With Riffado"
+                            label={i18n("With Riffado")}
                             rows={riffadoOptions}
                             tone="primary"
                             highlightFirst
@@ -139,12 +150,13 @@ export function TheMath({
                     </div>
 
                     <p className="mt-6 text-xs text-muted-foreground/80 leading-relaxed text-pretty max-w-2xl">
-                        Published monthly pricing as of July 2026. Plans, minute
-                        ceilings, and trademarks belong to their respective
-                        owners; shown for descriptive context, not comparison.
-                        Hosted Pro includes {HOSTED_PRO_INCLUDED_HOURS} hours of
-                        Mynah transcription per month; Riffado itself is free to
-                        self-host.
+                        {i18n(
+                            "Published monthly pricing as of July 2026. Plans, minute ceilings, and trademarks belong to their respective owners; shown for descriptive context, not comparison. Hosted Pro includes",
+                        )}{" "}
+                        {HOSTED_PRO_INCLUDED_HOURS}{" "}
+                        {i18n(
+                            "hours of Mynah transcription per month; Riffado itself is free to self-host.",
+                        )}
                     </p>
                 </div>
             </div>
@@ -185,6 +197,7 @@ function PriceTable({
      */
     highlightFirst?: boolean;
 }) {
+    const i18n = useExtracted();
     const isMuted = tone === "muted";
     return (
         <div
@@ -239,7 +252,7 @@ function PriceTable({
                                     {row.unit}
                                     <span className="text-muted-foreground/60">
                                         {" "}
-                                        &middot; {row.perHour}
+                                        {i18n("&middot;")} {row.perHour}
                                     </span>
                                 </div>
                             </div>

@@ -3,13 +3,9 @@
 import { Mic, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useExtracted } from "next-intl";
 import { WaveformLogo } from "@/components/icons/waveform-logo";
 import { cn } from "@/lib/utils";
-
-const SECTIONS = [
-    { href: "/dashboard", label: "Recordings", icon: Mic },
-    { href: "/people", label: "People", icon: UsersRound },
-] as const;
 
 /**
  * The app's top-level sections.
@@ -20,22 +16,27 @@ const SECTIONS = [
  * sidebar for two destinations would be furniture.
  */
 export function AppNav({ className }: { className?: string }) {
+    const i18n = useExtracted();
     const pathname = usePathname();
+    const sections = [
+        { href: "/dashboard", label: i18n("Recordings"), icon: Mic },
+        { href: "/people", label: i18n("People"), icon: UsersRound },
+    ] as const;
 
     return (
         <div className={cn("flex min-w-0 items-center gap-6", className)}>
             <Link
                 href="/dashboard"
-                aria-label="Riffado home"
+                aria-label={i18n("Riffado home")}
                 className="hidden shrink-0 text-primary transition-opacity hover:opacity-80 md:block"
             >
                 <WaveformLogo className="h-10 w-9" />
             </Link>
             <nav
-                aria-label="Sections"
+                aria-label={i18n("Sections")}
                 className="flex h-11 min-w-0 items-stretch overflow-hidden rounded-xl border border-border/90 bg-card/30 shadow-sm sm:h-[54px]"
             >
-                {SECTIONS.map((section) => {
+                {sections.map((section) => {
                     const active = pathname.startsWith(section.href);
                     const Icon = section.icon;
                     return (

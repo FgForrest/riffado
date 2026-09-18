@@ -2,6 +2,7 @@
 
 import { ArrowRight } from "lucide-react";
 import Link from "next/link";
+import { useExtracted } from "next-intl";
 import { useEffect, useRef } from "react";
 import { MetalButton } from "@/components/metal-button";
 
@@ -45,6 +46,7 @@ function track(name: string, props?: Record<string, unknown>) {
  *   - `final_cta_self_host_click` on the self-host link
  */
 export function FinalCtaActions() {
+    const i18n = useExtracted();
     const rootRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
@@ -79,14 +81,14 @@ export function FinalCtaActions() {
             >
                 <Link
                     href="/register"
-                    aria-label="Start Riffado free, no card required"
+                    aria-label={i18n("Start Riffado free, no card required")}
                     onClick={() =>
                         track("final_cta_primary_click", {
                             location: "final_cta",
                         })
                     }
                 >
-                    <span>Start free</span>
+                    <span>{i18n("Start free")}</span>
                     <ArrowRight className="size-4" />
                 </Link>
             </MetalButton>
@@ -95,7 +97,7 @@ export function FinalCtaActions() {
                 opens and closes on the same two paths. */}
             <Link
                 href="/install"
-                aria-label="Self-host Riffado in one command"
+                aria-label={i18n("Self-host Riffado in one command")}
                 onClick={() =>
                     track("final_cta_self_host_click", {
                         location: "final_cta",
@@ -103,7 +105,7 @@ export function FinalCtaActions() {
                 }
                 className="group inline-flex items-center justify-center gap-1.5 text-sm font-medium text-auth-brand-foreground/60 hover:text-auth-brand-foreground transition-colors"
             >
-                <span>or self-host in one command</span>
+                <span>{i18n("or self-host in one command")}</span>
                 <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
             </Link>
         </div>

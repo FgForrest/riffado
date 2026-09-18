@@ -1,5 +1,6 @@
 import { createMDX } from "fumadocs-mdx/next";
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
 
 const nextConfig: NextConfig = {
     output: "standalone",
@@ -56,5 +57,17 @@ const nextConfig: NextConfig = {
 };
 
 const withMDX = createMDX({ outDir: "src/.source" });
+const withNextIntl = createNextIntlPlugin({
+    experimental: {
+        extract: true,
+        messages: {
+            path: "./messages",
+            format: "json",
+            locales: ["en", "cs-CZ"],
+            sourceLocale: "en",
+        },
+        srcPath: "./src",
+    },
+});
 
-export default withMDX(nextConfig);
+export default withNextIntl(withMDX(nextConfig));

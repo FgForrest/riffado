@@ -1,4 +1,6 @@
 import type { ReactElement } from "react";
+import { type AppLocale, defaultLocale } from "@/lib/i18n/config";
+import { runWithEmailLocale } from "@/lib/notifications/email-template-i18n";
 
 /**
  * Renders a React email template to an HTML email body.
@@ -24,8 +26,11 @@ import type { ReactElement } from "react";
  * to use `renderToStaticMarkup` from code also reachable by Server
  * Components.
  */
-export async function renderEmailHtml(node: ReactElement): Promise<string> {
+export async function renderEmailHtml(
+    node: ReactElement,
+    locale: AppLocale = defaultLocale,
+): Promise<string> {
     const { renderToStaticMarkup } = await import("react-dom/server");
-    const html = renderToStaticMarkup(node);
+    const html = runWithEmailLocale(locale, () => renderToStaticMarkup(node));
     return `<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">${html.replace(/<!DOCTYPE.*?>/, "")}`;
 }

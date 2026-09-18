@@ -1,6 +1,7 @@
 "use client";
 
 import { Monitor } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SettingsSectionHeader } from "@/components/settings/section-header";
@@ -14,50 +15,63 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useSettings } from "@/hooks/use-settings";
-
-const dateTimeFormatOptions = [
-    {
-        label: "Relative",
-        value: "relative",
-        description: "e.g., 2 hours ago",
-    },
-    {
-        label: "Absolute",
-        value: "absolute",
-        description: "e.g., Jan 15, 2024 3:45 PM",
-    },
-    {
-        label: "ISO",
-        value: "iso",
-        description: "e.g., 2024-01-15T15:45:00Z",
-    },
-];
-
-const sortOrderOptions = [
-    { label: "Newest first", value: "newest" },
-    { label: "Oldest first", value: "oldest" },
-    { label: "By name", value: "name" },
-];
-
-const themeOptions = [
-    { label: "Light", value: "light" },
-    { label: "Dark", value: "dark" },
-    {
-        label: "System",
-        value: "system",
-        description: "Follow system preference",
-    },
-];
+import type { AppLocale } from "@/lib/i18n/config";
 
 export function DisplaySection() {
+    const t = useExtracted();
     const { isLoadingSettings, isSavingSettings, setIsLoadingSettings } =
         useSettings();
+    const [uiLocale, setUiLocale] = useState<AppLocale | "auto">("auto");
     const [dateTimeFormat, setDateTimeFormat] = useState("relative");
     const [recordingListSortOrder, setRecordingListSortOrder] =
         useState("newest");
     const [itemsPerPage, setItemsPerPage] = useState(50);
     const [theme, setTheme] = useState("system");
     const saveTimeoutRef = useRef<NodeJS.Timeout | undefined>(undefined);
+    const localeOptions: Array<{
+        label: string;
+        value: AppLocale | "auto";
+        description?: string;
+    }> = [
+        {
+            label: t("Browser default"),
+            value: "auto",
+            description: t("Use the language preferred by this browser"),
+        },
+        { label: t("English"), value: "en" },
+        { label: t("Czech"), value: "cs-CZ" },
+    ];
+    const dateTimeFormatOptions = [
+        {
+            label: t("Relative"),
+            value: "relative",
+            description: t("e.g., 2 hours ago"),
+        },
+        {
+            label: t("Absolute"),
+            value: "absolute",
+            description: t("e.g., Jan 15, 2024 3:45 PM"),
+        },
+        {
+            label: "ISO",
+            value: "iso",
+            description: t("e.g., 2024-01-15T15:45:00Z"),
+        },
+    ];
+    const sortOrderOptions = [
+        { label: t("Newest first"), value: "newest" },
+        { label: t("Oldest first"), value: "oldest" },
+        { label: t("By name"), value: "name" },
+    ];
+    const themeOptions = [
+        { label: t("Light"), value: "light" },
+        { label: t("Dark"), value: "dark" },
+        {
+            label: t("System"),
+            value: "system",
+            description: t("Follow system preference"),
+        },
+    ];
 
     useEffect(() => {
         const fetchSettings = async () => {
@@ -65,6 +79,7 @@ export function DisplaySection() {
                 const response = await fetch("/api/settings/user");
                 if (response.ok) {
                     const data = await response.json();
+                    setUiLocale(data.uiLocale ?? "auto");
                     setDateTimeFormat(data.dateTimeFormat ?? "relative");
                     setRecordingListSortOrder(
                         data.recordingListSortOrder ?? "newest",
@@ -95,10 +110,15 @@ export function DisplaySection() {
             recordingListSortOrder?: string;
             itemsPerPage?: number;
             theme?: string;
+            uiLocale?: AppLocale | null;
         },
         debounceMs?: number,
     ) => {
         const previousValues: Record<string, unknown> = {};
+        if (updates.uiLocale !== undefined) {
+            previousValues.uiLocale = uiLocale;
+            setUiLocale(updates.uiLocale ?? "auto");
+        }
         if (updates.dateTimeFormat !== undefined) {
             previousValues.dateTimeFormat = dateTimeFormat;
             setDateTimeFormat(updates.dateTimeFormat);
@@ -131,7 +151,16 @@ export function DisplaySection() {
                 if (!response.ok) {
                     throw new Error("Failed to save settings");
                 }
+                if (updates.uiLocale !== undefined) {
+                    window.location.reload();
+                }
             } catch {
+                if (updates.uiLocale !== undefined) {
+                    const prev = previousValues.uiLocale;
+                    if (prev === "auto" || prev === "en" || prev === "cs-CZ") {
+                        setUiLocale(prev);
+                    }
+                }
                 if (updates.dateTimeFormat !== undefined) {
                     const prev = previousValues.dateTimeFormat;
                     if (typeof prev === "string") setDateTimeFormat(prev);
@@ -149,7 +178,7 @@ export function DisplaySection() {
                     const prev = previousValues.theme;
                     if (typeof prev === "string") setTheme(prev);
                 }
-                toast.error("Failed to save settings. Changes reverted.");
+                toast.error(t("Failed to save settings. Changes reverted."));
             }
         };
 
@@ -171,13 +200,63 @@ export function DisplaySection() {
     return (
         <div className="space-y-6">
             <SettingsSectionHeader
-                title="Display"
-                description="How dates, lists, and the overall UI present themselves."
+                title={t("Display")}
+                description={t(
+                    "How dates, lists, and the overall UI present themselves.",
+                )}
                 icon={Monitor}
             />
             <div className="space-y-4">
                 <div className="space-y-2">
-                    <Label htmlFor="date-time-format">Date/time format</Label>
+                    <Label htmlFor="ui-language">{t("Language")}</Label>
+                    <Select
+                        value={uiLocale}
+                        onValueChange={(value) => {
+                            if (
+                                value !== "auto" &&
+                                value !== "en" &&
+                                value !== "cs-CZ"
+                            ) {
+                                return;
+                            }
+                            setUiLocale(value);
+                            handleDisplaySettingChange({
+                                uiLocale: value === "auto" ? null : value,
+                            });
+                        }}
+                        disabled={isSavingSettings}
+                    >
+                        <SelectTrigger id="ui-language" className="w-full">
+                            <SelectValue>
+                                {localeOptions.find(
+                                    (option) => option.value === uiLocale,
+                                )?.label ?? t("Browser default")}
+                            </SelectValue>
+                        </SelectTrigger>
+                        <SelectContent>
+                            {localeOptions.map((option) => (
+                                <SelectItem
+                                    key={option.value}
+                                    value={option.value}
+                                >
+                                    <div>
+                                        <div>{option.label}</div>
+                                        {option.description ? (
+                                            <div className="text-xs text-muted-foreground">
+                                                {option.description}
+                                            </div>
+                                        ) : null}
+                                    </div>
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="date-time-format">
+                        {t("Date/time format")}
+                    </Label>
                     <Select
                         value={dateTimeFormat}
                         onValueChange={(value) => {
@@ -192,7 +271,7 @@ export function DisplaySection() {
                             <SelectValue>
                                 {dateTimeFormatOptions.find(
                                     (opt) => opt.value === dateTimeFormat,
-                                )?.label || "Relative"}
+                                )?.label || t("Relative")}
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
@@ -215,7 +294,7 @@ export function DisplaySection() {
 
                 <div className="space-y-2">
                     <Label htmlFor="sort-order">
-                        Recording list sort order
+                        {t("Recording list sort order")}
                     </Label>
                     <Select
                         value={recordingListSortOrder}
@@ -232,7 +311,7 @@ export function DisplaySection() {
                                 {sortOrderOptions.find(
                                     (opt) =>
                                         opt.value === recordingListSortOrder,
-                                )?.label || "Newest first"}
+                                )?.label || t("Newest first")}
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
@@ -249,7 +328,9 @@ export function DisplaySection() {
                 </div>
 
                 <div className="space-y-2">
-                    <Label htmlFor="items-per-page">Items per page</Label>
+                    <Label htmlFor="items-per-page">
+                        {t("Items per page")}
+                    </Label>
                     <Input
                         id="items-per-page"
                         type="number"
@@ -272,12 +353,12 @@ export function DisplaySection() {
                         }}
                     />
                     <p className="text-xs text-muted-foreground">
-                        Number of recordings to display per page (10-100)
+                        {t("Number of recordings to display per page (10-100)")}
                     </p>
                 </div>
 
                 <div className="space-y-2">
-                    <Label htmlFor="theme">Theme</Label>
+                    <Label htmlFor="theme">{t("Theme")}</Label>
                     <Select
                         value={theme}
                         onValueChange={(value) => {
@@ -289,7 +370,7 @@ export function DisplaySection() {
                         <SelectTrigger id="theme" className="w-full">
                             <SelectValue>
                                 {themeOptions.find((opt) => opt.value === theme)
-                                    ?.label || "System"}
+                                    ?.label || t("System")}
                             </SelectValue>
                         </SelectTrigger>
                         <SelectContent>

@@ -1,6 +1,7 @@
 "use client";
 
 import { Mic } from "lucide-react";
+import { useExtracted, useLocale } from "next-intl";
 import type * as React from "react";
 import {
     useCallback,
@@ -89,6 +90,8 @@ export function RecordingList({
     onOrganize,
     ref,
 }: RecordingListProps & { ref?: React.Ref<RecordingListHandle> }) {
+    const i18n = useExtracted();
+    const locale = useLocale();
     const [dateTimeFormat] = useState<DateTimeFormat>(initialDateTimeFormat);
     const [sortOrder, setSortOrder] = useState<SortOrder>(initialSortOrder);
     const [query, setQuery] = useState("");
@@ -151,7 +154,16 @@ export function RecordingList({
         }
         const groups: { label: string; items: Recording[] }[] = [];
         for (const r of visible) {
-            const label = dateGroupLabel(r.startTime);
+            const label = dateGroupLabel(
+                r.startTime,
+                {
+                    today: i18n("Today"),
+                    yesterday: i18n("Yesterday"),
+                    thisWeek: i18n("This week"),
+                    earlierThisMonth: i18n("Earlier this month"),
+                },
+                locale,
+            );
             const last = groups[groups.length - 1];
             if (last && last.label === label) {
                 last.items.push(r);
@@ -160,7 +172,7 @@ export function RecordingList({
             }
         }
         return groups;
-    }, [visible, sortOrder]);
+    }, [i18n, locale, visible, sortOrder]);
 
     // Reset visibleCount when the filter changes so search results
     // aren't accidentally truncated.
@@ -306,8 +318,8 @@ export function RecordingList({
                             <Mic className="mb-2 size-8 text-muted-foreground" />
                             <p className="text-sm text-muted-foreground">
                                 {query
-                                    ? "No recordings match your search."
-                                    : "No recordings yet."}
+                                    ? i18n("No recordings match your search.")
+                                    : i18n("No recordings yet.")}
                             </p>
                         </div>
                     )}

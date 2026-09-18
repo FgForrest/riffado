@@ -2,6 +2,7 @@
 
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useExtracted } from "next-intl";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -48,6 +49,7 @@ export function OnboardingDialog({
     onComplete,
     mandatory = false,
 }: OnboardingDialogProps) {
+    const i18n = useExtracted();
     const { refresh } = useRouter();
     const [step, setStep] = useState<OnboardingStep>("welcome");
     const [hasPlaudConnection, setHasPlaudConnection] = useState(false);
@@ -116,7 +118,7 @@ export function OnboardingDialog({
             onOpenChange(false);
             refresh();
         } catch {
-            toast.error("Failed to complete onboarding");
+            toast.error(i18n("Failed to complete onboarding"));
         }
     };
 
@@ -137,7 +139,7 @@ export function OnboardingDialog({
             >
                 <DialogHeader>
                     <DialogTitle className="text-2xl" hidden>
-                        Welcome to Riffado
+                        {i18n("Welcome to Riffado")}
                     </DialogTitle>
                 </DialogHeader>
 
@@ -174,8 +176,8 @@ export function OnboardingDialog({
                                     variant="outline"
                                     onClick={() => setStep(prevStep)}
                                 >
-                                    <ArrowLeft className="size-4 mr-2" />
-                                    Previous
+                                    <ArrowLeft className="size-4 mr-2" />{" "}
+                                    {i18n("Previous")}
                                 </Button>
                             )}
                         </div>
@@ -205,18 +207,18 @@ export function OnboardingDialog({
                                     variant="ghost"
                                     onClick={() => setStep(nextStep)}
                                 >
-                                    Skip
+                                    {i18n("Skip")}
                                 </Button>
                             )}
                             {step === "complete" ? (
                                 <Button onClick={handleComplete}>
-                                    Get Started
+                                    {i18n("Get Started")}{" "}
                                     <ArrowRight className="size-4 ml-2" />
                                 </Button>
                             ) : (
                                 nextStep && (
                                     <Button onClick={() => setStep(nextStep)}>
-                                        Next
+                                        {i18n("Next")}{" "}
                                         <ArrowRight className="size-4 ml-2" />
                                     </Button>
                                 )

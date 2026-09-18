@@ -13,6 +13,7 @@ import {
     Trash2,
     X,
 } from "lucide-react";
+import { useExtracted } from "next-intl";
 import { type DragEvent, useMemo, useState } from "react";
 import { useConfirm } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
@@ -87,6 +88,7 @@ export function FolderTree({
     onDeleteFolder,
     onAssignRecording,
 }: FolderTreeProps) {
+    const i18n = useExtracted();
     const confirm = useConfirm();
     const [query, setQuery] = useState("");
     const [expanded, setExpanded] = useState<Set<string>>(
@@ -265,7 +267,9 @@ export function FolderTree({
                             type="button"
                             className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
                             aria-label={
-                                isExpanded ? "Collapse folder" : "Expand folder"
+                                isExpanded
+                                    ? i18n("Collapse folder")
+                                    : i18n("Expand folder")
                             }
                             onClick={() => {
                                 setExpanded((current) => {
@@ -365,7 +369,13 @@ export function FolderTree({
                             }
                         }}
                         onClick={() => onSelectFolder(folder)}
-                        aria-label={`${folder.name}, ${countByFolder.get(folder.id) ?? 0} recording${(countByFolder.get(folder.id) ?? 0) === 1 ? "" : "s"}`}
+                        aria-label={i18n(
+                            "{folder}, {count, plural, one {# recording} other {# recordings}}",
+                            {
+                                folder: folder.name,
+                                count: countByFolder.get(folder.id) ?? 0,
+                            },
+                        )}
                         className="flex min-w-0 flex-1 items-center gap-2 py-2 text-left text-sm"
                     >
                         <Folder
@@ -386,7 +396,10 @@ export function FolderTree({
                                 variant="ghost"
                                 size="icon-sm"
                                 className="size-7 opacity-100 sm:opacity-0 sm:group-hover/folder:opacity-100 data-[state=open]:opacity-100"
-                                aria-label={`Folder actions for ${folder.name}`}
+                                aria-label={i18n(
+                                    "Folder actions for {folder}",
+                                    { folder: folder.name },
+                                )}
                             >
                                 <MoreHorizontal className="size-4" />
                             </Button>
@@ -395,8 +408,7 @@ export function FolderTree({
                             <DropdownMenuItem
                                 onSelect={() => openAction("create", folder)}
                             >
-                                <FolderPlus />
-                                New subfolder
+                                <FolderPlus /> {i18n("New subfolder")}
                             </DropdownMenuItem>
                             {folder.kind === "custom" && (
                                 <>
@@ -405,16 +417,14 @@ export function FolderTree({
                                             openAction("rename", folder)
                                         }
                                     >
-                                        <Pencil />
-                                        Rename
+                                        <Pencil /> {i18n("Rename")}
                                     </DropdownMenuItem>
                                     <DropdownMenuItem
                                         onSelect={() =>
                                             openAction("move", folder)
                                         }
                                     >
-                                        <FolderInput />
-                                        Move to…
+                                        <FolderInput /> {i18n("Move to…")}
                                     </DropdownMenuItem>
                                 </>
                             )}
@@ -426,19 +436,23 @@ export function FolderTree({
                                         onSelect={(event) => {
                                             event.preventDefault();
                                             void confirm({
-                                                title: `Delete “${folder.name}”?`,
-                                                description:
+                                                title: i18n(
+                                                    "Delete “{folder}”?",
+                                                    { folder: folder.name },
+                                                ),
+                                                description: i18n(
                                                     "This folder and all its subfolders will be deleted. Recordings stay intact; only their folder assignments are removed.",
-                                                confirmLabel: "Delete folder",
-                                                pendingLabel: "Deleting…",
+                                                ),
+                                                confirmLabel:
+                                                    i18n("Delete folder"),
+                                                pendingLabel: i18n("Deleting…"),
                                                 destructive: true,
                                                 onConfirm: () =>
                                                     onDeleteFolder(folder.id),
                                             });
                                         }}
                                     >
-                                        <Trash2 />
-                                        Delete
+                                        <Trash2 /> {i18n("Delete")}
                                     </DropdownMenuItem>
                                 </>
                             )}
@@ -467,15 +481,15 @@ export function FolderTree({
                                 onChange={(event) =>
                                     setQuery(event.target.value)
                                 }
-                                placeholder="Search folders..."
-                                aria-label="Search folders"
+                                placeholder={i18n("Search folders...")}
+                                aria-label={i18n("Search folders")}
                                 className="h-9 pl-8 pr-8"
                             />
                             {query && (
                                 <button
                                     type="button"
                                     onClick={() => setQuery("")}
-                                    aria-label="Clear search"
+                                    aria-label={i18n("Clear search")}
                                     className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground"
                                 >
                                     <X className="size-4" />
@@ -484,8 +498,8 @@ export function FolderTree({
                         </div>
                         <div className="flex items-center justify-between text-xs text-muted-foreground">
                             <span>
-                                {customFolderCount} folder
-                                {customFolderCount === 1 ? "" : "s"}
+                                {customFolderCount} {i18n("folder")}{" "}
+                                {customFolderCount === 1 ? "" : i18n("s")}
                             </span>
                             <Button
                                 type="button"
@@ -494,8 +508,8 @@ export function FolderTree({
                                 className="h-7 px-2 text-xs"
                                 onClick={onRecent}
                             >
-                                <History className="size-3.5" />
-                                Recent
+                                <History className="size-3.5" />{" "}
+                                {i18n("Recent")}
                             </Button>
                         </div>
                     </div>
@@ -505,7 +519,7 @@ export function FolderTree({
                         )}
                         {matchingIds?.size === 0 && (
                             <p className="px-3 py-8 text-center text-sm text-muted-foreground">
-                                No folders match your search.
+                                {i18n("No folders match your search.")}
                             </p>
                         )}
                     </div>
@@ -522,17 +536,17 @@ export function FolderTree({
                     <DialogHeader>
                         <DialogTitle>
                             {action?.kind === "create"
-                                ? "Create subfolder"
+                                ? i18n("Create subfolder")
                                 : action?.kind === "rename"
-                                  ? "Rename folder"
-                                  : "Move folder"}
+                                  ? i18n("Rename folder")
+                                  : i18n("Move folder")}
                         </DialogTitle>
                         <DialogDescription>
                             {action?.kind === "create"
                                 ? `Add a folder inside ${action.folder.name}.`
                                 : action?.kind === "rename"
-                                  ? "Choose a clear name for this folder."
-                                  : "Choose the new parent folder."}
+                                  ? i18n("Choose a clear name for this folder.")
+                                  : i18n("Choose the new parent folder.")}
                         </DialogDescription>
                     </DialogHeader>
                     {action?.kind === "move" ? (
@@ -541,7 +555,7 @@ export function FolderTree({
                             onChange={(event) =>
                                 setMoveParentId(event.target.value)
                             }
-                            aria-label="Destination folder"
+                            aria-label={i18n("Destination folder")}
                             className="h-9 w-full rounded-md border bg-background px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         >
                             {folders
@@ -560,8 +574,8 @@ export function FolderTree({
                             value={draft}
                             onChange={(event) => setDraft(event.target.value)}
                             maxLength={100}
-                            placeholder="Folder name"
-                            aria-label="Folder name"
+                            placeholder={i18n("Folder name")}
+                            aria-label={i18n("Folder name")}
                             onKeyDown={(event) => {
                                 if (event.key === "Enter" && draft.trim()) {
                                     event.preventDefault();
@@ -577,7 +591,7 @@ export function FolderTree({
                             disabled={saving}
                             onClick={() => setAction(null)}
                         >
-                            Cancel
+                            {i18n("Cancel")}
                         </Button>
                         <Button
                             type="button"
@@ -590,12 +604,12 @@ export function FolderTree({
                             onClick={() => void submitAction()}
                         >
                             {saving
-                                ? "Saving…"
+                                ? i18n("Saving…")
                                 : action?.kind === "create"
-                                  ? "Create"
+                                  ? i18n("Create")
                                   : action?.kind === "rename"
-                                    ? "Rename"
-                                    : "Move"}
+                                    ? i18n("Rename")
+                                    : i18n("Move")}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

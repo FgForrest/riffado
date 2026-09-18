@@ -1,6 +1,7 @@
 "use client";
 
 import { AudioWaveform, Loader2 } from "lucide-react";
+import { useExtracted, useLocale } from "next-intl";
 import type { ReactNode } from "react";
 import { RecordingTitle } from "@/components/recordings/recording-title";
 import { formatBytes } from "@/lib/format-bytes";
@@ -29,8 +30,9 @@ export function RecordingPlayerHeader({
     action,
     onRenamed,
 }: RecordingPlayerHeaderProps) {
+    const locale = useLocale();
     const metaParts: string[] = [
-        formatDateTime(recording.startTime, "relative"),
+        formatDateTime(recording.startTime, "relative", locale),
         formatDuration(recording.duration / 1000),
         formatBytes(recording.filesize),
     ];
@@ -72,6 +74,7 @@ export function RecordingWaveformStatus({
     waveformStatus,
     onDecodeWaveform,
 }: RecordingWaveformStatusProps) {
+    const i18n = useExtracted();
     if (scrubberStyle !== "waveform" || waveformStatus === "ready") {
         return null;
     }
@@ -80,8 +83,8 @@ export function RecordingWaveformStatus({
         <div className="flex min-h-5 items-center text-xs text-muted-foreground">
             {waveformStatus === "decoding" && (
                 <span className="inline-flex items-center gap-1.5">
-                    <Loader2 className="size-3 animate-spin" />
-                    Analyzing audio…
+                    <Loader2 className="size-3 animate-spin" />{" "}
+                    {i18n("Analyzing audio…")}
                 </span>
             )}
             {waveformStatus === "skipped" && (
@@ -89,10 +92,12 @@ export function RecordingWaveformStatus({
                     type="button"
                     onClick={onDecodeWaveform}
                     className="inline-flex items-center gap-1.5 underline-offset-2 hover:text-foreground hover:underline"
-                    title="Decode waveform in your browser (may take a few seconds)"
+                    title={i18n(
+                        "Decode waveform in your browser (may take a few seconds)",
+                    )}
                 >
-                    <AudioWaveform className="size-3" />
-                    Generate waveform
+                    <AudioWaveform className="size-3" />{" "}
+                    {i18n("Generate waveform")}
                 </button>
             )}
             {waveformStatus === "error" && (
@@ -101,12 +106,14 @@ export function RecordingWaveformStatus({
                     onClick={onDecodeWaveform}
                     className="inline-flex items-center gap-1.5 text-destructive underline-offset-2 hover:underline"
                 >
-                    <AudioWaveform className="size-3" />
-                    Retry waveform
+                    <AudioWaveform className="size-3" />{" "}
+                    {i18n("Retry waveform")}
                 </button>
             )}
             {waveformStatus === "idle" && (
-                <span className="sr-only">Waveform is not available</span>
+                <span className="sr-only">
+                    {i18n("Waveform is not available")}
+                </span>
             )}
         </div>
     );
