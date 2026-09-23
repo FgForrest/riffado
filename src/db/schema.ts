@@ -1111,9 +1111,9 @@ export const userSettings = pgTable("user_settings", {
     autoGenerateTitle: boolean("auto_generate_title").notNull().default(true),
     syncTitleToPlaud: boolean("sync_title_to_plaud").notNull().default(false),
     // Title generation prompt configuration
-    titleGenerationPrompt: jsonb("title_generation_prompt"), // { preset: string, customPrompt?: string }
+    titleGenerationPrompt: jsonb("title_generation_prompt"), // TemplateConfiguration, see lib/ai/prompt-templates.ts
     // Summary prompt configuration
-    summaryPrompt: jsonb("summary_prompt"), // { selectedPrompt: string, customPrompts: CustomPrompt[] }
+    summaryPrompt: jsonb("summary_prompt"), // TemplateConfiguration, see lib/ai/prompt-templates.ts
     // AI output language (applies to summaries and AI-generated titles).
     // null or "auto" => match transcript language (default behavior).
     aiOutputLanguage: text("ai_output_language"),

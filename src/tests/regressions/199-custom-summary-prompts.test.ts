@@ -1,15 +1,17 @@
 import { describe, expect, it } from "vitest";
+import { resolveTemplate } from "@/lib/ai/prompt-templates";
 import {
-    getAllSummaryPrompts,
-    getSummaryPromptById,
     isValidSummaryPromptConfig,
+    normalizeSummaryPromptConfig,
+    SUMMARY_TEMPLATE_KIND,
 } from "@/lib/ai/summary-presets";
 
 // Regression coverage for #199: custom summary prompts were unreachable in
 // the UI, and the one path that could write them (`PUT /api/settings/user`)
 // accepted any shape and silently wiped `customPrompts` on every preset
 // change. These tests cover the shape validator added to close that gap and
-// the merge/resolve helpers the UI now relies on.
+// that custom prompts saved in that legacy shape survive the move to
+// editable templates.
 describe("isValidSummaryPromptConfig", () => {
     it("accepts a well-formed config with no custom prompts", () => {
         expect(
@@ -65,58 +67,49 @@ describe("isValidSummaryPromptConfig", () => {
     });
 });
 
-describe("getAllSummaryPrompts", () => {
-    it("merges presets and custom prompts, tagging isPreset correctly", () => {
-        const merged = getAllSummaryPrompts({
-            selectedPrompt: "custom-1",
-            customPrompts: [
-                {
-                    id: "custom-1",
-                    name: "My Custom Prompt",
-                    prompt: "Custom instructions {transcription}",
-                    createdAt: "2026-01-01T00:00:00.000Z",
-                },
-            ],
-        });
+describe("legacy custom prompts after the move to templates", () => {
+    const legacy = {
+        selectedPrompt: "custom-1",
+        customPrompts: [
+            {
+                id: "custom-1",
+                name: "My Custom Prompt",
+                prompt: "Custom instructions {transcription}",
+                createdAt: "2026-01-01T00:00:00.000Z",
+            },
+        ],
+    };
 
-        const presetIds = merged.filter((p) => p.isPreset).map((p) => p.id);
-        expect(presetIds).toEqual(
-            expect.arrayContaining([
-                "general",
-                "meeting-notes",
-                "key-points",
-                "action-items",
-            ]),
-        );
-
-        const custom = merged.find((p) => p.id === "custom-1");
-        expect(custom).toBeDefined();
-        expect(custom?.isPreset).toBe(false);
-        expect(custom?.name).toBe("My Custom Prompt");
+    it("reads as the built-ins followed by the custom prompts", () => {
+        const config = normalizeSummaryPromptConfig(legacy);
+        expect(config.templates.map((t) => t.id)).toEqual([
+            "general",
+            "meeting-notes",
+            "key-points",
+            "action-items",
+            "custom-1",
+        ]);
+        expect(config.templates.at(-1)?.name).toBe("My Custom Prompt");
+        expect(config.selectedPrompt).toBe("custom-1");
     });
-});
 
-describe("getSummaryPromptById", () => {
     it("resolves a custom prompt id from the config", () => {
-        const config = {
-            selectedPrompt: "custom-1",
-            customPrompts: [
-                {
-                    id: "custom-1",
-                    name: "My Custom Prompt",
-                    prompt: "Custom instructions {transcription}",
-                    createdAt: "2026-01-01T00:00:00.000Z",
-                },
-            ],
-        };
-
-        expect(getSummaryPromptById("custom-1", config)).toBe(
-            "Custom instructions {transcription}",
-        );
+        const config = normalizeSummaryPromptConfig(legacy);
+        expect(
+            resolveTemplate(config, "custom-1", SUMMARY_TEMPLATE_KIND),
+        ).toEqual({
+            id: "custom-1",
+            prompt: "Custom instructions {transcription}",
+        });
     });
 
-    it("returns null for a deleted/unknown custom prompt id -- the route falls back to the default prompt in this case", () => {
-        const config = { selectedPrompt: "general", customPrompts: [] };
-        expect(getSummaryPromptById("deleted-custom-id", config)).toBeNull();
+    it("falls back to the user's default for a deleted id, and says so", () => {
+        const config = normalizeSummaryPromptConfig(legacy);
+        const resolved = resolveTemplate(
+            config,
+            "deleted-custom-id",
+            SUMMARY_TEMPLATE_KIND,
+        );
+        expect(resolved.id).toBe("custom-1");
     });
 });

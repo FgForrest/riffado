@@ -1,10 +1,12 @@
-import type {
-    CustomPrompt,
-    PromptConfiguration,
-    PromptPreset,
-} from "@/types/ai";
+import type { PromptConfiguration, PromptPreset } from "@/types/ai";
+import {
+    defaultTemplateConfig,
+    isValidTemplateConfig,
+    normalizeTemplateConfig,
+    type TemplateKind,
+} from "./prompt-templates";
 
-export type { CustomPrompt, PromptConfiguration, PromptPreset };
+export type { PromptConfiguration, PromptPreset };
 
 export interface PromptConfig {
     id: PromptPreset;
@@ -235,51 +237,21 @@ Generate the title now:`,
     },
 };
 
-export function getPromptForPreset(preset: PromptPreset): string {
-    return PROMPT_PRESETS[preset].prompt;
-}
+export const TITLE_TEMPLATE_KIND: TemplateKind<PromptPreset> = {
+    presets: PROMPT_PRESETS,
+    fallbackId: "default",
+};
 
 export function getDefaultPromptConfig(): PromptConfiguration {
-    return {
-        selectedPrompt: "default",
-        customPrompts: [],
-    };
+    return defaultTemplateConfig(TITLE_TEMPLATE_KIND);
 }
 
-export function getAllPrompts(config: PromptConfiguration): Array<{
-    id: string;
-    name: string;
-    description: string;
-    prompt: string;
-    isPreset: boolean;
-}> {
-    const presets = Object.values(PROMPT_PRESETS).map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        prompt: p.prompt,
-        isPreset: true,
-    }));
-
-    const customs = config.customPrompts.map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: "Custom prompt",
-        prompt: p.prompt,
-        isPreset: false,
-    }));
-
-    return [...presets, ...customs];
+/** Read a stored (decrypted) `titleGenerationPrompt`; see normalizeTemplateConfig. */
+export function normalizeTitlePromptConfig(raw: unknown): PromptConfiguration {
+    return normalizeTemplateConfig(raw, TITLE_TEMPLATE_KIND);
 }
 
-export function getPromptById(
-    id: string,
-    config: PromptConfiguration,
-): string | null {
-    if (id in PROMPT_PRESETS) {
-        return PROMPT_PRESETS[id as PromptPreset].prompt;
-    }
-
-    const custom = config.customPrompts.find((p) => p.id === id);
-    return custom?.prompt || null;
+/** Validate an untrusted `titleGenerationPrompt`; see isValidTemplateConfig. */
+export function isValidTitlePromptConfig(value: unknown): boolean {
+    return isValidTemplateConfig(value, TITLE_TEMPLATE_KIND);
 }

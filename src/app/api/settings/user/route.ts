@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { userSettings, users } from "@/db/schema";
+import { isValidTitlePromptConfig } from "@/lib/ai/prompt-presets";
 import {
     isValidSummaryPromptConfig,
     normalizeAiOutputLanguage,
@@ -372,6 +373,17 @@ export const PUT = apiHandler(async (request: Request) => {
     }
 
     if (body.titleGenerationPrompt !== undefined) {
+        if (
+            body.titleGenerationPrompt !== null &&
+            !isValidTitlePromptConfig(body.titleGenerationPrompt)
+        ) {
+            throw new AppError(
+                ErrorCode.INVALID_INPUT,
+                "Invalid titleGenerationPrompt value",
+                400,
+                { field: "titleGenerationPrompt" },
+            );
+        }
         const encrypted =
             body.titleGenerationPrompt === null
                 ? null

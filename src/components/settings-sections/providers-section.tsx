@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Pencil, Plus, Sparkles, Trash2 } from "lucide-react";
+import { Bot, Pencil, Plus, Trash2 } from "lucide-react";
 import { useExtracted } from "next-intl";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -8,14 +8,11 @@ import { useConfirm } from "@/components/confirm-dialog";
 import { AddProviderDialog } from "@/components/settings/add-provider-dialog";
 import { EditProviderDialog } from "@/components/settings/edit-provider-dialog";
 import { SettingsSectionHeader } from "@/components/settings/section-header";
-import { PromptManager } from "@/components/settings-sections/prompt-manager";
 import { Button } from "@/components/ui/button";
 import {
     isEnhancementOnlyProvider,
     isTranscriptionOnlyProvider,
 } from "@/lib/ai/provider-presets";
-
-type AISubSection = "providers" | "prompts";
 
 interface Provider {
     id: string;
@@ -40,12 +37,11 @@ interface ProvidersSectionProps {
 /**
  * AI Providers settings section.
  *
- * Two tabs:
- *  - "Providers": the configured AI providers (transcription / enhancement)
- *    plus the AddProviderDialog and EditProviderDialog. Local state seeded
- *    from `initialProviders` and updated in place by the dialogs.
- *  - "Prompts": delegated entirely to <PromptManager />, which owns its own
- *    settings round-trip + custom prompt CRUD.
+ * The configured AI providers (transcription / enhancement) plus the
+ * AddProviderDialog and EditProviderDialog. Local state seeded from
+ * `initialProviders` and updated in place by the dialogs. Prompt templates
+ * live with the features that use them: title templates in Transcription,
+ * summary templates in Summary.
  *
  * Note: `initialProviders` is the server-rendered seed only. The local
  * `providers` state diverges from it after add/edit/delete actions; we do
@@ -82,7 +78,6 @@ export function ProvidersSection({
         null,
     );
     const [deletingId, setDeletingId] = useState<string | null>(null);
-    const [aiSubSection, setAiSubSection] = useState<AISubSection>("providers");
 
     const refreshProviders = async () => {
         try {
@@ -201,57 +196,23 @@ export function ProvidersSection({
                         )}
                         icon={Bot}
                     />
-                    {aiSubSection === "providers" && (
-                        <Button
-                            onClick={() => setIsAddProviderOpen(true)}
-                            size="sm"
-                        >
-                            <Plus className="size-4 mr-2" />{" "}
-                            {i18n("Add Provider")}
-                        </Button>
-                    )}
+                    <Button
+                        onClick={() => setIsAddProviderOpen(true)}
+                        size="sm"
+                    >
+                        <Plus className="size-4 mr-2" /> {i18n("Add Provider")}
+                    </Button>
                 </div>
 
-                {/* Tabs */}
-                <div className="flex gap-2 border-b">
-                    <button
-                        type="button"
-                        onClick={() => setAiSubSection("providers")}
-                        className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                            aiSubSection === "providers"
-                                ? "border-primary text-primary"
-                                : "border-transparent text-muted-foreground hover:text-foreground"
-                        }`}
-                    >
-                        {i18n("Providers")}
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setAiSubSection("prompts")}
-                        className={`px-4 py-2 text-sm font-medium transition-colors border-b-2 -mb-px ${
-                            aiSubSection === "prompts"
-                                ? "border-primary text-primary"
-                                : "border-transparent text-muted-foreground hover:text-foreground"
-                        }`}
-                    >
-                        <Sparkles className="size-4 inline mr-2" />{" "}
-                        {i18n("Prompts")}
-                    </button>
-                </div>
-
-                {aiSubSection === "providers" && (
-                    <ProvidersList
-                        providers={providers}
-                        deletingId={deletingId}
-                        onAdd={() => setIsAddProviderOpen(true)}
-                        onEdit={handleEdit}
-                        onDelete={handleDelete}
-                        onSetDefault={handleSetDefaultTranscription}
-                        onSetDefaultEnhancement={handleSetDefaultEnhancement}
-                    />
-                )}
-
-                {aiSubSection === "prompts" && <PromptManager />}
+                <ProvidersList
+                    providers={providers}
+                    deletingId={deletingId}
+                    onAdd={() => setIsAddProviderOpen(true)}
+                    onEdit={handleEdit}
+                    onDelete={handleDelete}
+                    onSetDefault={handleSetDefaultTranscription}
+                    onSetDefaultEnhancement={handleSetDefaultEnhancement}
+                />
             </div>
 
             <AddProviderDialog

@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-    getAllSummaryPrompts,
-    getDefaultSummaryPromptConfig,
+    normalizeSummaryPromptConfig,
     type SummaryPromptConfiguration,
 } from "@/lib/ai/summary-presets";
 import {
@@ -20,8 +19,14 @@ import {
 
 export interface SummaryPromptOption {
     id: string;
-    name: string;
-    isPreset: boolean;
+    /** null: a built-in template's name, localized by the caller. */
+    name: string | null;
+}
+
+function promptOptions(
+    config: SummaryPromptConfiguration,
+): SummaryPromptOption[] {
+    return config.templates.map((t) => ({ id: t.id, name: t.name }));
 }
 
 export type SummarySource = "plaud" | "riffado";
@@ -190,42 +195,27 @@ export function useTranscriptionSummary({
     }, []);
     const [summaryPromptOptions, setSummaryPromptOptions] = useState<
         SummaryPromptOption[]
-    >(() =>
-        getAllSummaryPrompts(getDefaultSummaryPromptConfig()).map((p) => ({
-            id: p.id,
-            name: p.name,
-            isPreset: p.isPreset,
-        })),
-    );
+    >(() => promptOptions(normalizeSummaryPromptConfig(null)));
 
     // Re-fetch trigger separate from the URL/id key so callers can
     // bump it imperatively (e.g. right after a re-transcribe finishes,
     // before the new text has propagated through props).
     const [summaryFetchKey, setSummaryFetchKey] = useState(0);
 
-    // Load the user's saved default prompt + custom prompts once so the
-    // per-recording dropdown initializes to the actual default (not a
-    // hardcoded "general") and lists custom prompts alongside presets.
+    // Load the user's templates once so the per-recording dropdown
+    // initializes to their actual default (not a hardcoded "general") and
+    // lists the same templates, in the same order, as the settings.
     useEffect(() => {
         const controller = new AbortController();
         fetch("/api/settings/user", { signal: controller.signal })
             .then((res) => (res.ok ? res.json() : null))
             .then((data) => {
-                const config = data?.summaryPrompt as
-                    | SummaryPromptConfiguration
-                    | null
-                    | undefined;
-                if (!config) return;
-                if (config.selectedPrompt && !userSelectedPresetRef.current) {
+                if (!data) return;
+                const config = normalizeSummaryPromptConfig(data.summaryPrompt);
+                if (!userSelectedPresetRef.current) {
                     setSummaryPresetState(config.selectedPrompt);
                 }
-                setSummaryPromptOptions(
-                    getAllSummaryPrompts(config).map((p) => ({
-                        id: p.id,
-                        name: p.name,
-                        isPreset: p.isPreset,
-                    })),
-                );
+                setSummaryPromptOptions(promptOptions(config));
             })
             .catch(() => {});
         return () => controller.abort();

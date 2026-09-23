@@ -31,6 +31,7 @@ import {
     SelectTrigger,
     SelectValue,
 } from "@/components/ui/select";
+import { useSummaryPresetCopy } from "@/hooks/use-preset-copy";
 import {
     type SummarySource,
     useTranscriptionSummary,
@@ -184,6 +185,7 @@ export function TranscriptionPanel({
     onSeekToTurn,
 }: TranscriptionPanelProps) {
     const i18n = useExtracted();
+    const summaryPresetCopy = useSummaryPresetCopy();
     const transcriptList = toTranscriptList(transcripts, transcription);
     // The Organization view of a shared recording: its own transcript and
     // summary, made with the organization's templates, never the owner's.
@@ -640,7 +642,11 @@ export function TranscriptionPanel({
                                                             key={preset.id}
                                                             value={preset.id}
                                                         >
-                                                            {preset.name}
+                                                            {preset.name ??
+                                                                summaryPresetCopy[
+                                                                    preset.id as keyof typeof summaryPresetCopy
+                                                                ]?.name ??
+                                                                preset.id}
                                                         </SelectItem>
                                                     ),
                                                 )}
