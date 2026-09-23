@@ -43,6 +43,7 @@ import {
 import { resolveRunContext } from "@/lib/sharing/run-context";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import { enqueueSummaryJob } from "@/lib/summary/summary-job";
+import { queueAutoTopics } from "@/lib/topics/topics-job";
 import { buildAudioFile } from "@/lib/transcription/audio-file";
 import { chatTranscribe } from "@/lib/transcription/chat-transcribe";
 import { maybeCompressForWhisper } from "@/lib/transcription/compress-audio";
@@ -178,6 +179,7 @@ export async function storeBrowserTranscription(
                         model,
                         source: "riffado",
                         turns: null,
+                        topics: null,
                     })
                     .where(
                         and(
@@ -196,6 +198,7 @@ export async function storeBrowserTranscription(
                     model,
                     source: "riffado",
                     turns: null,
+                    topics: null,
                 });
             }
 
@@ -892,6 +895,12 @@ async function transcribeRecordingInner(
                 detected_language: detectedLanguage ?? null,
             },
         });
+
+        // Topics need the timings only some providers report. Queued like the
+        // summary, and never on the Organization view (see generate-topics).
+        if (!orgView && turns?.length) {
+            await queueAutoTopics(userId, recordingId, "riffado");
+        }
 
         if (autoSummarize) {
             // Per-user hourly cap on auto-summary calls. Cheap defense

@@ -106,6 +106,16 @@ describe("upsertTranscription and turns", () => {
         expect(harness.inserted[0].turns).toBeNull();
     });
 
+    it("clears topics on every write, since they were anchored to the old turns", async () => {
+        const inserted = stubTransaction(null);
+        await upsert(TURNS);
+        expect(inserted.inserted[0]).toHaveProperty("topics", null);
+
+        const updated = stubTransaction({ id: "tr-1" });
+        await upsert(TURNS);
+        expect(updated.updated[0]).toHaveProperty("topics", null);
+    });
+
     it("clears the previous run's turns on an undiarized re-run", async () => {
         const harness = stubTransaction({ id: "tr-1" });
 

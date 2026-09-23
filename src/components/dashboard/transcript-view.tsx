@@ -1,8 +1,13 @@
 "use client";
 
 import { useExtracted } from "next-intl";
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import type { SpeakerAttributions } from "@/lib/knowledge/speaker-references";
+import {
+    containingTurnIndex,
+    formatClock,
+    type TranscriptTopic,
+} from "@/lib/topics/timeline";
 import {
     formatSpeakerLabel,
     mayBeDiarized,
@@ -40,6 +45,13 @@ export interface TranscriptViewProps {
     speakerAttributions?: SpeakerAttributions;
     /** Seek audio to a timed turn. Omitted when audio is unavailable. */
     onSeekToTurn?: (startMs: number) => void;
+    /**
+     * Topics of this transcript. Each is shown as a heading above the stored
+     * turn its start falls in; they need `storedTurns` to be placed.
+     */
+    topics?: TranscriptTopic[] | null;
+    /** Topic to highlight briefly, after a jump to it. */
+    highlightedTopic?: number | null;
 }
 
 interface RenderableTurn {
@@ -80,6 +92,8 @@ export function TranscriptView({
     storedTurns,
     speakerAttributions = {},
     onSeekToTurn,
+    topics,
+    highlightedTopic = null,
 }: TranscriptViewProps) {
     const i18n = useExtracted();
     const turns = useMemo<RenderableTurn[] | null>(() => {
@@ -94,6 +108,26 @@ export function TranscriptView({
         if (!mayBeDiarized({ source, model })) return null;
         return parseSpeakerTurns(text);
     }, [text, source, model, storedTurns]);
+    // Topic indices by the turn they start in. Only stored turns carry the
+    // timings topics are anchored to, so a transcript without them shows none.
+    const topicsByTurn = useMemo(() => {
+        const byTurn = new Map<number, number[]>();
+        if (!topics?.length || !storedTurns?.length) return byTurn;
+        topics.forEach((topic, topicIndex) => {
+            const turnIndex = containingTurnIndex(storedTurns, topic.fromMs);
+            byTurn.set(turnIndex, [
+                ...(byTurn.get(turnIndex) ?? []),
+                topicIndex,
+            ]);
+        });
+        return byTurn;
+    }, [topics, storedTurns]);
+    const highlightedTurn =
+        highlightedTopic !== null &&
+        topics?.[highlightedTopic] &&
+        storedTurns?.length
+            ? containingTurnIndex(storedTurns, topics[highlightedTopic].fromMs)
+            : null;
 
     if (!turns) {
         return (
@@ -120,66 +154,117 @@ export function TranscriptView({
                     turn.startMs !== undefined &&
                     Number.isFinite(turn.startMs);
                 return (
-                    <div
+                    <Fragment
                         key={`${turn.speaker}-${index}-${turn.text.slice(0, 24)}`}
-                        className="space-y-1"
                     >
-                        {!turn.label && canSeek && (
-                            <button
-                                type="button"
-                                className="rounded-sm font-mono text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                                onClick={() => onSeekToTurn(turn.startMs ?? 0)}
-                                aria-label={i18n("Seek audio to {time}", {
-                                    time: formatTimestamp(turn.startMs ?? 0),
-                                })}
-                            >
-                                {formatTimestamp(turn.startMs ?? 0)}
-                            </button>
-                        )}
-                        {turn.label && (
-                            <div className="relative flex items-center gap-2">
-                                <span
-                                    className={`size-1.5 rounded-full shrink-0 ${style.dot}`}
-                                />
-                                {canSeek ? (
-                                    <button
-                                        type="button"
-                                        className={`rounded-sm text-xs font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${style.text}`}
-                                        onClick={() =>
-                                            onSeekToTurn(turn.startMs ?? 0)
-                                        }
-                                        aria-label={i18n(
-                                            "Seek audio to {time}, {speaker}",
-                                            {
-                                                time: formatTimestamp(
-                                                    turn.startMs ?? 0,
-                                                ),
-                                                speaker: displayName,
-                                            },
-                                        )}
-                                        title={i18n("Seek audio to {time}", {
-                                            time: formatTimestamp(
-                                                turn.startMs ?? 0,
-                                            ),
-                                        })}
-                                    >
-                                        {displayName}
-                                    </button>
-                                ) : (
-                                    <span
-                                        className={`text-xs font-medium ${style.text}`}
-                                    >
-                                        {displayName}
+                        {topicsByTurn.get(index)?.map((topicIndex) => {
+                            const topic = (topics as TranscriptTopic[])[
+                                topicIndex
+                            ];
+                            // The same form as the topics list, so both read alike.
+                            const time = formatClock(topic.fromMs);
+                            return (
+                                <div
+                                    key={`topic-${topicIndex}-${topic.fromMs}`}
+                                    data-topic-index={topicIndex}
+                                    className={`flex scroll-mt-2 items-baseline gap-2 rounded-md border-t border-border/60 px-1 pt-3 transition-colors duration-700 ${topicIndex === 0 && index === 0 ? "border-t-0 pt-0" : ""} ${highlightedTopic === topicIndex ? "bg-primary/10" : ""}`}
+                                >
+                                    <span className="text-sm font-semibold tabular-nums text-primary">
+                                        {topicIndex + 1}.
                                     </span>
-                                )}
-                            </div>
-                        )}
-                        <p
-                            className={`text-sm whitespace-pre-wrap leading-relaxed ${turn.label ? "pl-3.5" : ""}`}
+                                    <h4 className="min-w-0 flex-1 text-sm font-semibold">
+                                        {topic.title}
+                                    </h4>
+                                    {onSeekToTurn ? (
+                                        <button
+                                            type="button"
+                                            className="shrink-0 rounded-sm font-mono text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                            onClick={() =>
+                                                onSeekToTurn(topic.fromMs)
+                                            }
+                                            aria-label={i18n(
+                                                "Jump to topic {title} at {time}",
+                                                { title: topic.title, time },
+                                            )}
+                                        >
+                                            {time}
+                                        </button>
+                                    ) : (
+                                        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                                            {time}
+                                        </span>
+                                    )}
+                                </div>
+                            );
+                        })}
+                        <div
+                            data-turn-index={index}
+                            className={`space-y-1 rounded-md transition-colors duration-700 ${highlightedTurn === index ? "bg-primary/10" : ""}`}
                         >
-                            {turn.text}
-                        </p>
-                    </div>
+                            {!turn.label && canSeek && (
+                                <button
+                                    type="button"
+                                    className="rounded-sm font-mono text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    onClick={() =>
+                                        onSeekToTurn(turn.startMs ?? 0)
+                                    }
+                                    aria-label={i18n("Seek audio to {time}", {
+                                        time: formatTimestamp(
+                                            turn.startMs ?? 0,
+                                        ),
+                                    })}
+                                >
+                                    {formatTimestamp(turn.startMs ?? 0)}
+                                </button>
+                            )}
+                            {turn.label && (
+                                <div className="relative flex items-center gap-2">
+                                    <span
+                                        className={`size-1.5 rounded-full shrink-0 ${style.dot}`}
+                                    />
+                                    {canSeek ? (
+                                        <button
+                                            type="button"
+                                            className={`rounded-sm text-xs font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${style.text}`}
+                                            onClick={() =>
+                                                onSeekToTurn(turn.startMs ?? 0)
+                                            }
+                                            aria-label={i18n(
+                                                "Seek audio to {time}, {speaker}",
+                                                {
+                                                    time: formatTimestamp(
+                                                        turn.startMs ?? 0,
+                                                    ),
+                                                    speaker: displayName,
+                                                },
+                                            )}
+                                            title={i18n(
+                                                "Seek audio to {time}",
+                                                {
+                                                    time: formatTimestamp(
+                                                        turn.startMs ?? 0,
+                                                    ),
+                                                },
+                                            )}
+                                        >
+                                            {displayName}
+                                        </button>
+                                    ) : (
+                                        <span
+                                            className={`text-xs font-medium ${style.text}`}
+                                        >
+                                            {displayName}
+                                        </span>
+                                    )}
+                                </div>
+                            )}
+                            <p
+                                className={`text-sm whitespace-pre-wrap leading-relaxed ${turn.label ? "pl-3.5" : ""}`}
+                            >
+                                {turn.text}
+                            </p>
+                        </div>
+                    </Fragment>
                 );
             })}
         </div>

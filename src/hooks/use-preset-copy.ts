@@ -3,6 +3,7 @@
 import { useExtracted } from "next-intl";
 import type { PromptPreset } from "@/lib/ai/prompt-presets";
 import type { SummaryPreset } from "@/lib/ai/summary-presets";
+import type { TopicPreset } from "@/lib/topics/topic-presets";
 
 export interface PresetCopy {
     name: string;
@@ -77,6 +78,19 @@ export function useTitlePresetCopy(): Record<PromptPreset, PresetCopy> {
             name: i18n("Idea Stormer"),
             description: i18n(
                 "Optimized for brainstorming sessions and creative thinking",
+            ),
+        },
+    };
+}
+
+/** Localized names and descriptions of the built-in topic templates. */
+export function useTopicPresetCopy(): Record<TopicPreset, PresetCopy> {
+    const i18n = useExtracted();
+    return {
+        default: {
+            name: i18n("Chapters"),
+            description: i18n(
+                "A topic every few minutes, titled like chapters of a book",
             ),
         },
     };

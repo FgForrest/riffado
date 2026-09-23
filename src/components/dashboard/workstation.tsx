@@ -51,6 +51,7 @@ interface TranscriptionData {
     provider?: string;
     model?: string;
     turns?: TranscriptOption["turns"];
+    topics?: TranscriptOption["topics"];
 }
 
 interface Provider {

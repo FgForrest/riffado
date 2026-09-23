@@ -75,6 +75,7 @@ const transcription = {
     model: "whisper-1",
     source: "riffado",
     turns: null,
+    topics: null,
     producedByUserId: null,
     createdAt: now,
 };

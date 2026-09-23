@@ -41,6 +41,7 @@ import {
     listAutoTranscribeRetryIds,
     releaseAutoTranscribeIds,
 } from "@/lib/sync/auto-transcribe-state";
+import { queueAutoTopics } from "@/lib/topics/topics-job";
 import {
     upsertEnhancement,
     upsertTranscription,
@@ -1080,6 +1081,13 @@ async function importPlaudContent(
                     await plaudClient.fetchContentLink(transcriptLink),
                 );
                 if (parsed.text.trim()) {
+                    // `PlaudFileDetail.duration` carries no documented
+                    // unit; the list payload's does, so use that.
+                    const turns =
+                        segmentsToTurns(
+                            parsed.segments,
+                            candidate.durationMs,
+                        ) ?? undefined;
                     const { committed } = await upsertTranscription({
                         userId: context.userId,
                         recordingId: candidate.recordingId,
@@ -1088,15 +1096,16 @@ async function importPlaudContent(
                         source: "plaud",
                         provider: "plaud",
                         model: "plaud-native",
-                        // `PlaudFileDetail.duration` carries no documented
-                        // unit; the list payload's does, so use that.
-                        turns:
-                            segmentsToTurns(
-                                parsed.segments,
-                                candidate.durationMs,
-                            ) ?? undefined,
+                        turns,
                     });
                     if (committed) {
+                        if (turns) {
+                            await queueAutoTopics(
+                                context.userId,
+                                candidate.recordingId,
+                                "plaud",
+                            );
+                        }
                         transcriptImported.add(candidate.recordingId);
                         await exportRecordingSidecarsIfEnabled(
                             context.userId,

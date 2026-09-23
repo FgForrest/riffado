@@ -28,6 +28,8 @@ interface RecordingPlayerProps {
 
 export interface RecordingPlayerHandle {
     seekTo: (seconds: number) => void;
+    /** Playback position in seconds, read from the audio element. */
+    getCurrentTime: () => number;
 }
 
 /**
@@ -68,7 +70,14 @@ export function RecordingPlayer({
         initialAutoPlayNext,
     });
 
-    useImperativeHandle(ref, () => ({ seekTo: seekToTime }), [seekToTime]);
+    useImperativeHandle(
+        ref,
+        () => ({
+            seekTo: seekToTime,
+            getCurrentTime: () => audioRef.current?.currentTime ?? 0,
+        }),
+        [seekToTime, audioRef],
+    );
 
     usePlaybackKeyboard({
         onToggle: togglePlayPause,

@@ -195,7 +195,7 @@ export async function eraseLocalArtifact(
                 tx,
                 userId,
                 recordingId,
-                ["transcription", "summary"],
+                ["transcription", "summary", "topics"],
                 now,
             );
             await tx
