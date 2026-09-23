@@ -21,6 +21,7 @@ import { isHostedLockedOut } from "@/lib/entitlements";
 import { env } from "@/lib/env";
 import {
     exportRecordingSidecarsIfEnabled,
+    refreshExistingRecordingSidecars,
     removeRecordingSidecar,
 } from "@/lib/export/document-sidecars";
 import {
@@ -822,6 +823,9 @@ async function transcribeRecordingInner(
                                 isNull(recordings.deletedAt),
                             ),
                         );
+                    // The export was planned under the old title above;
+                    // plan again so its directory follows the rename now.
+                    await refreshExistingRecordingSidecars(userId, recordingId);
 
                     if (syncTitleToPlaud) {
                         try {

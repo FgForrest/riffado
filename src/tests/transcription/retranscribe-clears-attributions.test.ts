@@ -84,6 +84,7 @@ vi.mock("@/lib/summary/summary-job", () => ({
 
 vi.mock("@/lib/export/document-sidecars", () => ({
     exportRecordingSidecarsIfEnabled: vi.fn().mockResolvedValue(undefined),
+    refreshExistingRecordingSidecars: vi.fn().mockResolvedValue(undefined),
     removeRecordingSidecar: vi.fn().mockResolvedValue(undefined),
 }));
 

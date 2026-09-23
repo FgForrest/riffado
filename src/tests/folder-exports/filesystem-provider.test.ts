@@ -2,6 +2,7 @@ import { createReadStream } from "node:fs";
 import {
     mkdir,
     mkdtemp,
+    readdir,
     readFile,
     rm,
     symlink,
@@ -145,6 +146,74 @@ describe("filesystem export provider", () => {
                 "utf8",
             ),
         ).resolves.toBe("restored");
+    });
+
+    it("checks a file without creating the directories on its path", async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), "riffado-export-"));
+        roots.push(root);
+        await mkdir(path.join(root, "team/Old recording"), { recursive: true });
+        const provider = new FilesystemExportProvider(root);
+        await provider.reconcileDirectory(
+            "team/Old recording",
+            "team/New recording",
+        );
+        // A path read before the rename used to recreate the old directory.
+        await expect(
+            provider.exists("team/Old recording/transcript.md", 7),
+        ).resolves.toBe(false);
+        await expect(
+            provider.exists("gone/Old recording/transcript.md", 7),
+        ).resolves.toBe(false);
+        await expect(readdir(path.join(root, "team"))).resolves.toEqual([
+            "New recording",
+        ]);
+        await expect(readdir(root)).resolves.toEqual(["team"]);
+    });
+
+    it("removes a directory only while it is empty", async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), "riffado-export-"));
+        roots.push(root);
+        await mkdir(path.join(root, "team/Empty"), { recursive: true });
+        await mkdir(path.join(root, "team/Kept"));
+        await writeFile(path.join(root, "team/Kept/notes.md"), "mine");
+        const provider = new FilesystemExportProvider(root);
+        await expect(provider.removeEmptyDirectory("team/Empty")).resolves.toBe(
+            true,
+        );
+        await expect(provider.removeEmptyDirectory("team/Kept")).resolves.toBe(
+            false,
+        );
+        await expect(
+            provider.removeEmptyDirectory("team/Missing"),
+        ).resolves.toBe(false);
+        await expect(
+            provider.removeEmptyDirectory("gone/Missing"),
+        ).resolves.toBe(false);
+        await expect(
+            provider.removeEmptyDirectory("team/Kept/notes.md"),
+        ).resolves.toBe(false);
+        await expect(readdir(path.join(root, "team"))).resolves.toEqual([
+            "Kept",
+        ]);
+    });
+
+    it("never removes through a symlink", async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), "riffado-export-"));
+        const outside = await mkdtemp(
+            path.join(os.tmpdir(), "riffado-outside-"),
+        );
+        roots.push(root, outside);
+        await mkdir(path.join(outside, "empty"));
+        await mkdir(path.join(root, "team"));
+        await symlink(outside, path.join(root, "team/Link"), "dir");
+        const provider = new FilesystemExportProvider(root);
+        await expect(provider.removeEmptyDirectory("team/Link")).resolves.toBe(
+            false,
+        );
+        await expect(
+            provider.removeEmptyDirectory("team/Link/empty"),
+        ).rejects.toThrow(/symlink/);
+        await expect(readdir(outside)).resolves.toEqual(["empty"]);
     });
 
     it("rejects symlink directories during rename reconciliation", async () => {
