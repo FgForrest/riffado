@@ -65,6 +65,7 @@ vi.mock("@/lib/plaud/client-factory", () => ({
 
 vi.mock("@/lib/export/document-sidecars", () => ({
     exportRecordingSidecarsIfEnabled: vi.fn().mockResolvedValue(undefined),
+    refreshExistingRecordingSidecars: vi.fn().mockResolvedValue(undefined),
     removeRecordingSidecar: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -72,6 +73,7 @@ import { OpenAI } from "openai";
 import { db } from "@/db";
 import { recordings } from "@/db/schema";
 import { generateTitleFromTranscription } from "@/lib/ai/generate-title";
+import { refreshExistingRecordingSidecars } from "@/lib/export/document-sidecars";
 import {
     storeBrowserTranscription,
     transcribeRecording,
@@ -440,6 +442,15 @@ describe("Transcription", () => {
             );
             expect(
                 (emitEvent as Mock).mock.invocationCallOrder[0],
+            ).toBeGreaterThan(titleUpdateWhere.mock.invocationCallOrder[0]);
+            // The export directory follows the new title.
+            expect(refreshExistingRecordingSidecars).toHaveBeenCalledWith(
+                mockUserId,
+                mockRecordingId,
+            );
+            expect(
+                (refreshExistingRecordingSidecars as Mock).mock
+                    .invocationCallOrder[0],
             ).toBeGreaterThan(titleUpdateWhere.mock.invocationCallOrder[0]);
         });
     });

@@ -9,6 +9,11 @@ export interface ExportProvider {
         previousPath: string | null,
         currentPath: string,
     ): Promise<{ contentPreserved: boolean }>;
+    /**
+     * Removes a directory the export no longer places anything in, but only
+     * while it is empty: what is in it may be someone's. True if removed.
+     */
+    removeEmptyDirectory(relativePath: string): Promise<boolean>;
     materialize(
         relativePath: string,
         content: Buffer | Readable,

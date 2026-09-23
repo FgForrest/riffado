@@ -19,14 +19,40 @@ import { isOrgAccount } from "@/lib/org/config";
 import { sharedRecordingCondition } from "@/lib/sharing/shared";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import { enqueueExportMaterialization, enqueueExportPlan } from "./jobs";
+import { withExportLock } from "./lock";
 import { planFolderExport } from "./planner";
 import { createExportProvider } from "./provider-factory";
+import type { FolderExportProviderType } from "./types";
 
 function digest(value: string | Buffer): string {
     return createHash("sha256").update(value).digest("hex");
 }
 
 export async function materializeFolderExport(
+    userId: string,
+    materializationId: string,
+): Promise<boolean> {
+    const [owner] = await db
+        .select({
+            exportId: folderExportMaterializations.exportConfigurationId,
+        })
+        .from(folderExportMaterializations)
+        .where(
+            and(
+                eq(folderExportMaterializations.id, materializationId),
+                eq(folderExportMaterializations.userId, userId),
+            ),
+        )
+        .limit(1);
+    if (!owner) return false;
+    // The path is read under the lock, so a rename cannot move it between
+    // the read and the write.
+    return withExportLock(owner.exportId, "shared", () =>
+        materializeLocked(userId, materializationId),
+    );
+}
+
+async function materializeLocked(
     userId: string,
     materializationId: string,
 ): Promise<boolean> {
@@ -259,10 +285,28 @@ export async function reconcileFolderExport(
     for (const configuration of configurations) {
         await planFolderExport(userId, configuration.id);
     }
+    let checked = 0;
+    let pending = 0;
+    for (const configuration of configurations) {
+        const result = await withExportLock(configuration.id, "shared", () =>
+            checkMaterializations(userId, configuration, subtree),
+        );
+        checked += result.checked;
+        pending += result.pending;
+    }
+    return { checked, pending };
+}
+
+/** Compares one export's expected files with the disk, under its lock. */
+async function checkMaterializations(
+    userId: string,
+    configuration: { id: string; provider: FolderExportProviderType },
+    subtree: ReadonlySet<string>,
+): Promise<{ checked: number; pending: number }> {
+    const provider = createExportProvider(configuration.provider);
     const states = await db
         .select({
             id: folderExportMaterializations.id,
-            exportId: folderExportMaterializations.exportConfigurationId,
             logicalPath: folderExportMaterializations.logicalPath,
             expectedSize: folderExportMaterializations.expectedSize,
         })
@@ -271,26 +315,21 @@ export async function reconcileFolderExport(
             and(
                 eq(folderExportMaterializations.userId, userId),
                 eq(folderExportMaterializations.expected, true),
-                inArray(
+                eq(
                     folderExportMaterializations.exportConfigurationId,
-                    configurations.map((configuration) => configuration.id),
+                    configuration.id,
                 ),
                 inArray(folderExportMaterializations.placementFolderId, [
                     ...subtree,
                 ]),
             ),
         );
-    const providerByExport = new Map(
-        configurations.map((configuration) => [
-            configuration.id,
-            createExportProvider(configuration.provider),
-        ]),
-    );
     let pending = 0;
     for (const state of states) {
-        const exists = await providerByExport
-            .get(state.exportId)
-            ?.exists(state.logicalPath, state.expectedSize);
+        const exists = await provider.exists(
+            state.logicalPath,
+            state.expectedSize,
+        );
         if (exists) {
             await db
                 .update(folderExportMaterializations)

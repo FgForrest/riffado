@@ -28,6 +28,7 @@ import {
 } from "@/lib/sharing/view-content";
 import type { RecordingFolder } from "@/types/folder";
 import { enqueueExportMaterialization } from "./jobs";
+import { withExportLock } from "./lock";
 import {
     allocateDirectoryName,
     audioExtension,
@@ -36,7 +37,7 @@ import {
     sourceFilename,
 } from "./naming";
 import { createExportProvider } from "./provider-factory";
-import type { ExportArtifactType } from "./types";
+import type { ExportArtifactType, ExportProvider } from "./types";
 
 interface PlannedArtifact {
     artifactType: ExportArtifactType;
@@ -128,10 +129,17 @@ function legacyProjectionPaths(
     return { directories, placements };
 }
 
-export async function planFolderExport(
+export function planFolderExport(
     userId: string,
     exportId: string,
 ): Promise<number> {
+    // Exclusive: it moves directories and every stored path under them.
+    return withExportLock(exportId, "exclusive", () =>
+        planLocked(userId, exportId),
+    );
+}
+
+async function planLocked(userId: string, exportId: string): Promise<number> {
     const [configuration] = await db
         .select({
             id: folderExportConfigurations.id,
@@ -535,6 +543,7 @@ export async function planFolderExport(
         occupiedByFolder.set(placement.placementFolderId, occupied);
     }
     const expectedStateIds = new Set<string>();
+    const plannedPlacementPaths = new Set<string>();
     for (const placement of plannedPlacements) {
         const parentPath = folderPathById.get(placement.placementFolderId);
         if (!parentPath) continue;
@@ -555,6 +564,7 @@ export async function planFolderExport(
         );
         occupied.add(directoryName);
         const logicalDirectoryPath = path.posix.join(parentPath, directoryName);
+        plannedPlacementPaths.add(logicalDirectoryPath);
         const storedPrevious = sameTarget
             ? existing.logicalPath
             : existing
@@ -669,5 +679,48 @@ export async function planFolderExport(
                 ),
             );
     }
+
+    await pruneUnplacedDirectories(
+        provider,
+        [
+            ...existingPlacements.filter(
+                (placement) =>
+                    placement.targetPath === configuration.targetPath,
+            ),
+            ...existingDirectories.filter(
+                (directory) =>
+                    directory.targetPath === configuration.targetPath,
+            ),
+        ].map((row) => relocatedPath(row.logicalPath, folderMoves)),
+        new Set([...folderPathById.values(), ...plannedPlacementPaths]),
+    );
     return queued;
+}
+
+/**
+ * Removes the directories of placements and folders this plan no longer
+ * has, deepest first so a folder emptied by its last recording goes too.
+ * Only empty ones: the export never deletes files, so a directory still
+ * holding any is left as it is.
+ */
+async function pruneUnplacedDirectories(
+    provider: ExportProvider,
+    previousPaths: string[],
+    plannedPaths: ReadonlySet<string>,
+): Promise<void> {
+    const candidates = [...new Set(previousPaths)]
+        .filter((candidate) => !plannedPaths.has(candidate))
+        .sort(
+            (left, right) =>
+                right.split("/").length - left.split("/").length ||
+                left.localeCompare(right),
+        );
+    for (const candidate of candidates) {
+        await provider.removeEmptyDirectory(candidate).catch((error) => {
+            console.error(
+                `[folder-export] could not remove ${candidate}:`,
+                error,
+            );
+        });
+    }
 }

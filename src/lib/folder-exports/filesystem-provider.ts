@@ -1,5 +1,13 @@
 import { constants } from "node:fs";
-import { lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
+import {
+    lstat,
+    mkdir,
+    open,
+    realpath,
+    rename,
+    rmdir,
+    unlink,
+} from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
 import type { ExportProvider } from "./types";
@@ -135,10 +143,11 @@ export class FilesystemExportProvider implements ExportProvider {
     }
 
     async exists(relativePath: string, expectedSize: number): Promise<boolean> {
-        const { root, target } = await ensureSafeParent(
-            this.root,
-            relativePath,
-        );
+        // Only looks: a check that created the directories on its way
+        // left an empty one behind for every path that had since moved.
+        const resolved = await resolveSafeParent(this.root, relativePath);
+        if (!resolved) return false;
+        const { root, target } = resolved;
         if (!isWithin(root, target)) return false;
         try {
             const stat = await lstat(target);
@@ -179,6 +188,29 @@ export class FilesystemExportProvider implements ExportProvider {
         if (currentExists) return { contentPreserved: true };
         await mkdir(current.target);
         return { contentPreserved: false };
+    }
+
+    async removeEmptyDirectory(relativePath: string): Promise<boolean> {
+        const resolved = await resolveSafeParent(this.root, relativePath);
+        if (!resolved || !isWithin(resolved.root, resolved.target)) {
+            return false;
+        }
+        try {
+            const stat = await lstat(resolved.target);
+            if (stat.isSymbolicLink() || !stat.isDirectory()) return false;
+            await rmdir(resolved.target);
+            return true;
+        } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            if (
+                code === "ENOENT" ||
+                code === "ENOTEMPTY" ||
+                code === "EEXIST"
+            ) {
+                return false;
+            }
+            throw error;
+        }
     }
 
     async materialize(
