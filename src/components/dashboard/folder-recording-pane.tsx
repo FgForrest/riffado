@@ -37,6 +37,7 @@ import {
     DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import type { ExportProvidersAvailability } from "@/lib/folder-exports/types";
 import { recordingIdsVisibleInFolder } from "@/lib/folders/hierarchy";
 import { formatBytes } from "@/lib/format-bytes";
 import { formatDateTime } from "@/lib/format-date";
@@ -66,7 +67,7 @@ interface FolderRecordingPaneProps {
     onDeleteFolder: (folderId: string) => Promise<void>;
     hiddenOnMobile: boolean;
     onBackToFolders: () => void;
-    filesystemExportsAvailable: boolean;
+    exportProviders: ExportProvidersAvailability;
     /** The organization account, which configures exports of its own tree. */
     isOrgAccount?: boolean;
 }
@@ -82,7 +83,7 @@ export function FolderRecordingPane({
     onDeleteFolder,
     hiddenOnMobile,
     onBackToFolders,
-    filesystemExportsAvailable,
+    exportProviders,
     isOrgAccount = false,
 }: FolderRecordingPaneProps) {
     const i18n = useExtracted();
@@ -270,7 +271,7 @@ export function FolderRecordingPane({
                 <div className="flex shrink-0 flex-wrap gap-2">
                     <FolderExportActions
                         folder={folder}
-                        filesystemAvailable={filesystemExportsAvailable}
+                        providers={exportProviders}
                         privateTree={
                             path[0]?.kind === "private" ||
                             (isOrgAccount && folder.scope === "org")

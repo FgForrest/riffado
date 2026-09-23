@@ -12,6 +12,7 @@ import {
 import { requireAuth } from "@/lib/auth-server";
 import { decryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
+import { exportProvidersAvailability } from "@/lib/folder-exports/configurations";
 import { listFolderOrganization } from "@/lib/folders/folders";
 import { organizationForDeployment } from "@/lib/folders/hierarchy";
 import { isAdminEmail } from "@/lib/hosted/admin/guard";
@@ -304,9 +305,7 @@ export default async function DashboardPage() {
             initialSettings={initialSettings}
             plaudNeedsReconnect={connectionRow?.invalidatedAt != null}
             isHosted={env.IS_HOSTED}
-            filesystemExportsAvailable={
-                !env.IS_HOSTED && Boolean(env.FILESYSTEM_EXPORT_ROOT)
-            }
+            exportProviders={exportProvidersAvailability()}
             initialFolderOrganization={visibleFolderOrganization}
         />
     );

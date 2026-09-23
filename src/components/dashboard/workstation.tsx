@@ -22,12 +22,14 @@ import { WorkstationHeader } from "@/components/dashboard/workstation-header";
 import { OnboardingDialog } from "@/components/onboarding-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { useAutoSync } from "@/hooks/use-auto-sync";
+import { useGoogleConnectOutcome } from "@/hooks/use-google-connection";
 import { useListKeyboardNav } from "@/hooks/use-list-keyboard-nav";
 import { useOrgEvents } from "@/hooks/use-org-events";
 import { useTheme } from "@/hooks/use-theme";
 import { useTranscribeQueue } from "@/hooks/use-transcribe-queue";
 import { useUploadQueue } from "@/hooks/use-upload-queue";
 import { getApiErrorMessage } from "@/lib/api-errors";
+import type { ExportProvidersAvailability } from "@/lib/folder-exports/types";
 import {
     requestNotificationPermission,
     showNewRecordingNotification,
@@ -106,7 +108,7 @@ interface WorkstationProps {
      * hosted-mode behavior by forgetting to thread the value through.
      */
     isHosted: boolean;
-    filesystemExportsAvailable: boolean;
+    exportProviders: ExportProvidersAvailability;
     initialFolderOrganization: FolderOrganization;
     /** Null when the Organization scope is not enabled. */
     organizationLibrary?: OrganizationLibrary | null;
@@ -139,7 +141,7 @@ export function Workstation({
     initialSettings,
     plaudNeedsReconnect,
     isHosted,
-    filesystemExportsAvailable,
+    exportProviders,
     initialFolderOrganization,
     organizationLibrary = null,
     isOrgAccount = false,
@@ -175,6 +177,7 @@ export function Workstation({
     // state entirely (both panes render via the grid).
     const [mobileView, setMobileView] = useState<"list" | "detail">("list");
     const [providers, setProviders] = useState<Provider[]>(EMPTY_PROVIDERS);
+    useGoogleConnectOutcome();
     const [libraryMode, setLibraryMode] = useState<"recent" | "organize">(
         "recent",
     );
@@ -1018,9 +1021,7 @@ export function Workstation({
                                     onBackToFolders={() =>
                                         setMobileView("list")
                                     }
-                                    filesystemExportsAvailable={
-                                        filesystemExportsAvailable
-                                    }
+                                    exportProviders={exportProviders}
                                     isOrgAccount={isOrgAccount}
                                 />
                             ) : (

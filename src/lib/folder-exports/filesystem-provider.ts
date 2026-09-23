@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
-import type { ExportProvider } from "./types";
+import type { ExpectedArtifact, ExportProvider } from "./types";
 
 export const MAX_EXPORT_PATH_LENGTH = 1024;
 
@@ -142,7 +142,10 @@ export class FilesystemExportProvider implements ExportProvider {
         this.root = root;
     }
 
-    async exists(relativePath: string, expectedSize: number): Promise<boolean> {
+    async exists(
+        relativePath: string,
+        expected: ExpectedArtifact,
+    ): Promise<boolean> {
         // Only looks: a check that created the directories on its way
         // left an empty one behind for every path that had since moved.
         const resolved = await resolveSafeParent(this.root, relativePath);
@@ -154,7 +157,7 @@ export class FilesystemExportProvider implements ExportProvider {
             return (
                 !stat.isSymbolicLink() &&
                 stat.isFile() &&
-                stat.size === expectedSize
+                stat.size === expected.size
             );
         } catch (error) {
             if ((error as NodeJS.ErrnoException).code === "ENOENT")

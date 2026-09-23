@@ -102,6 +102,46 @@ const baseEnvSchema = z.object({
         .transform((val) => (val?.trim() ? val.trim() : undefined)),
 
     /**
+     * Google integration (self-host only): an OAuth "Web application" client
+     * of a consent screen with User Type Internal. With all four set, users
+     * can connect their Google account and export folders to Google Drive.
+     */
+    GOOGLE_CLIENT_ID: z
+        .string()
+        .optional()
+        .transform((val) => (val?.trim() ? val.trim() : undefined)),
+    GOOGLE_CLIENT_SECRET: z
+        .string()
+        .optional()
+        .transform((val) => (val?.trim() ? val.trim() : undefined)),
+    /** Browser API key for the Google Picker (restrict it by HTTP referrer). */
+    GOOGLE_PICKER_API_KEY: z
+        .string()
+        .optional()
+        .transform((val) => (val?.trim() ? val.trim() : undefined)),
+    /** Google Cloud project number: the Picker's app id. */
+    GOOGLE_CLOUD_PROJECT_NUMBER: z
+        .string()
+        .optional()
+        .transform((val) => (val?.trim() ? val.trim() : undefined))
+        .refine((val) => val === undefined || /^\d+$/.test(val), {
+            message: "GOOGLE_CLOUD_PROJECT_NUMBER must be numeric",
+        }),
+    /**
+     * Comma-separated Google Workspace domains whose accounts may connect.
+     * Unset, any account the consent screen admits may.
+     */
+    GOOGLE_WORKSPACE_DOMAINS: z
+        .string()
+        .optional()
+        .transform((val) =>
+            (val ?? "")
+                .split(",")
+                .map((domain) => domain.trim().toLowerCase())
+                .filter(Boolean),
+        ),
+
+    /**
      * Where full-data backup archives are written. Unset, they go to the
      * same place as the recordings, which on a local install means the
      * zips land in the same folder as the audio they are a copy of --
@@ -821,6 +861,12 @@ function validateEnv(): Env {
             S3_ACCESS_KEY_ID: process.env.S3_ACCESS_KEY_ID,
             S3_SECRET_ACCESS_KEY: process.env.S3_SECRET_ACCESS_KEY,
             FILESYSTEM_EXPORT_ROOT: process.env.FILESYSTEM_EXPORT_ROOT,
+            GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+            GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+            GOOGLE_PICKER_API_KEY: process.env.GOOGLE_PICKER_API_KEY,
+            GOOGLE_CLOUD_PROJECT_NUMBER:
+                process.env.GOOGLE_CLOUD_PROJECT_NUMBER,
+            GOOGLE_WORKSPACE_DOMAINS: process.env.GOOGLE_WORKSPACE_DOMAINS,
             BACKUP_STORAGE_PATH: process.env.BACKUP_STORAGE_PATH,
             WEBSHARE_API_KEY: process.env.WEBSHARE_API_KEY,
             PLAUD_PROXY_SCOPE: process.env.PLAUD_PROXY_SCOPE,

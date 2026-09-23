@@ -3,7 +3,6 @@ import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
     aiEnhancements,
-    filesystemExportSettings,
     folderExportConfigurations,
     folderExportMaterializations,
     recordings,
@@ -22,7 +21,12 @@ import { enqueueExportMaterialization, enqueueExportPlan } from "./jobs";
 import { withExportLock } from "./lock";
 import { planFolderExport } from "./planner";
 import { createExportProvider } from "./provider-factory";
-import type { FolderExportProviderType } from "./types";
+import { recordExportFailure } from "./status";
+import {
+    type ExportTarget,
+    listExportTargets,
+    loadExportTarget,
+} from "./target";
 
 function digest(value: string | Buffer): string {
     return createHash("sha256").update(value).digest("hex");
@@ -65,13 +69,12 @@ async function materializeLocked(
             recordingId: folderExportMaterializations.recordingId,
             artifactId: folderExportMaterializations.artifactId,
             artifactType: folderExportMaterializations.artifactType,
+            format: folderExportMaterializations.format,
             artifactVersion: folderExportMaterializations.artifactVersion,
             logicalPath: folderExportMaterializations.logicalPath,
             expected: folderExportMaterializations.expected,
             status: folderExportMaterializations.status,
             exportId: folderExportMaterializations.exportConfigurationId,
-            provider: folderExportConfigurations.provider,
-            targetPath: filesystemExportSettings.targetPath,
             storagePath: recordings.storagePath,
             fileMd5: recordings.fileMd5,
             plaudVersion: recordings.plaudVersion,
@@ -84,13 +87,6 @@ async function materializeLocked(
             eq(
                 folderExportConfigurations.id,
                 folderExportMaterializations.exportConfigurationId,
-            ),
-        )
-        .innerJoin(
-            filesystemExportSettings,
-            eq(
-                filesystemExportSettings.exportConfigurationId,
-                folderExportConfigurations.id,
             ),
         )
         .innerJoin(
@@ -109,6 +105,8 @@ async function materializeLocked(
         )
         .limit(1);
     if (!state || !state.expected || state.status === "exported") return false;
+    const target = await loadExportTarget(userId, state.exportId);
+    if (!target) return false;
 
     await db
         .update(folderExportMaterializations)
@@ -126,7 +124,11 @@ async function materializeLocked(
         );
 
     try {
-        const provider = createExportProvider(state.provider);
+        const provider = await createExportProvider(target);
+        const options = {
+            version: state.artifactVersion,
+            format: state.format,
+        };
         if (state.artifactType === "audio") {
             const currentVersion = digest(
                 [
@@ -145,6 +147,7 @@ async function materializeLocked(
             await provider.materialize(
                 state.logicalPath,
                 await storage.downloadStream(state.storagePath),
+                options,
             );
         } else {
             // The Organization view may still be showing the owner's rows.
@@ -214,7 +217,7 @@ async function materializeLocked(
                 await enqueueExportPlan(userId, state.exportId);
                 return false;
             }
-            await provider.materialize(state.logicalPath, content);
+            await provider.materialize(state.logicalPath, content, options);
         }
         await db
             .update(folderExportMaterializations)
@@ -253,6 +256,9 @@ async function materializeLocked(
                     eq(folderExportMaterializations.userId, userId),
                 ),
             );
+        await recordExportFailure(userId, state.exportId, error).catch(
+            () => {},
+        );
         throw error;
     }
 }
@@ -269,18 +275,9 @@ export async function reconcileFolderExport(
     }
     const ancestors = ancestorFolderIds(organization.folders, selectedFolderId);
     const subtree = descendantFolderIds(organization.folders, selectedFolderId);
-    const configurations = await db
-        .select({
-            id: folderExportConfigurations.id,
-            provider: folderExportConfigurations.provider,
-        })
-        .from(folderExportConfigurations)
-        .where(
-            and(
-                eq(folderExportConfigurations.userId, userId),
-                inArray(folderExportConfigurations.folderId, [...ancestors]),
-            ),
-        );
+    const configurations = (await listExportTargets(userId)).filter((target) =>
+        ancestors.has(target.folderId),
+    );
     if (configurations.length === 0) return { checked: 0, pending: 0 };
     for (const configuration of configurations) {
         await planFolderExport(userId, configuration.id);
@@ -297,18 +294,20 @@ export async function reconcileFolderExport(
     return { checked, pending };
 }
 
-/** Compares one export's expected files with the disk, under its lock. */
+/** Compares one export's expected files with the target, under its lock. */
 async function checkMaterializations(
     userId: string,
-    configuration: { id: string; provider: FolderExportProviderType },
+    configuration: ExportTarget,
     subtree: ReadonlySet<string>,
 ): Promise<{ checked: number; pending: number }> {
-    const provider = createExportProvider(configuration.provider);
+    const provider = await createExportProvider(configuration);
     const states = await db
         .select({
             id: folderExportMaterializations.id,
             logicalPath: folderExportMaterializations.logicalPath,
             expectedSize: folderExportMaterializations.expectedSize,
+            version: folderExportMaterializations.artifactVersion,
+            format: folderExportMaterializations.format,
         })
         .from(folderExportMaterializations)
         .where(
@@ -326,10 +325,11 @@ async function checkMaterializations(
         );
     let pending = 0;
     for (const state of states) {
-        const exists = await provider.exists(
-            state.logicalPath,
-            state.expectedSize,
-        );
+        const exists = await provider.exists(state.logicalPath, {
+            size: state.expectedSize,
+            version: state.version,
+            format: state.format,
+        });
         if (exists) {
             await db
                 .update(folderExportMaterializations)

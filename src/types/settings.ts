@@ -16,4 +16,5 @@ export type SettingsSection =
     | "notifications"
     | "export"
     | "billing"
+    | "google-account"
     | "dev";

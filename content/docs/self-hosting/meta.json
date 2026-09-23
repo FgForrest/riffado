@@ -6,6 +6,7 @@
         "environment-variables",
         "organization",
         "storage-s3",
+        "google-drive",
         "email-smtp",
         "upgrading"
     ]

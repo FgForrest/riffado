@@ -3,28 +3,88 @@ import { db } from "@/db";
 import {
     filesystemExportSettings,
     folderExportConfigurations,
+    googleDriveExportSettings,
     recordingFolders,
 } from "@/db/schema";
 import { env } from "@/lib/env";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { applicableExportConfigurationIds } from "@/lib/folders/hierarchy";
+import { isGoogleIntegrationAvailable } from "@/lib/integrations/google/config";
+import { inspectDriveFolder } from "@/lib/integrations/google/drive-folders";
 import { assertOrgScopeWritable, isOrgAccount } from "@/lib/org/config";
 import { validateRelativeExportPath } from "./filesystem-provider";
 import { enqueueExportPlan } from "./jobs";
-import type { FolderExportConfigurationDto } from "./types";
+import {
+    listExportTargets,
+    loadExportTarget,
+    toConfigurationDto,
+} from "./target";
+import type {
+    DocumentFormat,
+    ExportProvidersAvailability,
+    FolderExportConfigurationDto,
+    FolderExportProviderType,
+} from "./types";
 
-export interface SaveFolderExportInput {
-    targetPath: string;
+interface SaveFolderExportCommon {
     exportAudio: boolean;
     exportTranscript: boolean;
     exportSummary: boolean;
 }
 
-export function assertFilesystemExportsAvailable(): void {
-    if (env.IS_HOSTED || !env.FILESYSTEM_EXPORT_ROOT) {
+export type SaveFolderExportInput = SaveFolderExportCommon &
+    (
+        | { provider?: "filesystem"; targetPath: string }
+        | {
+              provider: "google-drive";
+              rootFolderId: string;
+              transcriptFormat: DocumentFormat;
+              summaryFormat: DocumentFormat;
+          }
+    );
+
+const DOCUMENT_FORMATS: ReadonlySet<string> = new Set([
+    "markdown",
+    "google_doc",
+    "both",
+]);
+
+export function isDocumentFormat(value: unknown): value is DocumentFormat {
+    return typeof value === "string" && DOCUMENT_FORMATS.has(value);
+}
+
+export function exportProvidersAvailability(): ExportProvidersAvailability {
+    return {
+        filesystem: !env.IS_HOSTED && Boolean(env.FILESYSTEM_EXPORT_ROOT),
+        googleDrive: isGoogleIntegrationAvailable(),
+    };
+}
+
+function assertProviderAvailable(provider: FolderExportProviderType): void {
+    const available = exportProvidersAvailability();
+    if (provider === "filesystem" && !available.filesystem) {
         throw new AppError(
             ErrorCode.INVALID_INPUT,
             "Filesystem exports are not available on this deployment",
+            404,
+        );
+    }
+    if (provider === "google-drive" && !available.googleDrive) {
+        throw new AppError(
+            ErrorCode.INVALID_INPUT,
+            "Google Drive exports are not available on this deployment",
+            404,
+        );
+    }
+}
+
+/** Folder exports exist on this deployment through at least one provider. */
+export function assertFolderExportsAvailable(): void {
+    const available = exportProvidersAvailability();
+    if (!available.filesystem && !available.googleDrive) {
+        throw new AppError(
+            ErrorCode.INVALID_INPUT,
+            "Folder exports are not available on this deployment",
             404,
         );
     }
@@ -36,6 +96,23 @@ function validateSelection(input: SaveFolderExportInput): void {
             ErrorCode.INVALID_INPUT,
             "Enable at least one artifact type",
             400,
+        );
+    }
+}
+
+function providerOf(input: SaveFolderExportInput): FolderExportProviderType {
+    return input.provider ?? "filesystem";
+}
+
+function filesystemTargetPath(targetPath: string): string {
+    try {
+        return validateRelativeExportPath(targetPath);
+    } catch (error) {
+        throw new AppError(
+            ErrorCode.INVALID_INPUT,
+            error instanceof Error ? error.message : "Invalid export path",
+            400,
+            { field: "targetPath" },
         );
     }
 }
@@ -63,7 +140,7 @@ async function assertExportableFolder(userId: string, folderId: string) {
     if (!current || current.kind !== "private") {
         throw new AppError(
             ErrorCode.INVALID_INPUT,
-            "Filesystem exports can only be configured in Private",
+            "Exports can only be configured in Private",
             400,
         );
     }
@@ -76,7 +153,7 @@ export async function listFolderExports(
     configured: FolderExportConfigurationDto[];
     applicableIds: string[];
 }> {
-    assertFilesystemExportsAvailable();
+    assertFolderExportsAvailable();
     const folders = await db
         .select({
             id: recordingFolders.id,
@@ -88,31 +165,15 @@ export async function listFolderExports(
     if (!byId.has(folderId)) {
         throw new AppError(ErrorCode.NOT_FOUND, "Folder not found", 404);
     }
-    const rows = await db
-        .select({
-            id: folderExportConfigurations.id,
-            folderId: folderExportConfigurations.folderId,
-            provider: folderExportConfigurations.provider,
-            targetPath: filesystemExportSettings.targetPath,
-            exportAudio: folderExportConfigurations.exportAudio,
-            exportTranscript: folderExportConfigurations.exportTranscript,
-            exportSummary: folderExportConfigurations.exportSummary,
-        })
-        .from(folderExportConfigurations)
-        .innerJoin(
-            filesystemExportSettings,
-            eq(
-                filesystemExportSettings.exportConfigurationId,
-                folderExportConfigurations.id,
-            ),
-        )
-        .where(eq(folderExportConfigurations.userId, userId));
+    const targets = await listExportTargets(userId);
     return {
-        configured: rows.filter((row) => row.folderId === folderId),
+        configured: targets
+            .filter((target) => target.folderId === folderId)
+            .map(toConfigurationDto),
         applicableIds: applicableExportConfigurationIds(
             folders,
             folderId,
-            rows,
+            targets,
         ),
     };
 }
@@ -122,42 +183,54 @@ export async function createFolderExport(
     folderId: string,
     input: SaveFolderExportInput,
 ): Promise<FolderExportConfigurationDto> {
-    assertFilesystemExportsAvailable();
+    const provider = providerOf(input);
+    assertProviderAvailable(provider);
     validateSelection(input);
     await assertExportableFolder(userId, folderId);
-    let targetPath: string;
-    try {
-        targetPath = validateRelativeExportPath(input.targetPath);
-    } catch (error) {
-        throw new AppError(
-            ErrorCode.INVALID_INPUT,
-            error instanceof Error ? error.message : "Invalid export path",
-            400,
-            { field: "targetPath" },
-        );
-    }
+    const targetPath =
+        input.provider === "google-drive"
+            ? null
+            : filesystemTargetPath(input.targetPath);
+    const drive =
+        input.provider === "google-drive"
+            ? await inspectDriveFolder(userId, input.rootFolderId)
+            : null;
     const configuration = await db.transaction(async (tx) => {
         const [created] = await tx
             .insert(folderExportConfigurations)
             .values({
                 userId,
                 folderId,
-                provider: "filesystem",
+                provider,
                 exportAudio: input.exportAudio,
                 exportTranscript: input.exportTranscript,
                 exportSummary: input.exportSummary,
             })
             .returning();
         if (!created) throw new Error("Export configuration was not created");
-        await tx.insert(filesystemExportSettings).values({
-            exportConfigurationId: created.id,
-            userId,
-            targetPath,
-        });
+        if (targetPath !== null) {
+            await tx.insert(filesystemExportSettings).values({
+                exportConfigurationId: created.id,
+                userId,
+                targetPath,
+            });
+        }
+        if (drive && input.provider === "google-drive") {
+            await tx.insert(googleDriveExportSettings).values({
+                exportConfigurationId: created.id,
+                userId,
+                accountSubject: drive.accountSubject,
+                rootFolderId: drive.id,
+                rootFolderName: drive.name,
+                driveId: drive.driveId,
+                transcriptFormat: input.transcriptFormat,
+                summaryFormat: input.summaryFormat,
+            });
+        }
         return created;
     });
     await enqueueExportPlan(userId, configuration.id);
-    return { ...configuration, targetPath };
+    return savedDto(userId, configuration.id);
 }
 
 export async function updateFolderExport(
@@ -166,20 +239,29 @@ export async function updateFolderExport(
     exportId: string,
     input: SaveFolderExportInput,
 ): Promise<FolderExportConfigurationDto> {
-    assertFilesystemExportsAvailable();
+    const provider = providerOf(input);
+    assertProviderAvailable(provider);
     validateSelection(input);
-    let targetPath: string;
-    try {
-        targetPath = validateRelativeExportPath(input.targetPath);
-    } catch (error) {
+    const existing = await loadExportTarget(userId, exportId);
+    if (!existing || existing.folderId !== folderId) {
+        throw new AppError(ErrorCode.NOT_FOUND, "Export not found", 404);
+    }
+    if (existing.provider !== provider) {
         throw new AppError(
             ErrorCode.INVALID_INPUT,
-            error instanceof Error ? error.message : "Invalid export path",
+            "The provider of an export cannot change",
             400,
-            { field: "targetPath" },
         );
     }
-    const result = await db.transaction(async (tx) => {
+    const targetPath =
+        input.provider === "google-drive"
+            ? null
+            : filesystemTargetPath(input.targetPath);
+    const drive =
+        input.provider === "google-drive"
+            ? await inspectDriveFolder(userId, input.rootFolderId)
+            : null;
+    await db.transaction(async (tx) => {
         const [updated] = await tx
             .update(folderExportConfigurations)
             .set({
@@ -199,22 +281,54 @@ export async function updateFolderExport(
         if (!updated) {
             throw new AppError(ErrorCode.NOT_FOUND, "Export not found", 404);
         }
-        await tx
-            .update(filesystemExportSettings)
-            .set({ targetPath, updatedAt: new Date() })
-            .where(
-                and(
-                    eq(
-                        filesystemExportSettings.exportConfigurationId,
-                        exportId,
+        if (targetPath !== null) {
+            await tx
+                .update(filesystemExportSettings)
+                .set({ targetPath, updatedAt: new Date() })
+                .where(
+                    and(
+                        eq(
+                            filesystemExportSettings.exportConfigurationId,
+                            exportId,
+                        ),
+                        eq(filesystemExportSettings.userId, userId),
                     ),
-                    eq(filesystemExportSettings.userId, userId),
-                ),
-            );
-        return updated;
+                );
+        }
+        if (drive && input.provider === "google-drive") {
+            await tx
+                .update(googleDriveExportSettings)
+                .set({
+                    accountSubject: drive.accountSubject,
+                    rootFolderId: drive.id,
+                    rootFolderName: drive.name,
+                    driveId: drive.driveId,
+                    transcriptFormat: input.transcriptFormat,
+                    summaryFormat: input.summaryFormat,
+                    updatedAt: new Date(),
+                })
+                .where(
+                    and(
+                        eq(
+                            googleDriveExportSettings.exportConfigurationId,
+                            exportId,
+                        ),
+                        eq(googleDriveExportSettings.userId, userId),
+                    ),
+                );
+        }
     });
     await enqueueExportPlan(userId, exportId);
-    return { ...result, targetPath };
+    return savedDto(userId, exportId);
+}
+
+async function savedDto(
+    userId: string,
+    exportId: string,
+): Promise<FolderExportConfigurationDto> {
+    const target = await loadExportTarget(userId, exportId);
+    if (!target) throw new Error("Saved export configuration disappeared");
+    return toConfigurationDto(target);
 }
 
 export async function deleteFolderExport(
@@ -222,7 +336,7 @@ export async function deleteFolderExport(
     folderId: string,
     exportId: string,
 ): Promise<void> {
-    assertFilesystemExportsAvailable();
+    assertFolderExportsAvailable();
     const deleted = await db
         .delete(folderExportConfigurations)
         .where(

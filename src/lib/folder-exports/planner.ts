@@ -4,8 +4,6 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
     aiEnhancements,
-    filesystemExportSettings,
-    folderExportConfigurations,
     folderExportDirectories,
     folderExportMaterializations,
     folderExportPlacements,
@@ -32,16 +30,20 @@ import { withExportLock } from "./lock";
 import {
     allocateDirectoryName,
     audioExtension,
+    documentFiles,
     folderDirectory,
     recordingDirectory,
     sourceFilename,
 } from "./naming";
 import { createExportProvider } from "./provider-factory";
-import type { ExportArtifactType, ExportProvider } from "./types";
+import { clearExportFailure, recordExportFailure } from "./status";
+import { loadExportTarget } from "./target";
+import type { ExportArtifactType, ExportFormat, ExportProvider } from "./types";
 
 interface PlannedArtifact {
     artifactType: ExportArtifactType;
     artifactId: string;
+    format: ExportFormat;
     version: string;
     filename: string;
     size: number;
@@ -129,42 +131,26 @@ function legacyProjectionPaths(
     return { directories, placements };
 }
 
-export function planFolderExport(
+export async function planFolderExport(
     userId: string,
     exportId: string,
 ): Promise<number> {
-    // Exclusive: it moves directories and every stored path under them.
-    return withExportLock(exportId, "exclusive", () =>
-        planLocked(userId, exportId),
-    );
+    let queued: number;
+    try {
+        // Exclusive: it moves directories and every stored path under them.
+        queued = await withExportLock(exportId, "exclusive", () =>
+            planLocked(userId, exportId),
+        );
+    } catch (error) {
+        await recordExportFailure(userId, exportId, error).catch(() => {});
+        throw error;
+    }
+    await clearExportFailure(userId, exportId);
+    return queued;
 }
 
 async function planLocked(userId: string, exportId: string): Promise<number> {
-    const [configuration] = await db
-        .select({
-            id: folderExportConfigurations.id,
-            folderId: folderExportConfigurations.folderId,
-            provider: folderExportConfigurations.provider,
-            targetPath: filesystemExportSettings.targetPath,
-            exportAudio: folderExportConfigurations.exportAudio,
-            exportTranscript: folderExportConfigurations.exportTranscript,
-            exportSummary: folderExportConfigurations.exportSummary,
-        })
-        .from(folderExportConfigurations)
-        .innerJoin(
-            filesystemExportSettings,
-            eq(
-                filesystemExportSettings.exportConfigurationId,
-                folderExportConfigurations.id,
-            ),
-        )
-        .where(
-            and(
-                eq(folderExportConfigurations.id, exportId),
-                eq(folderExportConfigurations.userId, userId),
-            ),
-        )
-        .limit(1);
+    const configuration = await loadExportTarget(userId, exportId);
     if (!configuration) return 0;
 
     // The organization account exports the Organization view of every
@@ -264,7 +250,7 @@ async function planLocked(userId: string, exportId: string): Promise<number> {
                 ),
             ),
     ]);
-    const provider = createExportProvider(configuration.provider);
+    const provider = await createExportProvider(configuration);
     await provider.reconcileDirectory(null, configuration.targetPath);
     await Promise.all([
         db
@@ -434,6 +420,7 @@ async function planLocked(userId: string, exportId: string): Promise<number> {
             artifacts.push({
                 artifactType: "audio",
                 artifactId: recording.id,
+                format: "file",
                 version: digest(
                     [
                         recording.fileMd5,
@@ -462,13 +449,19 @@ async function planLocked(userId: string, exportId: string): Promise<number> {
                 );
                 if (!document) continue;
                 const content = Buffer.from(document.content);
-                artifacts.push({
-                    artifactType: "transcript",
-                    artifactId: transcript.id,
-                    version: digest(content),
-                    filename: sourceFilename(transcript.source, "transcript"),
-                    size: content.byteLength,
-                });
+                for (const file of documentFiles(
+                    configuration.googleDrive?.transcriptFormat ?? "markdown",
+                    sourceFilename(transcript.source, "transcript"),
+                )) {
+                    artifacts.push({
+                        artifactType: "transcript",
+                        artifactId: transcript.id,
+                        format: file.format,
+                        version: digest(content),
+                        filename: file.filename,
+                        size: content.byteLength,
+                    });
+                }
             }
         }
         if (configuration.exportSummary) {
@@ -485,13 +478,19 @@ async function planLocked(userId: string, exportId: string): Promise<number> {
                 );
                 if (!document) continue;
                 const content = Buffer.from(document.content);
-                artifacts.push({
-                    artifactType: "summary",
-                    artifactId: summary.id,
-                    version: digest(content),
-                    filename: sourceFilename(summary.source, "summary"),
-                    size: content.byteLength,
-                });
+                for (const file of documentFiles(
+                    configuration.googleDrive?.summaryFormat ?? "markdown",
+                    sourceFilename(summary.source, "summary"),
+                )) {
+                    artifacts.push({
+                        artifactType: "summary",
+                        artifactId: summary.id,
+                        format: file.format,
+                        version: digest(content),
+                        filename: file.filename,
+                        size: content.byteLength,
+                    });
+                }
             }
         }
         for (const placementFolderId of placements) {
@@ -621,6 +620,7 @@ async function planLocked(userId: string, exportId: string): Promise<number> {
                     placementFolderId: placement.placementFolderId,
                     artifactType: artifact.artifactType,
                     artifactId: artifact.artifactId,
+                    format: artifact.format,
                     artifactVersion: artifact.version,
                     logicalPath,
                     expectedSize: artifact.size,
@@ -633,6 +633,7 @@ async function planLocked(userId: string, exportId: string): Promise<number> {
                         folderExportMaterializations.placementFolderId,
                         folderExportMaterializations.artifactType,
                         folderExportMaterializations.artifactId,
+                        folderExportMaterializations.format,
                     ],
                     set: {
                         artifactVersion: artifact.version,
