@@ -12,6 +12,7 @@ import {
     parseExportReconcilePayload,
 } from "./jobs";
 import { planFolderExport } from "./planner";
+import { isExportErrorRetryable } from "./retry";
 
 export const exportPlanJobHandler: JobHandler<ExportPlanPayload> = {
     kind: EXPORT_PLAN_JOB_KIND,
@@ -19,6 +20,7 @@ export const exportPlanJobHandler: JobHandler<ExportPlanPayload> = {
     maxAttempts: 3,
     timeoutMs: 30 * 60 * 1000,
     parsePayload: parseExportPlanPayload,
+    isRetryable: isExportErrorRetryable,
     async run({ userId, payload, reportProgress }) {
         reportProgress({ phase: "planning" });
         const queued = await planFolderExport(userId, payload.exportId);
@@ -34,6 +36,7 @@ export const exportMaterializeJobHandler: JobHandler<ExportMaterializePayload> =
         timeoutMs: 60 * 60 * 1000,
         backoff: { baseMs: 10_000, maxMs: 10 * 60_000, jitter: 0.3 },
         parsePayload: parseExportMaterializePayload,
+        isRetryable: isExportErrorRetryable,
         async run({ userId, payload, reportProgress }) {
             reportProgress({ phase: "materializing" });
             const exported = await materializeFolderExport(
@@ -50,6 +53,7 @@ export const exportReconcileJobHandler: JobHandler<ExportReconcilePayload> = {
     maxAttempts: 3,
     timeoutMs: 60 * 60 * 1000,
     parsePayload: parseExportReconcilePayload,
+    isRetryable: isExportErrorRetryable,
     async run({ userId, payload, reportProgress }) {
         reportProgress({ phase: "reconciling" });
         return reconcileFolderExport(userId, payload.folderId);

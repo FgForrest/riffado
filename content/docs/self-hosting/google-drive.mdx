@@ -1,0 +1,91 @@
+---
+title: Google Drive export
+description: Let users export folders into Google Drive, through a Google Cloud project of your own Workspace.
+---
+
+A folder export can write into Google Drive instead of the server's
+filesystem. It works exactly like the filesystem export: every recording
+in the folder's subtree gets a folder of its own with the audio, the
+transcripts and the summaries, kept up to date as they change. Transcripts
+and summaries can be written as Markdown files, as Google Docs, or both.
+
+The integration is for self-hosted instances inside one Google Workspace.
+It uses an OAuth consent screen of type **Internal**, which only accounts
+of your own Workspace can use and which Google does not review.
+
+## What Riffado can see
+
+Riffado asks for the `drive.file` scope. With it, Riffado sees only:
+
+- the folder a user picks in the Google Picker, and
+- the folders and files Riffado creates itself.
+
+It cannot list or read anything else in the user's Drive. The flip side:
+Riffado also cannot see files people put into the folders it created. It
+tracks its own folders and moves one to the Google Drive trash when it no
+longer needs it, and only while none of its own files are in it. Anything
+a person stored there goes to the trash with it, where it stays
+restorable for 30 days. Every folder Riffado creates carries the Drive
+description "Managed by Riffado. Content you add here may be removed."
+
+Google Docs are regenerated whenever the transcript or summary changes,
+into the same document (its link and sharing survive). Edits made in the
+Doc are overwritten.
+
+## Google Cloud setup
+
+1. In the [Google Cloud console](https://console.cloud.google.com/),
+   create a project inside your Workspace organization.
+2. **APIs & Services → Library**: enable **Google Drive API** and
+   **Google Picker API**.
+3. **APIs & Services → OAuth consent screen** (Google Auth Platform →
+   Branding / Audience): choose User Type **Internal**, fill in the app
+   name and support email. Under **Data access**, add the scopes `openid`,
+   `email` and `https://www.googleapis.com/auth/drive.file`.
+4. **Credentials → Create credentials → OAuth client ID**, type **Web
+   application**:
+   - Authorized JavaScript origin: your `APP_URL` (e.g.
+     `https://riffado.example.com`).
+   - Authorized redirect URI:
+     `<APP_URL>/api/integrations/google/callback`.
+
+   Copy the client id and secret.
+5. **Credentials → Create credentials → API key**. Restrict it to the
+   **Google Picker API** and to HTTP referrers `<APP_URL>/*`.
+6. The project number is on the project's dashboard (**Project info**).
+
+Then set:
+
+```bash
+GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-...
+GOOGLE_PICKER_API_KEY=AIza...
+GOOGLE_CLOUD_PROJECT_NUMBER=1234567890
+# Optional: refuse accounts of other domains even if the client allows them.
+GOOGLE_WORKSPACE_DOMAINS=example.com
+```
+
+Restart Riffado. **Settings → Google Account** now offers to connect an
+account, and the folder export dialog offers **Add Google Drive export**.
+
+## Exporting the Organization tree to a shared drive
+
+The organization account exports the Organization tree like anyone else.
+Connect it to a dedicated service mailbox (for example
+`riffado@example.com`, a licensed Workspace user), not to a person: the
+export writes through that account and stops if it is removed. Add the
+mailbox to the shared drive as **Content manager**, sign in to Riffado as
+the organization account, connect the mailbox, and pick a folder of the
+shared drive.
+
+## When the connection breaks
+
+If an account's access is revoked, its password changes in a way that
+revokes tokens, or it is removed from Workspace, Google stops honoring
+Riffado's refresh token. The connection is then marked for reconnecting,
+Drive exports of that user pause, and the export dialog and settings say
+so. Reconnecting the same account resumes every paused export.
+
+An export also stops when its folder is deleted or trashed, or the account
+can no longer add files to it. Pick another folder in the export's
+settings to continue.

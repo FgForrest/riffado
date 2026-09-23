@@ -252,6 +252,46 @@ export const plaudConnections = pgTable("plaud_connections", {
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
+// OAuth connections to third-party accounts (Google now, Microsoft later).
+// Not a sign-in method: better-auth never sees these.
+export const oauthConnections = pgTable(
+    "oauth_connections",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        provider: varchar("provider", { length: 32 })
+            .$type<"google">()
+            .notNull(),
+        // The provider's stable account id (Google `sub`).
+        subject: text("subject").notNull(),
+        email: text("email").notNull(),
+        // Google Workspace domain (`hd` claim); null for consumer accounts.
+        hostedDomain: text("hosted_domain"),
+        // Encrypted refresh token.
+        refreshToken: text("refresh_token").notNull(),
+        // Space-separated scopes the account has granted.
+        scopes: text("scopes").notNull(),
+        // `needs_reconnect` once the provider rejects the refresh token.
+        status: varchar("status", { length: 16 })
+            .$type<"active" | "needs_reconnect">()
+            .notNull()
+            .default("active"),
+        lastError: text("last_error"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        userProviderUnique: unique("oauth_connections_user_provider_unique").on(
+            table.userId,
+            table.provider,
+        ),
+    }),
+);
+
 // Plaud devices
 export const plaudDevices = pgTable(
     "plaud_devices",
@@ -462,11 +502,15 @@ export const folderExportConfigurations = pgTable(
             .notNull()
             .references(() => recordingFolders.id, { onDelete: "cascade" }),
         provider: varchar("provider", { length: 32 })
-            .$type<"filesystem">()
+            .$type<"filesystem" | "google-drive">()
             .notNull(),
         exportAudio: boolean("export_audio").notNull().default(true),
         exportTranscript: boolean("export_transcript").notNull().default(true),
         exportSummary: boolean("export_summary").notNull().default(true),
+        // The last failure only the user can fix (a revoked account, a
+        // deleted target folder); cleared by the next successful plan.
+        lastError: text("last_error"),
+        lastErrorAt: timestamp("last_error_at"),
         createdAt: timestamp("created_at").notNull().defaultNow(),
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
@@ -499,6 +543,75 @@ export const filesystemExportSettings = pgTable(
         userIdIdx: index("filesystem_export_settings_user_id_idx").on(
             table.userId,
         ),
+    }),
+);
+
+export const googleDriveExportSettings = pgTable(
+    "google_drive_export_settings",
+    {
+        exportConfigurationId: text("export_configuration_id")
+            .primaryKey()
+            .references(() => folderExportConfigurations.id, {
+                onDelete: "cascade",
+            }),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        // Google `sub` of the account that picked the folder: the export
+        // writes only through that account.
+        accountSubject: text("account_subject").notNull(),
+        rootFolderId: text("root_folder_id").notNull(),
+        rootFolderName: text("root_folder_name").notNull(),
+        // Shared drive holding the folder; null for My Drive.
+        driveId: text("drive_id"),
+        transcriptFormat: varchar("transcript_format", { length: 16 })
+            .$type<"markdown" | "google_doc" | "both">()
+            .notNull()
+            .default("markdown"),
+        summaryFormat: varchar("summary_format", { length: 16 })
+            .$type<"markdown" | "google_doc" | "both">()
+            .notNull()
+            .default("markdown"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        userIdIdx: index("google_drive_export_settings_user_id_idx").on(
+            table.userId,
+        ),
+    }),
+);
+
+// Drive items a Google Drive export created, by logical path. A cache: every
+// item also carries the export's id in its Drive `appProperties`.
+export const driveExportNodes = pgTable(
+    "drive_export_nodes",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        exportConfigurationId: text("export_configuration_id")
+            .notNull()
+            .references(() => folderExportConfigurations.id, {
+                onDelete: "cascade",
+            }),
+        logicalPath: text("logical_path").notNull(),
+        driveFileId: text("drive_file_id").notNull(),
+        kind: varchar("kind", { length: 16 })
+            .$type<"folder" | "file" | "google_doc">()
+            .notNull(),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        pathUnique: unique("drive_export_nodes_path_unique").on(
+            table.exportConfigurationId,
+            table.logicalPath,
+        ),
+        userIdIdx: index("drive_export_nodes_user_id_idx").on(table.userId),
     }),
 );
 
@@ -610,6 +723,11 @@ export const folderExportMaterializations = pgTable(
             .$type<"audio" | "transcript" | "summary">()
             .notNull(),
         artifactId: text("artifact_id").notNull(),
+        // `google_doc` only on Google Drive: the Markdown converted to a Doc.
+        format: varchar("format", { length: 16 })
+            .$type<"file" | "google_doc">()
+            .notNull()
+            .default("file"),
         artifactVersion: varchar("artifact_version", { length: 64 }).notNull(),
         logicalPath: text("logical_path").notNull(),
         expectedSize: bigint("expected_size", { mode: "number" }).notNull(),
@@ -632,6 +750,7 @@ export const folderExportMaterializations = pgTable(
             table.placementFolderId,
             table.artifactType,
             table.artifactId,
+            table.format,
         ),
         userIdIdx: index("folder_export_materializations_user_id_idx").on(
             table.userId,

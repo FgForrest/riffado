@@ -62,6 +62,8 @@ export function SettingsNavMobile({
                 return i18n("Webhooks");
             case "billing":
                 return i18n("Billing");
+            case "google-account":
+                return i18n("Google Account");
             case "dev":
                 return i18n("Developer Tools");
         }

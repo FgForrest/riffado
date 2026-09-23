@@ -63,6 +63,12 @@ services:
       # Folder export destinations are always resolved beneath this fixed
       # container boundary. Operators choose only the host-side bind path.
       FILESYSTEM_EXPORT_ROOT: /exports
+      # Google Drive export (optional; see docs/self-hosting/google-drive)
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_PICKER_API_KEY: ${GOOGLE_PICKER_API_KEY:-}
+      GOOGLE_CLOUD_PROJECT_NUMBER: ${GOOGLE_CLOUD_PROJECT_NUMBER:-}
+      GOOGLE_WORKSPACE_DOMAINS: ${GOOGLE_WORKSPACE_DOMAINS:-}
 
       # SMTP (optional: password reset + email notifications)
       SMTP_HOST: ${SMTP_HOST:-}

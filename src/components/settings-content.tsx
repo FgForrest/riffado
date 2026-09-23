@@ -7,6 +7,7 @@ import { BillingSection } from "./settings-sections/billing-section";
 import { DevSection } from "./settings-sections/dev-section";
 import { DisplaySection } from "./settings-sections/display-section";
 import { ExportSection } from "./settings-sections/export-section";
+import { GoogleAccountSection } from "./settings-sections/google-account-section";
 import { NotificationsSection } from "./settings-sections/notifications-section";
 import { PlaudAccountSection } from "./settings-sections/plaud-account-section";
 import { PlaybackSection } from "./settings-sections/playback-section";
@@ -77,6 +78,9 @@ export function SettingsContent({
         case "billing":
             if (!isHosted) return null;
             return <BillingSection />;
+        case "google-account":
+            if (isHosted) return null;
+            return <GoogleAccountSection />;
         case "dev":
             if (process.env.NODE_ENV === "production") return null;
             return <DevSection />;

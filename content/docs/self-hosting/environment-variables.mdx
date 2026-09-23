@@ -67,6 +67,20 @@ archives go there instead, whatever backend the recordings use. It is
 always a local filesystem path, including on S3-backed instances: a
 backup you cannot read without the app running is not much of a backup.
 
+## Google integration (Drive export)
+
+Self-host only; ignored when `IS_HOSTED=true`. With the first four set,
+users can connect a Google account and export folders to Google Drive.
+See [Google Drive export](./google-drive) for the Google Cloud setup.
+
+| Variable                      | Default | Effect                                                                                      |
+| ----------------------------- | ------- | ------------------------------------------------------------------------------------------- |
+| `GOOGLE_CLIENT_ID`            | —       | OAuth client id ("Web application" client).                                                 |
+| `GOOGLE_CLIENT_SECRET`        | —       | OAuth client secret.                                                                        |
+| `GOOGLE_PICKER_API_KEY`       | —       | Browser API key for the Google Picker. Restrict it to the Picker API and your `APP_URL`.    |
+| `GOOGLE_CLOUD_PROJECT_NUMBER` | —       | Numeric project number of the Google Cloud project (the Picker's app id).                  |
+| `GOOGLE_WORKSPACE_DOMAINS`    | —       | Comma-separated Workspace domains allowed to connect. Unset, any account the consent screen admits may. |
+
 ## SMTP (email notifications)
 
 | Variable        | Default                | Effect                                                                                |

@@ -1,6 +1,7 @@
 import {
     Bell,
     Bot,
+    Cloud,
     CreditCard,
     Download,
     FileText,
@@ -86,11 +87,29 @@ const baseSettingsNavGroups: { label: string; items: NavItem[] }[] = [
 
 /**
  * Build the settings nav. `isHosted` toggles the Billing group, which
- * is meaningless on self-host.
+ * is meaningless on self-host, and the Google account, which exists
+ * only there.
  */
 export function buildSettingsNavGroups(opts: {
     isHosted: boolean;
 }): { label: string; items: NavItem[] }[] {
+    const groups = opts.isHosted
+        ? baseSettingsNavGroups
+        : baseSettingsNavGroups.map((group) =>
+              group.label === "Integrations"
+                  ? {
+                        ...group,
+                        items: [
+                            ...group.items,
+                            {
+                                name: "Google Account",
+                                id: "google-account" as SettingsSection,
+                                icon: Cloud,
+                            },
+                        ],
+                    }
+                  : group,
+          );
     return [
         ...(opts.isHosted
             ? [
@@ -106,7 +125,7 @@ export function buildSettingsNavGroups(opts: {
                   },
               ]
             : []),
-        ...baseSettingsNavGroups,
+        ...groups,
     ];
 }
 

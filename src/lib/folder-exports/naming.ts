@@ -1,4 +1,5 @@
 import path from "node:path";
+import type { DocumentFormat, ExportFormat } from "./types";
 
 export function safePathSegment(value: string, fallback: string): string {
     const normalized = Array.from(value.normalize("NFKC"))
@@ -48,4 +49,27 @@ export function sourceFilename(
     artifact: "transcript" | "summary",
 ): string {
     return `${safePathSegment(source, "unknown")}.${artifact}.md`;
+}
+
+/**
+ * The files one Markdown artifact becomes: the `.md` file, a Google Doc
+ * named without the extension, or both.
+ */
+export function documentFiles(
+    format: DocumentFormat,
+    markdownFilename: string,
+): Array<{ format: ExportFormat; filename: string }> {
+    const markdown = { format: "file" as const, filename: markdownFilename };
+    const doc = {
+        format: "google_doc" as const,
+        filename: markdownFilename.replace(/\.md$/, ""),
+    };
+    switch (format) {
+        case "markdown":
+            return [markdown];
+        case "google_doc":
+            return [doc];
+        case "both":
+            return [markdown, doc];
+    }
 }

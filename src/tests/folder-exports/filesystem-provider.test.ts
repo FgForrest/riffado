@@ -55,7 +55,13 @@ describe("filesystem export provider", () => {
         expect(
             await readFile(path.join(root, "team/item/transcript.md"), "utf8"),
         ).toBe("two");
-        expect(await provider.exists("team/item/transcript.md", 3)).toBe(true);
+        expect(
+            await provider.exists("team/item/transcript.md", {
+                size: 3,
+                version: "v",
+                format: "file",
+            }),
+        ).toBe(true);
     });
 
     it("finishes a streamed write, as audio exports are", async () => {
@@ -159,10 +165,18 @@ describe("filesystem export provider", () => {
         );
         // A path read before the rename used to recreate the old directory.
         await expect(
-            provider.exists("team/Old recording/transcript.md", 7),
+            provider.exists("team/Old recording/transcript.md", {
+                size: 7,
+                version: "v",
+                format: "file",
+            }),
         ).resolves.toBe(false);
         await expect(
-            provider.exists("gone/Old recording/transcript.md", 7),
+            provider.exists("gone/Old recording/transcript.md", {
+                size: 7,
+                version: "v",
+                format: "file",
+            }),
         ).resolves.toBe(false);
         await expect(readdir(path.join(root, "team"))).resolves.toEqual([
             "New recording",

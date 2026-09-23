@@ -1,9 +1,10 @@
 "use client";
 
-import { Plus, RefreshCw, Settings, Trash2 } from "lucide-react";
+import { FolderOpen, Plus, RefreshCw, Settings, Trash2 } from "lucide-react";
 import { useExtracted } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { GoogleConnectionPanel } from "@/components/integrations/google-connection-panel";
 import { Button } from "@/components/ui/button";
 import {
     Dialog,
@@ -15,37 +16,90 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useGoogleConnection } from "@/hooks/use-google-connection";
 import { getApiErrorMessage } from "@/lib/api-errors";
-import type { FolderExportConfigurationDto } from "@/lib/folder-exports/types";
+import type {
+    DocumentFormat,
+    ExportProvidersAvailability,
+    FolderExportConfigurationDto,
+    FolderExportProviderType,
+} from "@/lib/folder-exports/types";
+import {
+    type PickerCredentials,
+    pickDriveFolder,
+} from "@/lib/integrations/google/picker-client";
 import { followJob } from "@/lib/jobs/client";
 import type { RecordingFolder } from "@/types/folder";
 
 interface FolderExportActionsProps {
     folder: RecordingFolder;
-    filesystemAvailable: boolean;
+    providers: ExportProvidersAvailability;
     privateTree: boolean;
 }
 
 interface FormState {
     id: string | null;
+    provider: FolderExportProviderType;
     targetPath: string;
+    driveFolder: { id: string; name: string } | null;
+    transcriptFormat: DocumentFormat;
+    summaryFormat: DocumentFormat;
     exportAudio: boolean;
     exportTranscript: boolean;
     exportSummary: boolean;
 }
 
-const EMPTY_FORM: FormState = {
-    id: null,
-    targetPath: "",
-    exportAudio: true,
-    exportTranscript: true,
-    exportSummary: true,
-};
+/**
+ * Query parameter that reopens this dialog after Google's consent screen:
+ * `<folderId>` on a new Drive export, `<folderId>.list` on the list.
+ */
+const REOPEN_PARAM = "googleExport";
+
+function emptyForm(provider: FolderExportProviderType): FormState {
+    return {
+        id: null,
+        provider,
+        targetPath: "",
+        driveFolder: null,
+        transcriptFormat: "google_doc",
+        summaryFormat: "google_doc",
+        exportAudio: true,
+        exportTranscript: true,
+        exportSummary: true,
+    };
+}
+
+function formFor(configuration: FolderExportConfigurationDto): FormState {
+    const drive = configuration.googleDrive;
+    return {
+        id: configuration.id,
+        provider: configuration.provider,
+        targetPath:
+            configuration.provider === "filesystem"
+                ? configuration.targetPath
+                : "",
+        driveFolder: drive
+            ? { id: drive.rootFolderId, name: drive.rootFolderName }
+            : null,
+        transcriptFormat: drive?.transcriptFormat ?? "markdown",
+        summaryFormat: drive?.summaryFormat ?? "markdown",
+        exportAudio: configuration.exportAudio,
+        exportTranscript: configuration.exportTranscript,
+        exportSummary: configuration.exportSummary,
+    };
+}
 
 export function FolderExportActions({
     folder,
-    filesystemAvailable,
+    providers,
     privateTree,
 }: FolderExportActionsProps) {
     const i18n = useExtracted();
@@ -57,9 +111,12 @@ export function FolderExportActions({
     const [form, setForm] = useState<FormState | null>(null);
     const [saving, setSaving] = useState(false);
     const [syncing, setSyncing] = useState(false);
+    const [picking, setPicking] = useState(false);
+    const available = providers.filesystem || providers.googleDrive;
+    const google = useGoogleConnection(providers.googleDrive && open);
 
     const load = useCallback(async () => {
-        if (!filesystemAvailable || !privateTree) {
+        if (!available || !privateTree) {
             setConfigurations([]);
             setApplicableIds([]);
             return;
@@ -72,11 +129,76 @@ export function FolderExportActions({
         };
         setConfigurations(data.configured);
         setApplicableIds(data.applicableIds);
-    }, [filesystemAvailable, folder.id, privateTree]);
+    }, [available, folder.id, privateTree]);
 
     useEffect(() => {
         void load();
     }, [load]);
+
+    useEffect(() => {
+        const url = new URL(window.location.href);
+        const reopen = url.searchParams.get(REOPEN_PARAM);
+        if (reopen !== folder.id && reopen !== `${folder.id}.list`) return;
+        url.searchParams.delete(REOPEN_PARAM);
+        window.history.replaceState(window.history.state, "", url);
+        setForm(reopen === folder.id ? emptyForm("google-drive") : null);
+        setOpen(true);
+    }, [folder.id]);
+
+    const update = (patch: Partial<FormState>) =>
+        setForm((current) => (current ? { ...current, ...patch } : current));
+
+    const connection = google.state?.connection ?? null;
+    const driveReady = connection?.status === "active";
+
+    const connectReturnTo = (view: "form" | "list") => () => {
+        const url = new URL(window.location.href);
+        url.searchParams.set("folder", folder.id);
+        url.searchParams.set(
+            REOPEN_PARAM,
+            view === "form" ? folder.id : `${folder.id}.list`,
+        );
+        return `${url.pathname}${url.search}`;
+    };
+    const driveNeedsAttention =
+        google.state !== null &&
+        !driveReady &&
+        configurations.some(
+            (configuration) => configuration.provider === "google-drive",
+        );
+
+    const chooseDriveFolder = async () => {
+        setPicking(true);
+        try {
+            const response = await fetch(
+                "/api/integrations/google/picker-token",
+            );
+            if (!response.ok) {
+                toast.error(
+                    await getApiErrorMessage(
+                        response,
+                        i18n("Could not open Google Drive"),
+                    ),
+                );
+                await google.refresh();
+                return;
+            }
+            const credentials = (await response.json()) as PickerCredentials;
+            // The dialog is modal: it would block the Picker's own frame.
+            setOpen(false);
+            const picked = await pickDriveFolder(
+                credentials,
+                i18n("Choose the folder to export into"),
+            );
+            if (picked) update({ driveFolder: picked });
+        } catch (error) {
+            console.error("[google] picker failed:", error);
+            toast.error(i18n("Could not open Google Drive"));
+        } finally {
+            setOpen(true);
+            setPicking(false);
+        }
+    };
 
     const save = async () => {
         if (!form) return;
@@ -84,17 +206,30 @@ export function FolderExportActions({
         const url = form.id
             ? `/api/folders/${folder.id}/exports/${form.id}`
             : `/api/folders/${folder.id}/exports`;
+        const selection = {
+            exportAudio: form.exportAudio,
+            exportTranscript: form.exportTranscript,
+            exportSummary: form.exportSummary,
+        };
         try {
             const response = await fetch(url, {
                 method: form.id ? "PATCH" : "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    provider: "filesystem",
-                    targetPath: form.targetPath,
-                    exportAudio: form.exportAudio,
-                    exportTranscript: form.exportTranscript,
-                    exportSummary: form.exportSummary,
-                }),
+                body: JSON.stringify(
+                    form.provider === "google-drive"
+                        ? {
+                              provider: "google-drive",
+                              rootFolderId: form.driveFolder?.id ?? "",
+                              transcriptFormat: form.transcriptFormat,
+                              summaryFormat: form.summaryFormat,
+                              ...selection,
+                          }
+                        : {
+                              provider: "filesystem",
+                              targetPath: form.targetPath,
+                              ...selection,
+                          },
+                ),
             });
             if (!response.ok) {
                 toast.error(
@@ -160,6 +295,41 @@ export function FolderExportActions({
         }
     };
 
+    const formatLabel = (format: DocumentFormat) => {
+        switch (format) {
+            case "markdown":
+                return i18n("Markdown file");
+            case "google_doc":
+                return i18n("Google Doc");
+            case "both":
+                return i18n("Markdown file and Google Doc");
+        }
+    };
+
+    const artifactLabels = (configuration: FolderExportConfigurationDto) =>
+        [
+            configuration.exportAudio && i18n("Audio"),
+            configuration.exportTranscript && i18n("Transcript"),
+            configuration.exportSummary && i18n("Summary"),
+        ]
+            .filter(Boolean)
+            .join(", ");
+
+    const targetLabel = (configuration: FolderExportConfigurationDto) =>
+        configuration.googleDrive
+            ? i18n("Google Drive: {folder}", {
+                  folder: configuration.googleDrive.rootFolderName,
+              })
+            : configuration.targetPath;
+
+    const canSave =
+        form !== null &&
+        !saving &&
+        (form.exportAudio || form.exportTranscript || form.exportSummary) &&
+        (form.provider === "filesystem"
+            ? form.targetPath.trim().length > 0
+            : form.driveFolder !== null && driveReady);
+
     return (
         <>
             {applicableIds.length > 0 && (
@@ -197,16 +367,16 @@ export function FolderExportActions({
                             {i18n("apply to its complete subtree.")}
                         </DialogDescription>
                     </DialogHeader>
-                    {!filesystemAvailable ? (
+                    {!available ? (
                         <p className="text-sm text-muted-foreground">
                             {i18n(
-                                "Filesystem export requires a self-hosted deployment with FILESYSTEM_EXPORT_ROOT configured.",
+                                "Folder export requires a self-hosted deployment with FILESYSTEM_EXPORT_ROOT or the Google integration configured.",
                             )}
                         </p>
                     ) : !privateTree ? (
                         <p className="text-sm text-muted-foreground">
                             {i18n(
-                                "Filesystem exports can only be configured for Private folders.",
+                                "Exports can only be configured for Private folders.",
                             )}
                         </p>
                     ) : form ? (
@@ -217,64 +387,159 @@ export function FolderExportActions({
                                 </Label>
                                 <Input
                                     id="folder-export-provider"
-                                    value="Filesystem"
+                                    value={
+                                        form.provider === "google-drive"
+                                            ? i18n("Google Drive")
+                                            : i18n("Filesystem")
+                                    }
                                     disabled
                                 />
                             </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="folder-export-target">
-                                    {i18n(
-                                        "Destination under the configured export root",
-                                    )}
-                                </Label>
-                                <Input
-                                    id="folder-export-target"
-                                    value={form.targetPath}
-                                    placeholder={i18n("team-meetings")}
-                                    onChange={(event) =>
-                                        setForm((current) =>
-                                            current
-                                                ? {
-                                                      ...current,
-                                                      targetPath:
-                                                          event.target.value,
-                                                  }
-                                                : current,
-                                        )
-                                    }
-                                />
-                            </div>
+                            {form.provider === "filesystem" ? (
+                                <div className="space-y-2">
+                                    <Label htmlFor="folder-export-target">
+                                        {i18n(
+                                            "Destination under the configured export root",
+                                        )}
+                                    </Label>
+                                    <Input
+                                        id="folder-export-target"
+                                        value={form.targetPath}
+                                        placeholder={i18n("team-meetings")}
+                                        onChange={(event) =>
+                                            update({
+                                                targetPath: event.target.value,
+                                            })
+                                        }
+                                    />
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    <div className="rounded-md border p-3">
+                                        <GoogleConnectionPanel
+                                            state={google.state}
+                                            onChanged={() =>
+                                                void google.refresh()
+                                            }
+                                            returnTo={connectReturnTo("form")}
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label>
+                                            {i18n("Google Drive folder")}
+                                        </Label>
+                                        <div className="flex items-center gap-2">
+                                            <span className="min-w-0 flex-1 truncate text-sm">
+                                                {form.driveFolder?.name ??
+                                                    i18n("No folder chosen")}
+                                            </span>
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                disabled={
+                                                    !driveReady || picking
+                                                }
+                                                onClick={() =>
+                                                    void chooseDriveFolder()
+                                                }
+                                            >
+                                                <FolderOpen />
+                                                {form.driveFolder
+                                                    ? i18n("Change folder")
+                                                    : i18n("Choose folder")}
+                                            </Button>
+                                        </div>
+                                    </div>
+                                    <p className="text-xs text-muted-foreground">
+                                        {i18n(
+                                            "Riffado manages the folders it creates inside this folder. Do not keep your own files in them: a folder Riffado no longer needs goes to the Google Drive trash with everything in it. Google Docs are regenerated when the recording changes, so edits made in them are overwritten.",
+                                        )}
+                                    </p>
+                                </div>
+                            )}
                             {(
                                 [
-                                    ["exportAudio", "Audio"],
+                                    ["exportAudio", i18n("Audio")],
                                     [
                                         "exportTranscript",
-                                        "Transcript (all variants)",
+                                        i18n("Transcript (all variants)"),
                                     ],
-                                    ["exportSummary", "Summary (all variants)"],
+                                    [
+                                        "exportSummary",
+                                        i18n("Summary (all variants)"),
+                                    ],
                                 ] as const
                             ).map(([key, label]) => (
                                 <div
                                     key={key}
-                                    className="flex items-center justify-between rounded-md border p-3"
+                                    className="space-y-3 rounded-md border p-3"
                                 >
-                                    <Label htmlFor={`folder-export-${key}`}>
-                                        {label}
-                                    </Label>
-                                    <Switch
-                                        id={`folder-export-${key}`}
-                                        checked={form[key]}
-                                        onCheckedChange={(checked) =>
-                                            setForm((current) =>
-                                                current
-                                                    ? {
-                                                          ...current,
-                                                          [key]: checked,
-                                                      }
-                                                    : current,
-                                            )
-                                        }
-                                    />
+                                    <div className="flex items-center justify-between">
+                                        <Label htmlFor={`folder-export-${key}`}>
+                                            {label}
+                                        </Label>
+                                        <Switch
+                                            id={`folder-export-${key}`}
+                                            checked={form[key]}
+                                            onCheckedChange={(checked) =>
+                                                update({ [key]: checked })
+                                            }
+                                        />
+                                    </div>
+                                    {form.provider === "google-drive" &&
+                                        key !== "exportAudio" &&
+                                        form[key] && (
+                                            <Select
+                                                value={
+                                                    key === "exportTranscript"
+                                                        ? form.transcriptFormat
+                                                        : form.summaryFormat
+                                                }
+                                                onValueChange={(value) =>
+                                                    update(
+                                                        key ===
+                                                            "exportTranscript"
+                                                            ? {
+                                                                  transcriptFormat:
+                                                                      value as DocumentFormat,
+                                                              }
+                                                            : {
+                                                                  summaryFormat:
+                                                                      value as DocumentFormat,
+                                                              },
+                                                    )
+                                                }
+                                            >
+                                                <SelectTrigger
+                                                    className="w-full"
+                                                    aria-label={i18n(
+                                                        "Format of {artifact}",
+                                                        { artifact: label },
+                                                    )}
+                                                >
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    {(
+                                                        [
+                                                            "google_doc",
+                                                            "markdown",
+                                                            "both",
+                                                        ] as const
+                                                    ).map((format) => (
+                                                        <SelectItem
+                                                            key={format}
+                                                            value={format}
+                                                        >
+                                                            {formatLabel(
+                                                                format,
+                                                            )}
+                                                        </SelectItem>
+                                                    ))}
+                                                </SelectContent>
+                                            </Select>
+                                        )}
                                 </div>
                             ))}
                             <DialogFooter>
@@ -288,13 +553,7 @@ export function FolderExportActions({
                                 </Button>
                                 <Button
                                     type="button"
-                                    disabled={
-                                        saving ||
-                                        !form.targetPath.trim() ||
-                                        (!form.exportAudio &&
-                                            !form.exportTranscript &&
-                                            !form.exportSummary)
-                                    }
+                                    disabled={!canSave}
                                     onClick={() => void save()}
                                 >
                                     {saving
@@ -305,6 +564,15 @@ export function FolderExportActions({
                         </div>
                     ) : (
                         <div className="space-y-3">
+                            {driveNeedsAttention && (
+                                <div className="rounded-md border p-3">
+                                    <GoogleConnectionPanel
+                                        state={google.state}
+                                        onChanged={() => void google.refresh()}
+                                        returnTo={connectReturnTo("list")}
+                                    />
+                                </div>
+                            )}
                             {configurations.map((configuration) => (
                                 <div
                                     key={configuration.id}
@@ -314,34 +582,20 @@ export function FolderExportActions({
                                         type="button"
                                         className="min-w-0 flex-1 text-left"
                                         onClick={() =>
-                                            setForm({
-                                                id: configuration.id,
-                                                targetPath:
-                                                    configuration.targetPath,
-                                                exportAudio:
-                                                    configuration.exportAudio,
-                                                exportTranscript:
-                                                    configuration.exportTranscript,
-                                                exportSummary:
-                                                    configuration.exportSummary,
-                                            })
+                                            setForm(formFor(configuration))
                                         }
                                     >
                                         <span className="block truncate text-sm font-medium">
-                                            {configuration.targetPath}
+                                            {targetLabel(configuration)}
                                         </span>
                                         <span className="text-xs text-muted-foreground">
-                                            {[
-                                                configuration.exportAudio &&
-                                                    "Audio",
-                                                configuration.exportTranscript &&
-                                                    "Transcript",
-                                                configuration.exportSummary &&
-                                                    "Summary",
-                                            ]
-                                                .filter(Boolean)
-                                                .join(", ")}
+                                            {artifactLabels(configuration)}
                                         </span>
+                                        {configuration.lastError && (
+                                            <span className="block text-xs text-destructive">
+                                                {configuration.lastError}
+                                            </span>
+                                        )}
                                     </button>
                                     <Button
                                         type="button"
@@ -349,7 +603,11 @@ export function FolderExportActions({
                                         size="icon-sm"
                                         aria-label={i18n(
                                             "Remove export {path}",
-                                            { path: configuration.targetPath },
+                                            {
+                                                path: targetLabel(
+                                                    configuration,
+                                                ),
+                                            },
                                         )}
                                         onClick={() =>
                                             void remove(configuration.id)
@@ -366,13 +624,31 @@ export function FolderExportActions({
                                     )}
                                 </p>
                             )}
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={() => setForm(EMPTY_FORM)}
-                            >
-                                <Plus /> {i18n("Add filesystem export")}
-                            </Button>
+                            <div className="flex flex-wrap gap-2">
+                                {providers.filesystem && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() =>
+                                            setForm(emptyForm("filesystem"))
+                                        }
+                                    >
+                                        <Plus /> {i18n("Add filesystem export")}
+                                    </Button>
+                                )}
+                                {providers.googleDrive && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={() =>
+                                            setForm(emptyForm("google-drive"))
+                                        }
+                                    >
+                                        <Plus />{" "}
+                                        {i18n("Add Google Drive export")}
+                                    </Button>
+                                )}
+                            </div>
                         </div>
                     )}
                 </DialogContent>
