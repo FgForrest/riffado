@@ -302,6 +302,10 @@ describeWithDatabase("Export directories after a rename (PostgreSQL)", () => {
 
     it("plans only once a write in progress has finished", async () => {
         await planFolderExport(orgUserId, exportId);
+        let holding = () => {};
+        const held = new Promise<void>((resolve) => {
+            holding = resolve;
+        });
         let finishWrite = () => {};
         const writing = withExportLock(
             exportId,
@@ -309,8 +313,11 @@ describeWithDatabase("Export directories after a rename (PostgreSQL)", () => {
             () =>
                 new Promise<void>((resolve) => {
                     finishWrite = resolve;
+                    holding();
                 }),
         );
+        // Asking for the lock is not holding it: plan only once it is held.
+        await held;
         let planned = false;
         const planning = planFolderExport(orgUserId, exportId).then(() => {
             planned = true;
