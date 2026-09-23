@@ -230,6 +230,10 @@ export function RecordingWorkstation({
                                               startMs / 1000,
                                           )
                             }
+                            getPlaybackMs={() =>
+                                (playerRef.current?.getCurrentTime() ?? 0) *
+                                1000
+                            }
                         />
                     )}
 

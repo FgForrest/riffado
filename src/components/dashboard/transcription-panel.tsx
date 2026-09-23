@@ -11,9 +11,10 @@ import {
     Sparkles,
 } from "lucide-react";
 import { useExtracted } from "next-intl";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownActions } from "@/components/dashboard/markdown-actions";
 import { TranscribeInBrowserButton } from "@/components/dashboard/transcribe-in-browser-button";
+import { TranscriptTopicsMenu } from "@/components/dashboard/transcript-topics-menu";
 import { TranscriptView } from "@/components/dashboard/transcript-view";
 import { Markdown } from "@/components/markdown";
 import {
@@ -32,6 +33,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { useSummaryPresetCopy } from "@/hooks/use-preset-copy";
+import { useTranscriptTopics } from "@/hooks/use-transcript-topics";
 import {
     type SummarySource,
     useTranscriptionSummary,
@@ -43,6 +45,7 @@ import {
 import { withRecordingView } from "@/lib/sharing/view";
 import { describeMultiPass } from "@/lib/summary/multi-pass";
 import { formatElapsed } from "@/lib/summary/progress-stream";
+import type { TranscriptTopic } from "@/lib/topics/timeline";
 import {
     formatSpeakerLabel,
     mayBeDiarized,
@@ -60,6 +63,8 @@ export interface Transcription {
     model?: string;
     /** Provider-reported turns, when the transcript was stored with them. */
     turns?: TranscriptTurn[] | null;
+    /** Topics detected on this transcript, anchored to `turns`. */
+    topics?: TranscriptTopic[] | null;
 }
 
 /** A transcript variant for a single source (Plaud, the user's own, etc.). */
@@ -71,6 +76,8 @@ export interface TranscriptOption {
     model?: string;
     /** Provider-reported turns, when the transcript was stored with them. */
     turns?: TranscriptTurn[] | null;
+    /** Topics detected on this transcript, anchored to `turns`. */
+    topics?: TranscriptTopic[] | null;
 }
 
 interface TranscriptionPanelProps {
@@ -86,6 +93,8 @@ interface TranscriptionPanelProps {
     onTranscribeComplete?: () => void;
     /** Seek the recording audio to a provider-reported transcript turn. */
     onSeekToTurn?: (startMs: number) => void;
+    /** Playback position in milliseconds, to mark the topic being played. */
+    getPlaybackMs?: () => number;
 }
 
 function SourceSwitcher({
@@ -150,6 +159,7 @@ export function toTranscriptList(
             provider: transcription.provider,
             model: transcription.model,
             turns: transcription.turns,
+            topics: transcription.topics,
         },
     ];
 }
@@ -183,6 +193,7 @@ export function TranscriptionPanel({
     onTranscribe,
     onTranscribeComplete,
     onSeekToTurn,
+    getPlaybackMs,
 }: TranscriptionPanelProps) {
     const i18n = useExtracted();
     const summaryPresetCopy = useSummaryPresetCopy();
@@ -207,6 +218,48 @@ export function TranscriptionPanel({
         () => transcriptSpeakerTags(activeTranscript),
         [activeTranscript],
     );
+    const {
+        topics,
+        detecting: detectingTopics,
+        detect: detectTopics,
+    } = useTranscriptTopics(
+        recording.id,
+        activeTranscript?.source,
+        activeTranscript?.topics,
+    );
+    // Topics are anchored to timed turns and written onto the viewer's own
+    // transcript row, so they are offered only there.
+    const canDetectTopics =
+        !orgView &&
+        (activeTranscript?.source === "plaud" ||
+            activeTranscript?.source === "riffado") &&
+        (activeTranscript.turns?.length ?? 0) > 0;
+    const transcriptSectionRef = useRef<HTMLElement>(null);
+    // A fresh object per jump, so jumping to the same topic twice scrolls
+    // and highlights twice.
+    const [topicJump, setTopicJump] = useState<{ index: number } | null>(null);
+    const handleSelectTopic = (index: number) => {
+        const topic = topics?.[index];
+        if (!topic) return;
+        onSeekToTurn?.(topic.fromMs);
+        setTranscriptExpanded(true);
+        setTopicJump({ index });
+    };
+    useEffect(() => {
+        if (!topicJump || !transcriptExpanded) return;
+        const section = transcriptSectionRef.current;
+        const heading = section?.querySelector(
+            `[data-topic-index="${topicJump.index}"]`,
+        );
+        if (section && heading instanceof HTMLElement) {
+            section.scrollTo({
+                top: heading.offsetTop - 8,
+                behavior: "smooth",
+            });
+        }
+        const timer = setTimeout(() => setTopicJump(null), 2000);
+        return () => clearTimeout(timer);
+    }, [topicJump, transcriptExpanded]);
     const attributionKey = activeTranscript
         ? `${recording.id}:${activeTranscript.source}`
         : "";
@@ -500,28 +553,41 @@ export function TranscriptionPanel({
                         </div>
                     ) : activeTranscript?.text ? (
                         <div className="space-y-4">
-                            <button
-                                type="button"
-                                aria-expanded={transcriptExpanded}
-                                onClick={() =>
-                                    setTranscriptExpanded(!transcriptExpanded)
-                                }
-                                className="flex items-center gap-1 text-sm font-medium transition-colors hover:text-primary"
-                            >
-                                {transcriptExpanded ? (
-                                    <ChevronUp className="size-4" />
-                                ) : (
-                                    <ChevronDown className="size-4" />
-                                )}
-                                {transcriptExpanded
-                                    ? i18n("Collapse transcript")
-                                    : i18n("Expand transcript")}
-                            </button>
+                            <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
+                                <button
+                                    type="button"
+                                    aria-expanded={transcriptExpanded}
+                                    onClick={() =>
+                                        setTranscriptExpanded(
+                                            !transcriptExpanded,
+                                        )
+                                    }
+                                    className="flex items-center gap-1 text-sm font-medium transition-colors hover:text-primary"
+                                >
+                                    {transcriptExpanded ? (
+                                        <ChevronUp className="size-4" />
+                                    ) : (
+                                        <ChevronDown className="size-4" />
+                                    )}
+                                    {transcriptExpanded
+                                        ? i18n("Collapse transcript")
+                                        : i18n("Expand transcript")}
+                                </button>
+                                <TranscriptTopicsMenu
+                                    topics={topics}
+                                    canDetect={canDetectTopics}
+                                    detecting={detectingTopics}
+                                    onDetect={() => void detectTopics()}
+                                    onSelect={handleSelectTopic}
+                                    getPlaybackMs={getPlaybackMs}
+                                />
+                            </div>
                             {transcriptExpanded && (
                                 <div className="space-y-4">
                                     <section
+                                        ref={transcriptSectionRef}
                                         aria-label={i18n("Transcript content")}
-                                        className="max-h-96 overflow-y-auto rounded-lg bg-muted p-4"
+                                        className="relative max-h-96 overflow-y-auto rounded-lg bg-muted p-4"
                                     >
                                         <TranscriptView
                                             text={activeTranscript.text}
@@ -532,6 +598,10 @@ export function TranscriptionPanel({
                                                 speakerAttributions
                                             }
                                             onSeekToTurn={onSeekToTurn}
+                                            topics={topics}
+                                            highlightedTopic={
+                                                topicJump?.index ?? null
+                                            }
                                         />
                                     </section>
                                     <div className="flex items-center gap-4 border-t pt-2 text-xs text-muted-foreground">

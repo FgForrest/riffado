@@ -15,12 +15,19 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { useTitlePresetCopy } from "@/hooks/use-preset-copy";
+import {
+    useTitlePresetCopy,
+    useTopicPresetCopy,
+} from "@/hooks/use-preset-copy";
 import { useSettings } from "@/hooks/use-settings";
 import {
     normalizeTitlePromptConfig,
     TITLE_TEMPLATE_KIND,
 } from "@/lib/ai/prompt-presets";
+import {
+    normalizeTopicPromptConfig,
+    TOPIC_TEMPLATE_KIND,
+} from "@/lib/topics/topic-presets";
 
 // ISO-639-1 codes from Whisper's supported-languages list. Sticking to
 // languages with non-trivial user populations to keep the dropdown
@@ -98,6 +105,12 @@ export function TranscriptionSection() {
         normalizeTitlePromptConfig(null),
     );
     const titlePresetCopy = useTitlePresetCopy();
+    const [autoDetectTopics, setAutoDetectTopics] = useState(false);
+    // Starting state for the topic <TemplateList>, as for titles.
+    const [topicTemplates, setTopicTemplates] = useState(() =>
+        normalizeTopicPromptConfig(null),
+    );
+    const topicPresetCopy = useTopicPresetCopy();
     const [importPlaudContent, setImportPlaudContent] = useState(false);
     const [transcriptMode, setTranscriptMode] = useState("plaud_only");
     const [preferredTranscriptSource, setPreferredTranscriptSource] =
@@ -121,6 +134,10 @@ export function TranscriptionSection() {
                     setSyncTitleToPlaud(data.syncTitleToPlaud ?? false);
                     setTitleTemplates(
                         normalizeTitlePromptConfig(data.titleGenerationPrompt),
+                    );
+                    setAutoDetectTopics(data.autoDetectTopics ?? false);
+                    setTopicTemplates(
+                        normalizeTopicPromptConfig(data.topicPrompt),
                     );
                     setImportPlaudContent(data.importPlaudContent ?? false);
                     setTranscriptMode(data.transcriptMode ?? "plaud_only");
@@ -157,6 +174,24 @@ export function TranscriptionSection() {
         } catch {
             setAutoTranscribe(previous);
             pendingChangesRef.current.delete("autoTranscribe");
+            toast.error(i18n("Failed to save settings. Changes reverted."));
+        }
+    };
+
+    const handleAutoDetectTopicsChange = async (checked: boolean) => {
+        const previous = autoDetectTopics;
+        setAutoDetectTopics(checked);
+        try {
+            const response = await fetch("/api/settings/user", {
+                method: "PUT",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ autoDetectTopics: checked }),
+            });
+            if (!response.ok) {
+                throw new Error("Failed to save settings");
+            }
+        } catch {
+            setAutoDetectTopics(previous);
             toast.error(i18n("Failed to save settings. Changes reverted."));
         }
     };
@@ -609,6 +644,54 @@ export function TranscriptionSection() {
                                 </code>{" "}
                                 {i18n(
                                     "where the transcript goes. The model must reply with the title alone, as plain text. Only the beginning of a long transcript is sent.",
+                                )}
+                            </>
+                        }
+                        disabled={isSavingSettings}
+                    />
+                </div>
+
+                <div className="flex items-center justify-between">
+                    <div className="space-y-0.5 flex-1">
+                        <Label
+                            htmlFor="auto-detect-topics"
+                            className="text-base"
+                        >
+                            {i18n("Auto-detect topics")}
+                        </Label>
+                        <p className="text-sm text-muted-foreground">
+                            {i18n(
+                                "Split each new transcript into topics you can jump to. Works on transcripts with timings: Plaud's, Whisper's and speaker-labelled ones. You can also detect topics on them by hand.",
+                            )}
+                        </p>
+                    </div>
+                    <Switch
+                        id="auto-detect-topics"
+                        checked={autoDetectTopics}
+                        onCheckedChange={(checked) =>
+                            void handleAutoDetectTopicsChange(checked)
+                        }
+                        disabled={isSavingSettings}
+                    />
+                </div>
+
+                {/* Shown with the switch off too: detecting topics by hand
+                    uses the default template. */}
+                <div className="pl-4 border-l-2 border-primary/20">
+                    <TemplateList
+                        field="topicPrompt"
+                        kind={TOPIC_TEMPLATE_KIND}
+                        presetCopy={topicPresetCopy}
+                        initialConfig={topicTemplates}
+                        heading={i18n("Topic templates")}
+                        promptHelp={
+                            <>
+                                {i18n("Use")}{" "}
+                                <code className="px-1 py-0.5 bg-muted rounded">
+                                    {"{transcription}"}
+                                </code>{" "}
+                                {i18n(
+                                    "where the transcript goes; every line of it starts with its time. Describe how to split and title the topics. The reply format is fixed by Riffado and does not need to be described.",
                                 )}
                             </>
                         }

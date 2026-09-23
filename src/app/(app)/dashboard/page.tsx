@@ -22,6 +22,7 @@ import {
     readOrgViewSummaryRecordingIds,
     readOrgViewTranscriptRows,
 } from "@/lib/sharing/view-content";
+import { readTranscriptTopics } from "@/lib/topics/stored-topics";
 import { readTranscriptTurns } from "@/lib/transcription/read-turns";
 import { serializeRecording } from "@/types/recording";
 
@@ -33,6 +34,7 @@ type TranscriptRow = {
     provider: string | null;
     model: string | null;
     turns: unknown;
+    topics: unknown;
 };
 
 type TranscriptVariant = {
@@ -42,6 +44,7 @@ type TranscriptVariant = {
     provider?: string;
     model?: string;
     turns: ReturnType<typeof readTranscriptTurns>;
+    topics: ReturnType<typeof readTranscriptTopics>;
 };
 
 /** Decrypt transcript rows into per-recording variants, preferred source first. */
@@ -58,6 +61,7 @@ function buildTranscriptVariants(
             provider: transcript.provider ?? undefined,
             model: transcript.model ?? undefined,
             turns: readTranscriptTurns(transcript),
+            topics: readTranscriptTopics(transcript),
         };
         const variants = variantsByRecording.get(transcript.recordingId) ?? [];
         variants.push(variant);
@@ -200,6 +204,7 @@ export default async function DashboardPage() {
                 // Provider-reported turns, preferred over re-deriving them
                 // from the text because only these carry timings.
                 turns: transcriptions.turns,
+                topics: transcriptions.topics,
             })
             .from(transcriptions)
             .where(eq(transcriptions.userId, session.user.id)),

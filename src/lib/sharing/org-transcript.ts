@@ -109,6 +109,8 @@ export async function ensureOrgTranscript(
                     userId: owners.contentUserId,
                     text: original.text,
                     turns: original.turns,
+                    // The same transcript, so its topics still fit it.
+                    topics: original.topics,
                     detectedLanguage: original.detectedLanguage,
                     transcriptionType: original.transcriptionType,
                     provider: original.provider,

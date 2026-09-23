@@ -170,6 +170,8 @@ export async function upsertTranscription(
                     .set({
                         text: encryptedText,
                         turns: encryptedTurns,
+                        // Anchored to the turns just replaced.
+                        topics: null,
                         detectedLanguage,
                         transcriptionType,
                         provider,
@@ -189,6 +191,7 @@ export async function upsertTranscription(
                     userId,
                     text: encryptedText,
                     turns: encryptedTurns,
+                    topics: null,
                     detectedLanguage,
                     transcriptionType,
                     provider,

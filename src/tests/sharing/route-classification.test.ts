@@ -44,6 +44,9 @@ const CLASSIFIED: Record<string, Record<string, Rule>> = {
         POST: "view",
         DELETE: "view",
     },
+    // Gated as `view`, and the private view is the only one it accepts:
+    // topics are written onto the viewer's own transcript row.
+    "recordings/[id]/topics/route.ts": { GET: "view", POST: "view" },
     "recordings/[id]/transcribe/route.ts": { GET: "view", POST: "view" },
     "recordings/[id]/transcription/from-browser/route.ts": { POST: "owner" },
     "jobs/[id]/route.ts": { GET: "job" },

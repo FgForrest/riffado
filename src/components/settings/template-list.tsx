@@ -52,7 +52,7 @@ interface Draft {
 
 export interface TemplateListProps {
     /** `PUT /api/settings/user` field the configuration is saved under. */
-    field: "summaryPrompt" | "titleGenerationPrompt";
+    field: "summaryPrompt" | "titleGenerationPrompt" | "topicPrompt";
     kind: TemplateKind;
     /** Localized names and descriptions of the built-ins, by preset id. */
     presetCopy: Record<string, PresetCopy>;

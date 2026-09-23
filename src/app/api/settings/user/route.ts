@@ -21,6 +21,7 @@ import {
     clampRounds,
     MULTI_PASS_ROUNDS_DEFAULT,
 } from "@/lib/summary/multi-pass";
+import { isValidTopicPromptConfig } from "@/lib/topics/topic-presets";
 
 // Enum allowlists. DB columns are `varchar`, not pg enums, so validation
 // must happen here.
@@ -98,6 +99,7 @@ const DEFAULT_SETTINGS = {
     onboardingCompleted: false,
     autoGenerateTitle: true,
     syncTitleToPlaud: false,
+    autoDetectTopics: false,
     aiOutputLanguage: null,
     importPlaudContent: false,
     transcriptMode: "plaud_only" as const,
@@ -142,6 +144,7 @@ const SETTINGS_FIELDS = [
     "onboardingCompleted",
     "autoGenerateTitle",
     "syncTitleToPlaud",
+    "autoDetectTopics",
     "aiOutputLanguage",
     "importPlaudContent",
     "transcriptMode",
@@ -229,6 +232,7 @@ export const GET = apiHandler(async (request: Request) => {
         return NextResponse.json({
             ...DEFAULT_SETTINGS,
             titleGenerationPrompt: null,
+            topicPrompt: null,
             barkPushUrl: null,
             barkPushUrlSet: false,
             userEmail,
@@ -245,6 +249,9 @@ export const GET = apiHandler(async (request: Request) => {
     }
     if (settings.summaryPrompt) {
         settingsData.summaryPrompt = decryptJsonField(settings.summaryPrompt);
+    }
+    if (settings.topicPrompt) {
+        settingsData.topicPrompt = decryptJsonField(settings.topicPrompt);
     }
     settingsData.summaryMergePrompt = settings.summaryMergePrompt
         ? decryptText(settings.summaryMergePrompt)
@@ -414,6 +421,28 @@ export const PUT = apiHandler(async (request: Request) => {
         insertData.summaryPrompt = encrypted;
     } else if (!existing) {
         insertData.summaryPrompt = null;
+    }
+
+    if (body.topicPrompt !== undefined) {
+        if (
+            body.topicPrompt !== null &&
+            !isValidTopicPromptConfig(body.topicPrompt)
+        ) {
+            throw new AppError(
+                ErrorCode.INVALID_INPUT,
+                "Invalid topicPrompt value",
+                400,
+                { field: "topicPrompt" },
+            );
+        }
+        const encrypted =
+            body.topicPrompt === null
+                ? null
+                : encryptJsonField(body.topicPrompt);
+        updateData.topicPrompt = encrypted;
+        insertData.topicPrompt = encrypted;
+    } else if (!existing) {
+        insertData.topicPrompt = null;
     }
 
     // User-authored prose that can name people, clients and projects, so it

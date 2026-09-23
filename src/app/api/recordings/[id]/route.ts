@@ -317,7 +317,11 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
                         recordingJobSubject(id, "private"),
                         recordingJobSubject(id, "org"),
                     ]),
-                    inArray(asyncJobs.kind, ["transcription", "summary"]),
+                    inArray(asyncJobs.kind, [
+                        "transcription",
+                        "summary",
+                        "topics",
+                    ]),
                     inArray(asyncJobs.status, ["pending", "processing"]),
                 ),
             );

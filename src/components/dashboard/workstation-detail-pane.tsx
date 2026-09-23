@@ -31,6 +31,7 @@ interface TranscriptionData {
     provider?: string;
     model?: string;
     turns?: TranscriptTurn[] | null;
+    topics?: TranscriptOption["topics"];
 }
 
 interface Props {
@@ -207,6 +208,10 @@ export function WorkstationDetailPane({
                                           playerRef.current?.seekTo(
                                               startMs / 1000,
                                           )
+                            }
+                            getPlaybackMs={() =>
+                                (playerRef.current?.getCurrentTime() ?? 0) *
+                                1000
                             }
                         />
                     )}

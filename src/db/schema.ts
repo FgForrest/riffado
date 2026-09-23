@@ -679,6 +679,13 @@ export const transcriptions = pgTable(
         // turns, or the row keeps a dialog structure its text no longer has.
         // Same reasoning as `ai_enhancements.multi_pass_rounds`.
         turns: jsonb("turns"),
+        // Topics detected on this exact transcript, encrypted like `turns`:
+        // `StoredTopics`, see lib/topics/stored-topics.ts. Anchored to the
+        // times in `turns`, so every write of the transcript rewrites it,
+        // as NULL: topics never outlive the transcript they were read from.
+        // The Organization copy is the one writer that carries them, because
+        // it copies the transcript unchanged.
+        topics: jsonb("topics"),
         // Who ran the provider. Differs from `userId` on the Organization
         // view of a shared recording, whose rows belong to the org account
         // but are produced (and paid for) by whichever member clicked.
@@ -1115,7 +1122,10 @@ export const userSettings = pgTable("user_settings", {
     titleGenerationPrompt: jsonb("title_generation_prompt"), // TemplateConfiguration, see lib/ai/prompt-templates.ts
     // Summary prompt configuration
     summaryPrompt: jsonb("summary_prompt"), // TemplateConfiguration, see lib/ai/prompt-templates.ts
-    // AI output language (applies to summaries and AI-generated titles).
+    // Topic detection: queued after a transcript with timings is written.
+    autoDetectTopics: boolean("auto_detect_topics").notNull().default(false),
+    topicPrompt: jsonb("topic_prompt"), // TemplateConfiguration, see lib/ai/prompt-templates.ts
+    // AI output language (applies to summaries, AI-generated titles and topics).
     // null or "auto" => match transcript language (default behavior).
     aiOutputLanguage: text("ai_output_language"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
