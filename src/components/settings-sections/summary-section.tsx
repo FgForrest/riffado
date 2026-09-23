@@ -32,6 +32,7 @@ import {
     type SummaryPromptConfiguration,
 } from "@/lib/ai/summary-presets";
 import {
+    DEFAULT_MERGE_PROMPT,
     MULTI_PASS_ROUNDS_DEFAULT,
     MULTI_PASS_ROUNDS_MAX,
     MULTI_PASS_ROUNDS_MIN,
@@ -105,8 +106,13 @@ export function SummarySection() {
         MULTI_PASS_ROUNDS_DEFAULT,
     );
     const [multiPassAuto, setMultiPassAuto] = useState(false);
-    const [mergePrompt, setMergePrompt] = useState("");
+    // Empty string means "no custom prompt" -- the column is NULL and the
+    // built-in DEFAULT_MERGE_PROMPT is used.
     const [savedMergePrompt, setSavedMergePrompt] = useState("");
+    // The merge prompt dialog's working copy; null while the dialog is closed.
+    const [mergePromptDraft, setMergePromptDraft] = useState<string | null>(
+        null,
+    );
 
     // Per-control AbortController refs so a fast-double-toggle can't let
     // a slow earlier save fail *after* a newer save succeeded and clobber
@@ -154,12 +160,11 @@ export function SummarySection() {
                             : MULTI_PASS_ROUNDS_DEFAULT,
                     );
                     setMultiPassAuto(data.summaryMultiPassAuto === true);
-                    const merge =
+                    setSavedMergePrompt(
                         typeof data.summaryMergePrompt === "string"
                             ? data.summaryMergePrompt
-                            : "";
-                    setMergePrompt(merge);
-                    setSavedMergePrompt(merge);
+                            : "",
+                    );
                 }
             } catch (error) {
                 console.error("Failed to fetch settings:", error);
@@ -412,20 +417,21 @@ export function SummarySection() {
         );
     };
 
-    // Saved on blur rather than per keystroke: this is a long prose field,
-    // and a PUT per character would be both wasteful and racy.
-    const handleMergePromptBlur = () => {
-        const next = mergePrompt.trim();
-        if (next === savedMergePrompt.trim()) return;
+    const handleSaveMergePrompt = () => {
+        if (mergePromptDraft === null) return;
+        const trimmed = mergePromptDraft.trim();
+        // The built-in text is stored as NULL rather than verbatim: a copy
+        // would pin this user to today's default and hide every later
+        // improvement to it. A blank field means the same thing.
+        const next = trimmed === DEFAULT_MERGE_PROMPT ? "" : trimmed;
+        setMergePromptDraft(null);
+        if (next === savedMergePrompt) return;
         const previous = savedMergePrompt;
         setSavedMergePrompt(next);
         return saveMultiPass(
             "merge-prompt",
             { summaryMergePrompt: next || null },
-            () => {
-                setSavedMergePrompt(previous);
-                setMergePrompt(previous);
-            },
+            () => setSavedMergePrompt(previous),
         );
     };
 
@@ -708,20 +714,35 @@ export function SummarySection() {
                             />
                         </div>
                         <div className="space-y-2">
-                            <Label htmlFor="multi-pass-merge-prompt">
-                                {i18n("Custom merge prompt (optional)")}
-                            </Label>
-                            <textarea
-                                id="multi-pass-merge-prompt"
-                                className="w-full min-h-[140px] px-3 py-2 text-sm border rounded-md resize-y font-mono"
-                                value={mergePrompt}
-                                onChange={(e) => setMergePrompt(e.target.value)}
-                                onBlur={handleMergePromptBlur}
-                                disabled={isSavingSettings}
-                                placeholder={i18n(
-                                    "Leave blank to use the built-in merge prompt",
-                                )}
-                            />
+                            <div className="flex items-center justify-between gap-4">
+                                <div className="space-y-0.5 flex-1">
+                                    <h4 className="text-base font-medium">
+                                        {i18n("Merge prompt")}
+                                    </h4>
+                                    <p className="text-sm text-muted-foreground">
+                                        {savedMergePrompt
+                                            ? i18n(
+                                                  "Using your custom merge prompt.",
+                                              )
+                                            : i18n(
+                                                  "Using the built-in merge prompt.",
+                                              )}
+                                    </p>
+                                </div>
+                                <Button
+                                    size="sm"
+                                    onClick={() =>
+                                        setMergePromptDraft(
+                                            savedMergePrompt ||
+                                                DEFAULT_MERGE_PROMPT,
+                                        )
+                                    }
+                                    disabled={isSavingSettings}
+                                >
+                                    <Pencil className="size-4 mr-2" />
+                                    {i18n("Change merge prompt")}
+                                </Button>
+                            </div>
                             <p className="text-xs text-muted-foreground">
                                 {i18n(
                                     "The built-in prompt treats the merge as a union and de-duplication of the passes rather than a fresh summary, which is what keeps a point found by only one pass from being dropped. Replace it only if you need different merge behaviour — the passes themselves are steered by your summary prompt above.",
@@ -861,15 +882,15 @@ export function SummarySection() {
                                 "as a placeholder for the transcription text. The model must respond with a JSON object containing",
                             )}{" "}
                             <code className="px-1 py-0.5 bg-muted rounded">
-                                {i18n("summary")}
+                                {"summary"}
                             </code>
                             ,{" "}
                             <code className="px-1 py-0.5 bg-muted rounded">
-                                {i18n("keyPoints")}
+                                {"keyPoints"}
                             </code>{" "}
                             {i18n(", and")}{" "}
                             <code className="px-1 py-0.5 bg-muted rounded">
-                                {i18n("actionItems")}
+                                {"actionItems"}
                             </code>{" "}
                             {i18n("fields.")}
                         </DialogDescription>
@@ -967,6 +988,76 @@ export function SummarySection() {
                                         ? i18n("Save")
                                         : i18n("Create")}
                                 </Button>
+                            </div>
+                        </div>
+                    </DialogContent>
+                </Dialog>
+            )}
+
+            {/* Edit merge prompt dialog */}
+            {mergePromptDraft !== null && (
+                <Dialog
+                    open={mergePromptDraft !== null}
+                    onOpenChange={(open) => !open && setMergePromptDraft(null)}
+                >
+                    <DialogContent className="max-w-3xl max-h-[80vh] overflow-y-auto">
+                        <DialogTitle>{i18n("Merge prompt")}</DialogTitle>
+                        <DialogDescription>
+                            {i18n(
+                                "Combines the passes into one summary. The model receives every pass as a JSON object with",
+                            )}{" "}
+                            <code className="px-1 py-0.5 bg-muted rounded">
+                                {"summary"}
+                            </code>
+                            ,{" "}
+                            <code className="px-1 py-0.5 bg-muted rounded">
+                                {"keyPoints"}
+                            </code>{" "}
+                            {i18n(", and")}{" "}
+                            <code className="px-1 py-0.5 bg-muted rounded">
+                                {"actionItems"}
+                            </code>{" "}
+                            {i18n(
+                                "fields, and must return a single object of the same shape.",
+                            )}
+                        </DialogDescription>
+                        <div className="space-y-4 mt-4">
+                            <textarea
+                                aria-label={i18n("Merge prompt")}
+                                className="w-full min-h-[360px] px-3 py-2 text-sm border rounded-md resize-y font-mono"
+                                value={mergePromptDraft}
+                                onChange={(e) =>
+                                    setMergePromptDraft(e.target.value)
+                                }
+                            />
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                                <Button
+                                    variant="ghost"
+                                    onClick={() =>
+                                        setMergePromptDraft(
+                                            DEFAULT_MERGE_PROMPT,
+                                        )
+                                    }
+                                    disabled={
+                                        mergePromptDraft.trim() ===
+                                        DEFAULT_MERGE_PROMPT
+                                    }
+                                >
+                                    {i18n("Restore built-in prompt")}
+                                </Button>
+                                <div className="flex gap-2">
+                                    <Button
+                                        variant="outline"
+                                        onClick={() =>
+                                            setMergePromptDraft(null)
+                                        }
+                                    >
+                                        {i18n("Cancel")}
+                                    </Button>
+                                    <Button onClick={handleSaveMergePrompt}>
+                                        {i18n("Save")}
+                                    </Button>
+                                </div>
                             </div>
                         </div>
                     </DialogContent>
