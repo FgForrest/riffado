@@ -64,13 +64,18 @@ export function ancestorFolderIds(
     return result;
 }
 
+/**
+ * Recordings shown in a folder. The Private root lists every recording the
+ * viewer owns, `privateRecordingIds` -- never the Organization's recordings
+ * of other people, which `allRecordingIds` may also carry.
+ */
 export function recordingIdsVisibleInFolder(
     folders: RecordingFolder[],
     assignments: RecordingFolderAssignment[],
     folder: RecordingFolder,
-    allRecordingIds: Iterable<string>,
+    privateRecordingIds: Iterable<string>,
 ): Set<string> {
-    if (folder.kind === "private") return new Set(allRecordingIds);
+    if (folder.kind === "private") return new Set(privateRecordingIds);
     const subtree = descendantFolderIds(folders, folder.id);
     return new Set(
         assignments.flatMap((assignment) =>
@@ -83,8 +88,10 @@ export function effectiveRecordingCounts(
     folders: RecordingFolder[],
     assignments: RecordingFolderAssignment[],
     allRecordingIds: Iterable<string>,
+    privateRecordingIds: Iterable<string> = allRecordingIds,
 ): Map<string, number> {
     const recordingIds = new Set(allRecordingIds);
+    const privateIds = new Set(privateRecordingIds);
     return new Map(
         folders.map((folder) => [
             folder.id,
@@ -94,7 +101,7 @@ export function effectiveRecordingCounts(
                     recordingIds.has(assignment.recordingId),
                 ),
                 folder,
-                recordingIds,
+                privateIds,
             ).size,
         ]),
     );

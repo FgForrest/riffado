@@ -34,6 +34,13 @@ import {
     captureServerException,
 } from "@/lib/posthog-server";
 import { consumeRateLimitBucket } from "@/lib/rate-limit";
+import type { RecordingView } from "@/lib/sharing/access";
+import { notifyIfShared, orgContentChanged } from "@/lib/sharing/notify";
+import {
+    applyCarriedSpeakerNames,
+    captureSpeakerNames,
+} from "@/lib/sharing/org-transcript";
+import { resolveRunContext } from "@/lib/sharing/run-context";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import { enqueueSummaryJob } from "@/lib/summary/summary-job";
 import { buildAudioFile } from "@/lib/transcription/audio-file";
@@ -259,6 +266,11 @@ export interface TranscribeOptions {
     force?: boolean;
     /** What triggered this call. Drives the `recording_transcribed` event's `trigger` property. */
     trigger?: "manual" | "sync" | "upload";
+    /**
+     * `org` transcribes the Organization view of a shared recording: the
+     * caller is the actor whose provider runs, not the owner.
+     */
+    view?: RecordingView;
 }
 
 export interface TranscribeResult {
@@ -285,7 +297,7 @@ export async function transcribeRecording(
     recordingId: string,
     opts: TranscribeOptions = {},
 ): Promise<TranscribeResult> {
-    const key = `${userId}:${recordingId}:${opts.force ? "force" : "auto"}`;
+    const key = `${userId}:${recordingId}:${opts.view ?? "private"}:${opts.force ? "force" : "auto"}`;
     const inFlight = inFlightTranscriptions.get(key);
     if (inFlight) {
         return inFlight;
@@ -300,16 +312,32 @@ export async function transcribeRecording(
 }
 
 async function transcribeRecordingInner(
-    userId: string,
+    actorUserId: string,
     recordingId: string,
     opts: TranscribeOptions = {},
 ): Promise<TranscribeResult> {
+    const ctx = await resolveRunContext(
+        actorUserId,
+        recordingId,
+        opts.view ?? "private",
+    );
+    if (!ctx) {
+        return {
+            success: false,
+            error: "Recording not found",
+            errorCode: "RECORDING_NOT_FOUND",
+        };
+    }
+    const orgView = ctx.view === "org";
+    // `userId` is the owner of the rows this run reads and writes; on the
+    // private view that is also the actor and the recording's owner.
+    const userId = ctx.contentUserId;
     try {
         // Hosted lockout: a lapsed account is read-only. No-op on
         // self-host (isHostedLockedOut always false there).
-        if (await isHostedLockedOut(userId)) {
+        if (await isHostedLockedOut(ctx.actorUserId)) {
             await captureServerEvent({
-                distinctId: userId,
+                distinctId: ctx.actorUserId,
                 event: "hosted_locked_out_attempt",
                 properties: { trigger: opts.trigger ?? "manual" },
             });
@@ -326,7 +354,7 @@ async function transcribeRecordingInner(
             .where(
                 and(
                     eq(recordings.id, recordingId),
-                    eq(recordings.userId, userId),
+                    eq(recordings.userId, ctx.ownerUserId),
                     // Skip tombstoned recordings. Without this filter the
                     // post-sync auto-transcribe path would happily upload the
                     // audio for a recording the user just deleted, recreate
@@ -396,24 +424,37 @@ async function transcribeRecordingInner(
                   .from(apiCredentials)
                   .where(
                       and(
-                          eq(apiCredentials.userId, userId),
+                          eq(apiCredentials.userId, ctx.actorUserId),
                           eq(apiCredentials.isDefaultTranscription, true),
                       ),
                   )
                   .limit(1);
 
+        // The engine (provider pointer) is the actor's, because the keys are.
+        // What the output should look like (language) follows the view.
         const [settings] = await db
             .select()
             .from(userSettings)
-            .where(eq(userSettings.userId, userId))
+            .where(eq(userSettings.userId, ctx.actorUserId))
             .limit(1);
+        const [contentSettings] =
+            ctx.settingsUserId === ctx.actorUserId
+                ? [settings]
+                : await db
+                      .select()
+                      .from(userSettings)
+                      .where(eq(userSettings.userId, ctx.settingsUserId))
+                      .limit(1);
 
         const defaultLanguage =
-            settings?.defaultTranscriptionLanguage || undefined;
+            contentSettings?.defaultTranscriptionLanguage || undefined;
         const quality = settings?.transcriptionQuality || "balanced";
-        const autoGenerateTitle = settings?.autoGenerateTitle ?? true;
+        // Title, Plaud and automation side effects act on the owner's
+        // recording; a run on the Organization view never triggers them.
+        const autoGenerateTitle =
+            !orgView && (settings?.autoGenerateTitle ?? true);
         const syncTitleToPlaud = settings?.syncTitleToPlaud ?? false;
-        const autoSummarize = settings?.autoSummarize ?? false;
+        const autoSummarize = !orgView && (settings?.autoSummarize ?? false);
         const autoSummarizePreset = settings?.autoSummarizePreset ?? null;
         const pointer = settings?.defaultTranscriptionProviderId ?? null;
         const requested = opts.providerId || pointer || null;
@@ -429,7 +470,7 @@ async function transcribeRecordingInner(
                 .where(
                     and(
                         eq(apiCredentials.id, requested),
-                        eq(apiCredentials.userId, userId),
+                        eq(apiCredentials.userId, ctx.actorUserId),
                     ),
                 )
                 .limit(1);
@@ -439,7 +480,7 @@ async function transcribeRecordingInner(
 
         const runManagedTranscription = async () => {
             const input = {
-                userId,
+                userId: ctx.actorUserId,
                 storagePath: recording.storagePath,
                 durationMs: recording.duration,
                 language: defaultLanguage,
@@ -478,7 +519,7 @@ async function transcribeRecordingInner(
         } else if (credentials) {
             const apiKey = decrypt(credentials.apiKey);
 
-            const storage = await createUserStorageProvider(userId);
+            const storage = await createUserStorageProvider(ctx.ownerUserId);
             const audioBuffer = await storage.downloadFile(
                 recording.storagePath,
             );
@@ -623,6 +664,12 @@ async function transcribeRecordingInner(
             persistModel = result.model;
         }
 
+        // The names the Organization view showed, read before this run
+        // replaces the transcript they were confirmed against.
+        const carriedNames = orgView
+            ? await captureSpeakerNames(recordingId, ctx)
+            : null;
+
         // Persist the user's own ('riffado') transcript via the shared,
         // tombstone-aware, source-scoped upsert. The persisted model is the
         // *actual* model used (may differ from the provider default when the
@@ -637,6 +684,8 @@ async function transcribeRecordingInner(
             model: persistModel,
             turns,
             allowReaped: (opts.trigger ?? "manual") === "manual",
+            recordingOwnerId: ctx.ownerUserId,
+            producedByUserId: ctx.actorUserId,
         });
 
         if (!committed) {
@@ -654,7 +703,26 @@ async function transcribeRecordingInner(
         const canPreserveSpeakerAttributions =
             previousSpeakerCount > 0 &&
             previousSpeakerCount === nextSpeakerCount;
-        if (
+        if (orgView) {
+            const [orgTranscript] = await db
+                .select({ id: transcriptions.id })
+                .from(transcriptions)
+                .where(
+                    and(
+                        eq(transcriptions.recordingId, recordingId),
+                        eq(transcriptions.userId, userId),
+                        eq(transcriptions.source, "riffado"),
+                    ),
+                )
+                .limit(1);
+            if (orgTranscript) {
+                await applyCarriedSpeakerNames(
+                    carriedNames,
+                    orgTranscript.id,
+                    userId,
+                );
+            }
+        } else if (
             existingTranscription?.text &&
             opts.force &&
             !canPreserveSpeakerAttributions
@@ -673,6 +741,7 @@ async function transcribeRecordingInner(
         }
 
         if (
+            !orgView &&
             !existingTranscription &&
             opts.force &&
             opts.attributionSource &&
@@ -688,19 +757,23 @@ async function transcribeRecordingInner(
             });
         }
 
-        await exportRecordingSidecarsIfEnabled(
-            userId,
-            recordingId,
-            "transcript",
-            "riffado",
-        );
+        if (!orgView) {
+            await exportRecordingSidecarsIfEnabled(
+                userId,
+                recordingId,
+                "transcript",
+                "riffado",
+            );
+        }
 
         // The previous transcript is being overwritten, so any existing
         // summary now references stale source text. Drop it so readers never
         // see "fresh transcript + old summary". If auto-summarize is on, a
         // fresh summary is generated below; otherwise the recording shows no
-        // summary until the user clicks "Generate summary" manually.
-        if (existingTranscription?.text && opts.force) {
+        // summary until the user clicks "Generate summary" manually. An
+        // Organization summary may also predate its first own transcript,
+        // having been made from the owner's, so it goes either way.
+        if (orgView || (existingTranscription?.text && opts.force)) {
             await db
                 .delete(aiEnhancements)
                 .where(
@@ -710,12 +783,14 @@ async function transcribeRecordingInner(
                         eq(aiEnhancements.source, "riffado"),
                     ),
                 );
-            await removeRecordingSidecar(
-                userId,
-                recordingId,
-                "summary",
-                "riffado",
-            );
+            if (!orgView) {
+                await removeRecordingSidecar(
+                    userId,
+                    recordingId,
+                    "summary",
+                    "riffado",
+                );
+            }
         }
 
         if (autoGenerateTitle && transcriptionText.trim()) {
@@ -799,9 +874,14 @@ async function transcribeRecordingInner(
             }
         }
 
-        await emitEvent("transcription.completed", userId, recordingId);
+        if (orgView) {
+            await orgContentChanged(recordingId);
+        } else {
+            await emitEvent("transcription.completed", userId, recordingId);
+            await notifyIfShared(recordingId);
+        }
         await captureServerEvent({
-            distinctId: userId,
+            distinctId: ctx.actorUserId,
             event: "recording_transcribed",
             properties: {
                 trigger: opts.trigger ?? "manual",
@@ -879,11 +959,13 @@ async function transcribeRecordingInner(
     } catch (error) {
         console.error("Error transcribing recording:", error);
         if (isMynahBudgetExhausted(error)) {
-            await emitEvent("transcription.failed", userId, recordingId, {
-                error: "included_transcription_budget_exhausted",
-            });
+            if (!orgView) {
+                await emitEvent("transcription.failed", userId, recordingId, {
+                    error: "included_transcription_budget_exhausted",
+                });
+            }
             await captureServerEvent({
-                distinctId: userId,
+                distinctId: ctx.actorUserId,
                 event: "mynah_budget_exhausted",
                 properties: { trigger: opts.trigger ?? "manual" },
             });
@@ -895,12 +977,14 @@ async function transcribeRecordingInner(
         }
         captureServerException(error, {
             source: "transcription",
-            distinctId: userId,
+            distinctId: ctx.actorUserId,
             trigger: opts.trigger ?? "manual",
         });
-        await emitEvent("transcription.failed", userId, recordingId, {
-            error: error instanceof Error ? error.message : String(error),
-        });
+        if (!orgView) {
+            await emitEvent("transcription.failed", userId, recordingId, {
+                error: error instanceof Error ? error.message : String(error),
+            });
+        }
         return {
             success: false,
             error:

@@ -2,11 +2,13 @@ import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import {
+    addPersonNotes,
     createPerson,
     findPersonByEmail,
     listPeople,
     MAX_DISPLAY_NAME_LENGTH,
 } from "@/lib/knowledge/people";
+import { isOrgAccount } from "@/lib/org/config";
 
 const MAX_EMAIL_LENGTH = 320;
 const MAX_NOTES_LENGTH = 4000;
@@ -60,12 +62,19 @@ export const POST = apiHandler(async (request: Request) => {
         }
     }
 
+    // The organization account's people are shared records; its notes, like
+    // anyone's on an Organization person, are kept apart from the record.
+    const isOrg = await isOrgAccount(session.user.id);
     const person = await createPerson({
         userId: session.user.id,
         displayName,
         primaryEmail,
-        notes,
+        notes: isOrg ? null : notes,
     });
+    if (isOrg && notes) {
+        await addPersonNotes(person.id, session.user.id, notes);
+        person.notes = notes;
+    }
 
     return NextResponse.json({ person }, { status: 201 });
 });

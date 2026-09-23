@@ -1,10 +1,11 @@
 import { PassThrough, type Readable } from "node:stream";
 import { ZipArchive } from "archiver";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
     aiEnhancements,
     people,
+    personNotes,
     recordingFolderAssignments,
     recordingFolders,
     recordings,
@@ -566,7 +567,16 @@ async function collectFolderOrganization(
                 folderId: recordingFolderAssignments.folderId,
             })
             .from(recordingFolderAssignments)
-            .where(eq(recordingFolderAssignments.userId, userId)),
+            .innerJoin(
+                recordingFolders,
+                eq(recordingFolders.id, recordingFolderAssignments.folderId),
+            )
+            .where(
+                and(
+                    eq(recordingFolderAssignments.userId, userId),
+                    eq(recordingFolders.userId, userId),
+                ),
+            ),
     ]);
 
     return {
@@ -612,18 +622,16 @@ interface ArchivedKnowledgeBase {
 async function collectKnowledgeBase(
     userId: string,
 ): Promise<ArchivedKnowledgeBase> {
+    const personColumns = {
+        id: people.id,
+        displayName: people.displayName,
+        primaryEmail: people.primaryEmail,
+        notes: people.notes,
+        mergedIntoId: people.mergedIntoId,
+        createdAt: people.createdAt,
+    };
     const [peopleRows, attributionRows] = await Promise.all([
-        db
-            .select({
-                id: people.id,
-                displayName: people.displayName,
-                primaryEmail: people.primaryEmail,
-                notes: people.notes,
-                mergedIntoId: people.mergedIntoId,
-                createdAt: people.createdAt,
-            })
-            .from(people)
-            .where(eq(people.userId, userId)),
+        db.select(personColumns).from(people).where(eq(people.userId, userId)),
         db
             .select({
                 transcriptionId: transcriptSpeakers.transcriptionId,
@@ -638,8 +646,54 @@ async function collectKnowledgeBase(
             .where(eq(transcriptSpeakers.userId, userId)),
     ]);
 
+    // Organization people the user's own transcripts name: a restore must
+    // still know who spoke. They carry only this user's own notes.
+    const own = new Set(peopleRows.map((row) => row.id));
+    const sharedIds = [
+        ...new Set(
+            attributionRows.flatMap((row) =>
+                row.personId && !own.has(row.personId) ? [row.personId] : [],
+            ),
+        ),
+    ];
+    const sharedRows =
+        sharedIds.length > 0
+            ? await db
+                  .select(personColumns)
+                  .from(people)
+                  .where(inArray(people.id, sharedIds))
+            : [];
+    const overlay =
+        sharedRows.length > 0
+            ? await db
+                  .select({
+                      personId: personNotes.personId,
+                      notes: personNotes.notes,
+                  })
+                  .from(personNotes)
+                  .where(
+                      and(
+                          eq(personNotes.userId, userId),
+                          inArray(
+                              personNotes.personId,
+                              sharedRows.map((row) => row.id),
+                          ),
+                      ),
+                  )
+            : [];
+    const overlayByPerson = new Map(
+        overlay.map((row) => [row.personId, row.notes]),
+    );
+    const archivedRows = [
+        ...peopleRows,
+        ...sharedRows.map((row) => ({
+            ...row,
+            notes: overlayByPerson.get(row.id) ?? null,
+        })),
+    ];
+
     return {
-        people: peopleRows.map((row) => ({
+        people: archivedRows.map((row) => ({
             id: row.id,
             displayName: decryptText(row.displayName),
             primaryEmail: row.primaryEmail

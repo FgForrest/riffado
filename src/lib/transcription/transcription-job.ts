@@ -1,6 +1,7 @@
 import { type EnqueueJobResult, enqueueJob } from "@/db/queries/async-jobs";
 import { nudge } from "@/lib/jobs/nudge";
 import { InvalidJobPayloadError } from "@/lib/jobs/types";
+import { type RecordingView, recordingJobSubject } from "@/lib/sharing/view";
 
 export const TRANSCRIPTION_JOB_KIND = "transcription";
 export const TRANSCRIPTION_PRIORITY_MANUAL = 10;
@@ -15,6 +16,8 @@ export interface TranscriptionJobPayload {
     model?: string;
     attributionSource?: "riffado" | "plaud" | "mixed";
     force: boolean;
+    /** Absent on the private view, which is every job queued before views existed. */
+    view?: RecordingView;
 }
 
 /** Validate a persisted transcription job payload. */
@@ -66,6 +69,16 @@ export function parseTranscriptionJobPayload(
             "force must be a boolean when present",
         );
     }
+    if (
+        raw.view !== undefined &&
+        raw.view !== "org" &&
+        raw.view !== "private"
+    ) {
+        throw new InvalidJobPayloadError(
+            TRANSCRIPTION_JOB_KIND,
+            'view must be "private" or "org" when present',
+        );
+    }
     return {
         recordingId: raw.recordingId,
         trigger: raw.trigger,
@@ -73,6 +86,7 @@ export function parseTranscriptionJobPayload(
         model: raw.model,
         attributionSource: raw.attributionSource,
         force: raw.force ?? raw.trigger === "manual",
+        ...(raw.view === "org" ? { view: "org" as const } : {}),
     };
 }
 
@@ -85,11 +99,15 @@ export async function enqueueTranscriptionJob(input: {
     model?: string;
     attributionSource?: "riffado" | "plaud" | "mixed";
     force?: boolean;
+    view?: RecordingView;
 }): Promise<EnqueueJobResult> {
     const enqueued = await enqueueJob({
         userId: input.userId,
         kind: TRANSCRIPTION_JOB_KIND,
-        subjectId: input.recordingId,
+        subjectId: recordingJobSubject(
+            input.recordingId,
+            input.view ?? "private",
+        ),
         priority:
             input.trigger === "manual"
                 ? TRANSCRIPTION_PRIORITY_MANUAL
@@ -104,6 +122,7 @@ export async function enqueueTranscriptionJob(input: {
                 ? { attributionSource: input.attributionSource }
                 : {}),
             force: input.force ?? input.trigger === "manual",
+            ...(input.view === "org" ? { view: "org" } : {}),
         },
     });
     if (enqueued.created) nudge();

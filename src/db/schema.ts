@@ -36,58 +36,75 @@ export const stripeWebhookEventStatusEnum = pgEnum(
 );
 
 // Better Auth tables (handled by Better Auth)
-export const users = pgTable("users", {
-    id: text("id")
-        .primaryKey()
-        .$defaultFn(() => nanoid()),
-    email: text("email").notNull().unique(),
-    emailVerified: boolean("email_verified").notNull().default(false),
-    name: text("name"),
-    uiLocale: varchar("ui_locale", { length: 10 }),
-    // Hosted-mode operator action: when set, the user is suspended.
-    // - `/api/v1/*` and the web app return a suspension state on next request
-    //   (cooperative; existing in-flight requests are not interrupted).
-    // - The sync worker skips suspended users on its next claim.
-    // Set/cleared exclusively via the admin dashboard suspend action; the
-    // self-host code path never writes this column because the admin gate
-    // is locked behind IS_HOSTED.
-    suspendedAt: timestamp("suspended_at"),
-    suspendedReason: text("suspended_reason"),
-    marketingEmailConsent: boolean("marketing_email_consent")
-        .notNull()
-        .default(false),
-    // Hosted billing plan. NULL on self-host and for hosted users created
-    // before the billing rollout (backfilled by scripts/billing-backfill.ts).
-    plan: userPlanEnum("plan"),
-    // Set by the billing rollout backfill to (launch_date + 30 days) for
-    // every pre-launch hosted user. While > now(), enforcement skips caps.
-    planTransitionUntil: timestamp("plan_transition_until"),
-    // Per-cycle Mynah transcription budget in seconds. Reset by cycle-close.
-    monthlyMynahSecondsRemaining: integer("monthly_mynah_seconds_remaining")
-        .notNull()
-        .default(0),
-    // Next time cycle-close should refresh the Mynah counter. NULL = never.
-    monthlyMynahGrantResetAt: timestamp("monthly_mynah_grant_reset_at"),
-    // True while the user currently retains founding monthly pricing. Cleared
-    // when they cancel/lapse; the separate claimed timestamp is never cleared
-    // so the first-100 capacity does not reopen.
-    foundingMember: boolean("founding_member").notNull().default(false),
-    foundingMemberClaimedAt: timestamp("founding_member_claimed_at"),
-    // First time the user was successfully charged. NULL = never paid.
-    // Used to branch the grace-period policy on lapse:
-    //  - NULL (trial non-convert) -> BILLING_TRIAL_GRACE_DAYS (7)
-    //  - set (former paying user)  -> BILLING_PAID_GRACE_DAYS (30)
-    // Grandfather: pre-launch users are treated as Path B (paid) by checking
-    // `createdAt < BILLING_LAUNCH_DATE` at deletion-scheduling time, so this
-    // column staying NULL for grandfathered users is intentional.
-    everPaidAt: timestamp("ever_paid_at"),
-    // When the user enters a lapsed state (trial ended w/o payment, sub
-    // canceled/failed-out, etc.) this is set to now() + grace_days. The
-    // billing worker deletes the account at that time. Cleared on reactivate.
-    accountDeletionScheduledAt: timestamp("account_deletion_scheduled_at"),
-    createdAt: timestamp("created_at").notNull().defaultNow(),
-    updatedAt: timestamp("updated_at").notNull().defaultNow(),
-});
+export const users = pgTable(
+    "users",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        email: text("email").notNull().unique(),
+        emailVerified: boolean("email_verified").notNull().default(false),
+        name: text("name"),
+        uiLocale: varchar("ui_locale", { length: 10 }),
+        // 'org' marks the self-host organization account created from
+        // ORG_ACCOUNT_EMAIL. It owns the shared Organization tree and the org
+        // views of shared recordings, and never owns recordings of its own.
+        role: varchar("role", { length: 16 })
+            .$type<"user" | "org">()
+            .notNull()
+            .default("user"),
+        // Hosted-mode operator action: when set, the user is suspended.
+        // - `/api/v1/*` and the web app return a suspension state on next request
+        //   (cooperative; existing in-flight requests are not interrupted).
+        // - The sync worker skips suspended users on its next claim.
+        // Set/cleared exclusively via the admin dashboard suspend action; the
+        // self-host code path never writes this column because the admin gate
+        // is locked behind IS_HOSTED.
+        suspendedAt: timestamp("suspended_at"),
+        suspendedReason: text("suspended_reason"),
+        marketingEmailConsent: boolean("marketing_email_consent")
+            .notNull()
+            .default(false),
+        // Hosted billing plan. NULL on self-host and for hosted users created
+        // before the billing rollout (backfilled by scripts/billing-backfill.ts).
+        plan: userPlanEnum("plan"),
+        // Set by the billing rollout backfill to (launch_date + 30 days) for
+        // every pre-launch hosted user. While > now(), enforcement skips caps.
+        planTransitionUntil: timestamp("plan_transition_until"),
+        // Per-cycle Mynah transcription budget in seconds. Reset by cycle-close.
+        monthlyMynahSecondsRemaining: integer("monthly_mynah_seconds_remaining")
+            .notNull()
+            .default(0),
+        // Next time cycle-close should refresh the Mynah counter. NULL = never.
+        monthlyMynahGrantResetAt: timestamp("monthly_mynah_grant_reset_at"),
+        // True while the user currently retains founding monthly pricing. Cleared
+        // when they cancel/lapse; the separate claimed timestamp is never cleared
+        // so the first-100 capacity does not reopen.
+        foundingMember: boolean("founding_member").notNull().default(false),
+        foundingMemberClaimedAt: timestamp("founding_member_claimed_at"),
+        // First time the user was successfully charged. NULL = never paid.
+        // Used to branch the grace-period policy on lapse:
+        //  - NULL (trial non-convert) -> BILLING_TRIAL_GRACE_DAYS (7)
+        //  - set (former paying user)  -> BILLING_PAID_GRACE_DAYS (30)
+        // Grandfather: pre-launch users are treated as Path B (paid) by checking
+        // `createdAt < BILLING_LAUNCH_DATE` at deletion-scheduling time, so this
+        // column staying NULL for grandfathered users is intentional.
+        everPaidAt: timestamp("ever_paid_at"),
+        // When the user enters a lapsed state (trial ended w/o payment, sub
+        // canceled/failed-out, etc.) this is set to now() + grace_days. The
+        // billing worker deletes the account at that time. Cleared on reactivate.
+        accountDeletionScheduledAt: timestamp("account_deletion_scheduled_at"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        // At most one organization account, even when several app processes
+        // bootstrap it from the environment at the same moment.
+        singleOrgAccount: uniqueIndex("users_single_org_account")
+            .on(table.role)
+            .where(sql`${table.role} = 'org'`),
+    }),
+);
 
 // Admin read-access audit log (hosted-only).
 // Append-only. One row per admin page view or admin API hit. Self-host never
@@ -326,6 +343,10 @@ export const recordings = pgTable(
         // retention worker runs in every app process, so this prevents two
         // processes from moving the same remote original concurrently.
         remoteRetentionClaimedAt: timestamp("remote_retention_claimed_at"),
+        // When the recording last left the Organization. The owner's audio
+        // retention waits a grace period after it, so withdrawing a recording
+        // colleagues relied on never deletes its audio the same hour.
+        unsharedAt: timestamp("unshared_at"),
         createdAt: timestamp("created_at").notNull().defaultNow(),
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
@@ -377,6 +398,15 @@ export const recordingFolders = pgTable(
             .notNull()
             .default("custom"),
         sortOrder: integer("sort_order").notNull().default(0),
+        // Optimistic lock for Organization folders, which several people
+        // edit at once. Bumped on every rename and move.
+        version: integer("version").notNull().default(0),
+        // Who created an Organization folder. `userId` is the org account
+        // for those, so this is the only trace of the person; set null
+        // rather than cascade so their leaving never deletes shared folders.
+        createdByUserId: text("created_by_user_id").references(() => users.id, {
+            onDelete: "set null",
+        }),
         createdAt: timestamp("created_at").notNull().defaultNow(),
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
@@ -648,6 +678,13 @@ export const transcriptions = pgTable(
         // turns, or the row keeps a dialog structure its text no longer has.
         // Same reasoning as `ai_enhancements.multi_pass_rounds`.
         turns: jsonb("turns"),
+        // Who ran the provider. Differs from `userId` on the Organization
+        // view of a shared recording, whose rows belong to the org account
+        // but are produced (and paid for) by whichever member clicked.
+        producedByUserId: text("produced_by_user_id").references(
+            () => users.id,
+            { onDelete: "set null" },
+        ),
         createdAt: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => ({
@@ -712,6 +749,12 @@ export const people = pgTable(
         // that anything still pointing at the old id resolves to the winner
         // instead of dangling.
         mergedIntoId: text("merged_into_id"),
+        // Who first named an Organization person. `userId` is the org account
+        // for those, so this is the only trace of the colleague; set null
+        // rather than cascade so their leaving keeps the shared record.
+        createdByUserId: text("created_by_user_id").references(() => users.id, {
+            onDelete: "set null",
+        }),
         createdAt: timestamp("created_at").notNull().defaultNow(),
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
@@ -724,6 +767,38 @@ export const people = pgTable(
             table.userId,
             table.primaryEmailHash,
         ),
+    }),
+);
+
+// One account's private notes about a person the Organization shares.
+//
+// Organization people are one record for everyone, but what a colleague
+// jotted about someone was written for themselves. Notes therefore stay out
+// of the shared row: when a person is promoted, the owner's notes move here,
+// visible to that owner alone.
+export const personNotes = pgTable(
+    "person_notes",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        personId: text("person_id")
+            .notNull()
+            .references(() => people.id, { onDelete: "cascade" }),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        // Encrypted, like `people.notes`.
+        notes: text("notes").notNull(),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        personUserUnique: unique("person_notes_person_id_user_id_unique").on(
+            table.personId,
+            table.userId,
+        ),
+        userIdIdx: index("person_notes_user_id_idx").on(table.userId),
     }),
 );
 
@@ -816,6 +891,11 @@ export const aiEnhancements = pgTable(
         multiPassRounds: integer("multi_pass_rounds"),
         multiPassUsed: integer("multi_pass_passes_used"),
         multiPassMerged: boolean("multi_pass_merged"),
+        // See `transcriptions.producedByUserId`.
+        producedByUserId: text("produced_by_user_id").references(
+            () => users.id,
+            { onDelete: "set null" },
+        ),
         createdAt: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => ({

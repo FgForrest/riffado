@@ -34,6 +34,10 @@ type FolderExportModule = {
     startFolderExportSeeder: () => void;
 };
 
+type OrgScopeModule = {
+    startOrgScope: () => Promise<void>;
+};
+
 type EnvModule = {
     env: {
         IS_HOSTED: boolean;
@@ -121,6 +125,11 @@ export async function register() {
     const { startFolderExportSeeder } =
         require("./lib/folder-exports/jobs") as FolderExportModule;
     startFolderExportSeeder();
+
+    // Before the first request: the folder tree a user sees depends on both
+    // the legacy Public migration and the organization account existing.
+    const { startOrgScope } = require("./lib/org/account") as OrgScopeModule;
+    await startOrgScope();
 
     // Catch anything that escapes a background worker's own try/catch (or
     // any other unexpected process-level throw) instead of only ever

@@ -9,6 +9,14 @@ import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { removeRecordingSidecar } from "@/lib/export/document-sidecars";
 import { appErrorFromJobFailure } from "@/lib/jobs/retryable";
 import { watchJob } from "@/lib/jobs/watch";
+import { assertOrgScopeWritable } from "@/lib/org/config";
+import {
+    recordingJobSubject,
+    requestedRecordingView,
+    requireRecordingView,
+} from "@/lib/sharing/access";
+import { getJobVisibleTo } from "@/lib/sharing/jobs";
+import { orgContentChanged } from "@/lib/sharing/notify";
 import type { MultiPassPhase } from "@/lib/summary/multi-pass";
 import {
     encodeStreamEvent,
@@ -47,31 +55,6 @@ function requestedSummarySource(request: Request): SummarySource {
         : "riffado";
 }
 
-/** Assert the recording exists and is the caller's, before queueing anything. */
-async function requireOwnedRecording(
-    recordingId: string,
-    userId: string,
-): Promise<void> {
-    const [recording] = await db
-        .select({ id: recordings.id })
-        .from(recordings)
-        .where(
-            and(
-                eq(recordings.id, recordingId),
-                eq(recordings.userId, userId),
-                isNull(recordings.deletedAt),
-            ),
-        )
-        .limit(1);
-    if (!recording) {
-        throw new AppError(
-            ErrorCode.RECORDING_NOT_FOUND,
-            "Recording not found",
-            404,
-        );
-    }
-}
-
 /** A stored progress snapshot, narrowed to what the wire format carries. */
 function toStreamProgress(
     raw: Record<string, unknown>,
@@ -104,17 +87,20 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
     const { id } = await (context as IdContext).params;
     const body = await request.json().catch(() => ({}));
     const presetId = (body.preset as string) || undefined;
+    const view = requestedRecordingView(request);
 
     // Checked here rather than left to the handler: a recording that does not
     // exist should be a 404 on the spot, not a job that is queued, claimed and
     // then fails a second later with nobody having learned anything sooner.
-    await requireOwnedRecording(id, userId);
+    const access = await requireRecordingView(userId, id, view);
+    if (view === "org") assertOrgScopeWritable();
 
     const { job } = await enqueueSummaryJob({
         userId,
         recordingId: id,
         presetId,
         trigger: "manual",
+        view,
     });
 
     // The JSON path stays the default. Only a caller that asks for the event
@@ -124,6 +110,7 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
     if (!accept.includes("text/event-stream")) {
         const { row, reason } = await watchJob(job.id, userId, {
             timeoutMs: WATCH_TIMEOUT_MS,
+            readJob: getJobVisibleTo,
         });
 
         if (reason === "timeout" || !row) {
@@ -137,7 +124,11 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
         if (row.status === "failed") {
             throw appErrorFromJobFailure(row.errorCode, row.lastError);
         }
-        const stored = await readStoredSummary(userId, id, "riffado");
+        const stored = await readStoredSummary(
+            access.contentUserId,
+            id,
+            "riffado",
+        );
         if (!stored) {
             throw new AppError(
                 ErrorCode.INTERNAL_ERROR,
@@ -186,6 +177,7 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
             try {
                 const { row, reason } = await watchJob(job.id, userId, {
                     timeoutMs: WATCH_TIMEOUT_MS,
+                    readJob: getJobVisibleTo,
                     onProgress: (progress) => {
                         const narrowed = toStreamProgress(progress);
                         if (narrowed) send({ type: "progress", ...narrowed });
@@ -220,7 +212,7 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
                     });
                 } else {
                     const stored = await readStoredSummary(
-                        userId,
+                        access.contentUserId,
                         id,
                         "riffado",
                     );
@@ -325,34 +317,20 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
         });
     }
 
-    const [recording] = await db
-        .select({ id: recordings.id })
-        .from(recordings)
-        .where(
-            and(
-                eq(recordings.id, id),
-                eq(recordings.userId, session.user.id),
-                isNull(recordings.deletedAt),
-            ),
-        )
-        .limit(1);
-
-    if (!recording) {
-        throw new AppError(
-            ErrorCode.RECORDING_NOT_FOUND,
-            "Recording not found",
-            404,
-        );
-    }
+    const view = requestedRecordingView(request);
+    const access = await requireRecordingView(session.user.id, id, view);
 
     // Reported alongside the summary so a page opened while a summary is
     // being generated -- in another tab, by an automatic run, or by a worker
     // that picked the job back up after a restart -- can show that and
     // reattach, instead of an empty panel that gives no sign anything is
     // happening.
-    const active = await getActiveJob(SUMMARY_JOB_KIND, id);
+    const active = await getActiveJob(
+        SUMMARY_JOB_KIND,
+        recordingJobSubject(id, view),
+    );
     const activeJob =
-        active && active.userId === session.user.id
+        active && (view === "org" || active.userId === session.user.id)
             ? {
                   jobId: active.id,
                   status: active.status,
@@ -360,7 +338,14 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
               }
             : undefined;
 
-    const summaries = await readStoredSummaries(session.user.id, id);
+    // The Organization view reads the organization's summaries once it has
+    // any, and the owner's until then (read-only, flagged as `fallback`).
+    let summaries = await readStoredSummaries(access.contentUserId, id);
+    let fallback = false;
+    if (summaries.length === 0 && access.contentUserId !== access.ownerUserId) {
+        summaries = await readStoredSummaries(access.ownerUserId, id);
+        fallback = summaries.length > 0;
+    }
     const availableSources = summaries.map((summary) => summary.source);
     const stored = summaries.find((summary) => summary.source === source);
 
@@ -369,6 +354,7 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
             summary: null,
             source,
             availableSources,
+            fallback,
             activeJob: source === "riffado" ? activeJob : undefined,
         });
     }
@@ -384,6 +370,7 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
         multiPass: stored.multiPass,
         createdAt: stored.createdAt,
         availableSources,
+        fallback,
         activeJob: source === "riffado" ? activeJob : undefined,
     });
 });
@@ -394,6 +381,23 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
 
     const { id } = await (context as IdContext).params;
     const source = requestedSummarySource(request);
+    const view = requestedRecordingView(request);
+    const access = await requireRecordingView(session.user.id, id, view);
+
+    if (view === "org") {
+        assertOrgScopeWritable();
+        await db
+            .delete(aiEnhancements)
+            .where(
+                and(
+                    eq(aiEnhancements.recordingId, id),
+                    eq(aiEnhancements.userId, access.contentUserId),
+                    eq(aiEnhancements.source, source),
+                ),
+            );
+        await orgContentChanged(id);
+        return NextResponse.json({ success: true });
+    }
 
     await db.transaction(async (tx) => {
         const deleted = await tx

@@ -16,6 +16,7 @@
 import { type EnqueueJobResult, enqueueJob } from "@/db/queries/async-jobs";
 import { nudge } from "@/lib/jobs/nudge";
 import { InvalidJobPayloadError } from "@/lib/jobs/types";
+import { type RecordingView, recordingJobSubject } from "@/lib/sharing/view";
 
 export const SUMMARY_JOB_KIND = "summary";
 
@@ -54,6 +55,8 @@ export interface SummaryJobPayload {
     recordingId: string;
     presetId?: string;
     trigger: "manual" | "auto";
+    /** Absent on the private view, which is every job queued before views existed. */
+    view?: RecordingView;
 }
 
 /**
@@ -84,14 +87,31 @@ export function parseSummaryJobPayload(
     // opt-in, and the conservative reading of an unknown value is the one
     // that does not spend extra passes.
     const trigger = raw.trigger === "manual" ? "manual" : "auto";
-    return { recordingId, presetId: presetId ?? undefined, trigger };
+    if (
+        raw.view !== undefined &&
+        raw.view !== "org" &&
+        raw.view !== "private"
+    ) {
+        throw new InvalidJobPayloadError(
+            SUMMARY_JOB_KIND,
+            'view must be "private" or "org" when present',
+        );
+    }
+    return {
+        recordingId,
+        presetId: presetId ?? undefined,
+        trigger,
+        ...(raw.view === "org" ? { view: "org" as const } : {}),
+    };
 }
 
 export interface EnqueueSummaryInput {
+    /** The actor. On the private view, the recording's owner. */
     userId: string;
     recordingId: string;
     presetId?: string;
     trigger: "manual" | "auto";
+    view?: RecordingView;
 }
 
 /**
@@ -107,7 +127,10 @@ export async function enqueueSummaryJob(
     const enqueued = await enqueueJob({
         userId: input.userId,
         kind: SUMMARY_JOB_KIND,
-        subjectId: input.recordingId,
+        subjectId: recordingJobSubject(
+            input.recordingId,
+            input.view ?? "private",
+        ),
         priority:
             input.trigger === "manual"
                 ? SUMMARY_PRIORITY_MANUAL
@@ -117,6 +140,7 @@ export async function enqueueSummaryJob(
             recordingId: input.recordingId,
             ...(input.presetId ? { presetId: input.presetId } : {}),
             trigger: input.trigger,
+            ...(input.view === "org" ? { view: "org" } : {}),
         },
     });
     // Start it now rather than at the next sweep, when this process is the

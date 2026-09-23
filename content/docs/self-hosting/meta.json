@@ -4,6 +4,7 @@
         "index",
         "install",
         "environment-variables",
+        "organization",
         "storage-s3",
         "email-smtp",
         "upgrading"

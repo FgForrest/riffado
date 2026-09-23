@@ -21,6 +21,8 @@ const folders: RecordingFolder[] = [
         name: "Private",
         kind: "private",
         sortOrder: 0,
+        scope: "personal",
+        version: 0,
     },
     {
         id: "public",
@@ -28,6 +30,8 @@ const folders: RecordingFolder[] = [
         name: "Public",
         kind: "public",
         sortOrder: 1000,
+        scope: "org",
+        version: 0,
     },
     {
         id: "meetings",
@@ -35,6 +39,8 @@ const folders: RecordingFolder[] = [
         name: "Meetings",
         kind: "custom",
         sortOrder: 0,
+        scope: "personal",
+        version: 0,
     },
     {
         id: "planning",
@@ -42,6 +48,8 @@ const folders: RecordingFolder[] = [
         name: "Planning",
         kind: "custom",
         sortOrder: 0,
+        scope: "personal",
+        version: 0,
     },
     {
         id: "archive",
@@ -49,6 +57,8 @@ const folders: RecordingFolder[] = [
         name: "Archive",
         kind: "custom",
         sortOrder: 1000,
+        scope: "personal",
+        version: 0,
     },
 ];
 
@@ -106,10 +116,10 @@ describe("folder navigation", () => {
             screen.getByRole("button", { name: "Planning, 1 recording" }),
         ).toBeTruthy();
         expect(
-            screen.getByRole("button", { name: "Public, 0 recordings" }),
+            screen.getByRole("button", { name: "Organization, 0 recordings" }),
         ).toBeTruthy();
         expect(
-            screen.getByRole("button", { name: "Public, 0 recordings" })
+            screen.getByRole("button", { name: "Organization, 0 recordings" })
                 .previousElementSibling?.tagName,
         ).toBe("SPAN");
     });

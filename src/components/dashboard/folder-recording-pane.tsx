@@ -16,6 +16,10 @@ import { useExtracted, useLocale } from "next-intl";
 import { useMemo, useState } from "react";
 import { useConfirm } from "@/components/confirm-dialog";
 import { FolderExportActions } from "@/components/dashboard/folder-export-actions";
+import {
+    RECORDING_SOURCE_FOLDER_DRAG_TYPE,
+    useFolderLabel,
+} from "@/components/dashboard/folder-tree";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -63,6 +67,8 @@ interface FolderRecordingPaneProps {
     hiddenOnMobile: boolean;
     onBackToFolders: () => void;
     filesystemExportsAvailable: boolean;
+    /** The organization account, which configures exports of its own tree. */
+    isOrgAccount?: boolean;
 }
 
 export function FolderRecordingPane({
@@ -77,10 +83,12 @@ export function FolderRecordingPane({
     hiddenOnMobile,
     onBackToFolders,
     filesystemExportsAvailable,
+    isOrgAccount = false,
 }: FolderRecordingPaneProps) {
     const i18n = useExtracted();
     const locale = useLocale();
     const confirm = useConfirm();
+    const folderLabel = useFolderLabel();
     const [renameOpen, setRenameOpen] = useState(false);
     const [draft, setDraft] = useState(folder.name);
     const [saving, setSaving] = useState(false);
@@ -137,13 +145,19 @@ export function FolderRecordingPane({
         const result = new Map<string, RecordingFolder[]>();
         for (const assignment of assignments) {
             const assignedFolder = foldersById.get(assignment.folderId);
-            if (!assignedFolder || assignedFolder.kind === "private") continue;
+            if (
+                !assignedFolder ||
+                assignedFolder.kind === "private" ||
+                assignedFolder.scope !== folder.scope
+            ) {
+                continue;
+            }
             const assigned = result.get(assignment.recordingId) ?? [];
             assigned.push(assignedFolder);
             result.set(assignment.recordingId, assigned);
         }
         return result;
-    }, [assignments, folders]);
+    }, [assignments, folder.scope, folders]);
 
     const submitRename = async () => {
         if (!draft.trim()) return;
@@ -231,7 +245,7 @@ export function FolderRecordingPane({
                     <div className="flex items-center gap-3">
                         <Folder className="size-8 shrink-0 text-primary" />
                         <h1 className="truncate text-2xl font-semibold tracking-tight">
-                            {folder.name}
+                            {folderLabel(folder)}
                         </h1>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-1 text-sm text-muted-foreground">
@@ -241,7 +255,7 @@ export function FolderRecordingPane({
                                 className="flex items-center gap-1"
                             >
                                 {index > 0 && <span>/</span>}
-                                <span>{item.name}</span>
+                                <span>{folderLabel(item)}</span>
                             </span>
                         ))}
                         <span className="mx-1">·</span>
@@ -257,7 +271,10 @@ export function FolderRecordingPane({
                     <FolderExportActions
                         folder={folder}
                         filesystemAvailable={filesystemExportsAvailable}
-                        privateTree={path[0]?.kind === "private"}
+                        privateTree={
+                            path[0]?.kind === "private" ||
+                            (isOrgAccount && folder.scope === "org")
+                        }
                     />
                     {folder.kind === "custom" && (
                         <>
@@ -283,9 +300,14 @@ export function FolderRecordingPane({
                                         title: i18n("Delete “{name}”?", {
                                             name: folder.name,
                                         }),
-                                        description: i18n(
-                                            "This folder and all its subfolders will be deleted. Recordings stay intact; only their folder assignments are removed.",
-                                        ),
+                                        description:
+                                            folder.scope === "org"
+                                                ? i18n(
+                                                      "This folder and all its subfolders will be deleted for everyone. Their recordings stay shared and move to the Organization folder.",
+                                                  )
+                                                : i18n(
+                                                      "This folder and all its subfolders will be deleted. Recordings stay intact; only their folder assignments are removed.",
+                                                  ),
                                         confirmLabel: i18n("Delete folder"),
                                         pendingLabel: i18n("Deleting…"),
                                         destructive: true,
@@ -324,8 +346,16 @@ export function FolderRecordingPane({
                                             RECORDING_DRAG_TYPE,
                                             recording.id,
                                         );
+                                        if (folder.scope === "org") {
+                                            event.dataTransfer.setData(
+                                                RECORDING_SOURCE_FOLDER_DRAG_TYPE,
+                                                folder.id,
+                                            );
+                                        }
                                         event.dataTransfer.effectAllowed =
-                                            "copy";
+                                            folder.scope === "org"
+                                                ? "copyMove"
+                                                : "copy";
                                     }}
                                     onClick={() => onSelectRecording(recording)}
                                     aria-label={i18n("Open {title}", {
@@ -340,6 +370,19 @@ export function FolderRecordingPane({
                                         <span className="block truncate text-sm font-medium">
                                             {recording.filename}
                                         </span>
+                                        {recording.view === "org" &&
+                                            recording.ownerName && (
+                                                <span className="block truncate text-xs text-muted-foreground">
+                                                    {recording.isOwn
+                                                        ? i18n("Shared by you")
+                                                        : i18n(
+                                                              "Shared by {owner}",
+                                                              {
+                                                                  owner: recording.ownerName,
+                                                              },
+                                                          )}
+                                                </span>
+                                            )}
                                         {(assignedFoldersByRecording.get(
                                             recording.id,
                                         )?.length ?? 0) > 0 && (

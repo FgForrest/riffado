@@ -1,7 +1,8 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, or } from "drizzle-orm";
 import { db } from "@/db";
 import { people, transcriptSpeakers } from "@/db/schema";
 import { namesFromRows } from "@/lib/knowledge/attribution";
+import { orgOwnedCondition } from "@/lib/knowledge/org-people";
 import { readTranscriptTurns } from "@/lib/transcription/read-turns";
 import {
     renderTurnsAsText,
@@ -64,7 +65,10 @@ export async function buildResolverMap(
             people,
             and(
                 eq(people.id, transcriptSpeakers.personId),
-                eq(people.userId, ownerId),
+                or(
+                    eq(people.userId, ownerId),
+                    orgOwnedCondition(people.userId),
+                ),
             ),
         )
         .where(

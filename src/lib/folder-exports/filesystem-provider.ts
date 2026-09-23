@@ -2,7 +2,6 @@ import { constants } from "node:fs";
 import { lstat, mkdir, open, realpath, rename, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
 import type { ExportProvider } from "./types";
 
 export const MAX_EXPORT_PATH_LENGTH = 1024;
@@ -215,10 +214,15 @@ export class FilesystemExportProvider implements ExportProvider {
             if (Buffer.isBuffer(content)) {
                 await handle.writeFile(content);
             } else {
-                await pipeline(
-                    content,
-                    handle.createWriteStream({ autoClose: false }),
-                );
+                // Written chunk by chunk through the handle rather than piped
+                // into `handle.createWriteStream({ autoClose: false })`: that
+                // stream never emits `close`, so `pipeline` never settles and
+                // every streamed (audio) export hung until its job timed out.
+                for await (const chunk of content) {
+                    await handle.write(
+                        Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk),
+                    );
+                }
             }
             await handle.sync();
             await handle.close();

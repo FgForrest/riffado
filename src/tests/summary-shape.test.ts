@@ -23,6 +23,15 @@ import {
     userSettings,
 } from "@/db/schema";
 
+vi.mock("@/lib/org/config", () => ({
+    isOrgScopeVisible: () => false,
+    isOrgScopeEnabled: () => false,
+    getOrgUserId: async () => null,
+    assertOrgScopeWritable: () => {},
+    isOrgAccount: async () => false,
+    assertNotOrgAccount: async () => {},
+}));
+
 vi.mock("@/lib/posthog-server", () => ({
     captureServerException: vi.fn(),
     captureServerEvent: vi.fn(),

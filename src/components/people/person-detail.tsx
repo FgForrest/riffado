@@ -11,6 +11,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useExtracted, useLocale } from "next-intl";
 import { useMemo, useState } from "react";
+import { PersonActions } from "@/components/people/person-actions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { formatDateTime } from "@/lib/format-date";
@@ -26,6 +27,8 @@ export interface PersonAppearance {
     label: string;
     status: string;
     source: string;
+    /** Where the name was given: the owner's transcript or the Organization view. */
+    view?: "private" | "org";
 }
 
 export interface PersonDetailProps {
@@ -34,11 +37,18 @@ export interface PersonDetailProps {
         displayName: string;
         primaryEmail: string | null;
         notes: string | null;
+        scope?: "personal" | "org";
     };
     appearances: PersonAppearance[];
+    /** Whether the viewer may rename, merge or erase this person. */
+    canManage?: boolean;
 }
 
-export function PersonDetail({ person, appearances }: PersonDetailProps) {
+export function PersonDetail({
+    person,
+    appearances,
+    canManage = true,
+}: PersonDetailProps) {
     const i18n = useExtracted();
     const locale = useLocale();
     const router = useRouter();
@@ -96,9 +106,15 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                             "Heard in {count, plural, one {# recording} other {# recordings}}",
                             { count: heard.length },
                         )}
+                        {person.scope === "org" && ` · ${i18n("Organization")}`}
                     </p>
                 </div>
-                {confirmingDelete ? (
+                {canManage && !confirmingDelete && (
+                    <div className="flex flex-wrap justify-end gap-2">
+                        <PersonActions person={person} />
+                    </div>
+                )}
+                {!canManage ? null : confirmingDelete ? (
                     <div className="flex shrink-0 items-center gap-2">
                         <Button
                             size="sm"
@@ -175,7 +191,11 @@ export function PersonDetail({ person, appearances }: PersonDetailProps) {
                             {heard.map((appearance) => (
                                 <li key={appearance.recordingId}>
                                     <Link
-                                        href={`/recordings/${appearance.recordingId}`}
+                                        href={
+                                            appearance.view === "org"
+                                                ? `/dashboard?recording=${encodeURIComponent(appearance.recordingId)}&view=org`
+                                                : `/recordings/${appearance.recordingId}`
+                                        }
                                         className="group flex items-center gap-3 px-5 py-4 transition-colors hover:bg-muted/40"
                                     >
                                         <span className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-muted/30 text-muted-foreground transition-colors group-hover:text-primary">

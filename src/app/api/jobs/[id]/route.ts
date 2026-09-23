@@ -9,9 +9,10 @@
  */
 
 import { NextResponse } from "next/server";
-import { type AsyncJobRow, getJobForUser } from "@/db/queries/async-jobs";
+import type { AsyncJobRow } from "@/db/queries/async-jobs";
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { getJobVisibleTo } from "@/lib/sharing/jobs";
 
 type IdContext = { params: Promise<{ id: string }> };
 
@@ -23,7 +24,7 @@ type IdContext = { params: Promise<{ id: string }> };
  * client's business, and building the response from named fields means a
  * column added later is private until somebody decides otherwise.
  */
-function toPublicJob(job: AsyncJobRow) {
+function toPublicJob(job: AsyncJobRow, viewerId: string) {
     return {
         id: job.id,
         kind: job.kind,
@@ -34,7 +35,10 @@ function toPublicJob(job: AsyncJobRow) {
         progress: job.progress ?? null,
         // Provenance only, by the rule on `asyncJobs` in the schema.
         result: job.result ?? null,
-        error: job.lastError,
+        // A provider error can quote a base URL or key hint of whoever ran
+        // the job; someone following another member's Organization job gets
+        // the code, not the text.
+        error: job.userId === viewerId ? job.lastError : null,
         errorCode: job.errorCode,
         createdAt: job.createdAt,
         startedAt: job.startedAt,
@@ -47,11 +51,12 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
     const { id } = await (context as IdContext).params;
 
     // Scoped to the caller, so a job id -- which travels to the browser and
-    // may end up in a log or a bug report -- grants nothing on its own.
-    const job = await getJobForUser(id, session.user.id);
+    // may end up in a log or a bug report -- grants nothing on its own. An
+    // Organization job is the caller's to follow while they can see the view.
+    const job = await getJobVisibleTo(id, session.user.id);
     if (!job) {
         throw new AppError(ErrorCode.NOT_FOUND, "Job not found", 404);
     }
 
-    return NextResponse.json(toPublicJob(job));
+    return NextResponse.json(toPublicJob(job, session.user.id));
 });

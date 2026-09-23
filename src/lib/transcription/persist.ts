@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { aiEnhancements, recordings, transcriptions } from "@/db/schema";
 import { encryptJsonField, encryptText } from "@/lib/encryption/fields";
+import { isRecordingShared } from "@/lib/sharing/shared";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
 
 /**
@@ -36,6 +37,10 @@ export interface UpsertTranscriptionArgs {
     turns?: TranscriptTurn[];
     /** Permit an explicit user action to replace a deliberately erased transcript. */
     allowReaped?: boolean;
+    /** Owner of the recording when it differs from the row owner (Organization view). */
+    recordingOwnerId?: string;
+    /** Account whose provider produced the text; defaults to `userId`. */
+    producedByUserId?: string;
 }
 
 export interface UpsertEnhancementArgs {
@@ -65,6 +70,10 @@ export interface UpsertEnhancementArgs {
     };
     /** Permit an explicit user action to replace a deliberately erased summary. */
     allowReaped?: boolean;
+    /** Owner of the recording when it differs from the row owner (Organization view). */
+    recordingOwnerId?: string;
+    /** Account whose provider produced the summary; defaults to `userId`. */
+    producedByUserId?: string;
 }
 
 /**
@@ -105,6 +114,9 @@ export async function upsertTranscription(
         turns,
         allowReaped = false,
     } = args;
+    const ownerId = args.recordingOwnerId ?? userId;
+    const orgView = ownerId !== userId;
+    const producedByUserId = args.producedByUserId ?? userId;
 
     try {
         await db.transaction(async (tx) => {
@@ -117,16 +129,20 @@ export async function upsertTranscription(
                 .where(
                     and(
                         eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
+                        eq(recordings.userId, ownerId),
                     ),
                 )
                 .for("update")
                 .limit(1);
 
+            // The owner's retention marker describes the owner's rows; the
+            // Organization view is instead gated on still being shared, so a
+            // run that outlives an unshare writes nothing.
             if (
                 !stillActive ||
                 stillActive.deletedAt ||
-                (stillActive.transcriptReapedAt && !allowReaped)
+                (!orgView && stillActive.transcriptReapedAt && !allowReaped) ||
+                (orgView && !(await isRecordingShared(recordingId, userId, tx)))
             ) {
                 throw RECORDING_WRITE_BLOCKED;
             }
@@ -159,6 +175,7 @@ export async function upsertTranscription(
                         provider,
                         model,
                         source,
+                        producedByUserId,
                     })
                     .where(
                         and(
@@ -177,21 +194,24 @@ export async function upsertTranscription(
                     provider,
                     model,
                     source,
+                    producedByUserId,
                 });
             }
 
-            await tx
-                .update(recordings)
-                .set({
-                    updatedAt: new Date(),
-                    transcriptReapedAt: null,
-                })
-                .where(
-                    and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
-                    ),
-                );
+            if (!orgView) {
+                await tx
+                    .update(recordings)
+                    .set({
+                        updatedAt: new Date(),
+                        transcriptReapedAt: null,
+                    })
+                    .where(
+                        and(
+                            eq(recordings.id, recordingId),
+                            eq(recordings.userId, userId),
+                        ),
+                    );
+            }
         });
     } catch (txError) {
         if (txError === RECORDING_WRITE_BLOCKED) {
@@ -223,6 +243,9 @@ export async function upsertEnhancement(
         multiPass,
         allowReaped = false,
     } = args;
+    const ownerId = args.recordingOwnerId ?? userId;
+    const orgView = ownerId !== userId;
+    const producedByUserId = args.producedByUserId ?? userId;
 
     try {
         await db.transaction(async (tx) => {
@@ -235,7 +258,7 @@ export async function upsertEnhancement(
                 .where(
                     and(
                         eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
+                        eq(recordings.userId, ownerId),
                     ),
                 )
                 .for("update")
@@ -244,7 +267,8 @@ export async function upsertEnhancement(
             if (
                 !stillActive ||
                 stillActive.deletedAt ||
-                (stillActive.summaryReapedAt && !allowReaped)
+                (!orgView && stillActive.summaryReapedAt && !allowReaped) ||
+                (orgView && !(await isRecordingShared(recordingId, userId, tx)))
             ) {
                 throw RECORDING_WRITE_BLOCKED;
             }
@@ -283,6 +307,7 @@ export async function upsertEnhancement(
                         provider,
                         model,
                         source,
+                        producedByUserId,
                         ...multiPassColumns,
                     })
                     .where(
@@ -302,22 +327,25 @@ export async function upsertEnhancement(
                     provider,
                     model,
                     source,
+                    producedByUserId,
                     ...multiPassColumns,
                 });
             }
 
-            await tx
-                .update(recordings)
-                .set({
-                    updatedAt: new Date(),
-                    summaryReapedAt: null,
-                })
-                .where(
-                    and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
-                    ),
-                );
+            if (!orgView) {
+                await tx
+                    .update(recordings)
+                    .set({
+                        updatedAt: new Date(),
+                        summaryReapedAt: null,
+                    })
+                    .where(
+                        and(
+                            eq(recordings.id, recordingId),
+                            eq(recordings.userId, userId),
+                        ),
+                    );
+            }
         });
     } catch (txError) {
         if (txError === RECORDING_WRITE_BLOCKED) {

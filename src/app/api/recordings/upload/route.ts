@@ -7,6 +7,7 @@ import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { isHostedLockedOut } from "@/lib/entitlements";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { enforceStorageCap } from "@/lib/hosted/billing/storage-cap";
+import { assertNotOrgAccount } from "@/lib/org/config";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import {
     acceptedUploadExtensions,
@@ -51,6 +52,7 @@ export const GET = apiHandler(async (request: Request) => {
 
 export const POST = apiHandler(async (request: Request) => {
     const session = await requireApiSession(request);
+    await assertNotOrgAccount(session.user.id);
 
     if (await isHostedLockedOut(session.user.id)) {
         throw new AppError(

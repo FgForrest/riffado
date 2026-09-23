@@ -1,5 +1,6 @@
 import type { InferSelectModel } from "drizzle-orm";
 import type { recordings } from "@/db/schema";
+import type { RecordingView } from "@/lib/sharing/view";
 
 export type RecordingQueryResult = Pick<
     InferSelectModel<typeof recordings>,
@@ -28,6 +29,15 @@ export type Recording = Omit<RecordingQueryResult, "startTime"> & {
      * there" -- otherwise the player renders and then fails on play.
      */
     audioReaped?: boolean;
+    /**
+     * `org` marks an entry of the Organization library: a shared recording
+     * read through its Organization view. Absent for the owner's own list.
+     */
+    view?: RecordingView;
+    /** Whether the viewer owns the recording. Absent means yes. */
+    isOwn?: boolean;
+    /** Display name of the owner, on Organization entries. */
+    ownerName?: string | null;
 };
 
 // Helper to serialize a recording query result. Optional fields let
@@ -39,6 +49,9 @@ export function serializeRecording(
         hasSummary?: boolean;
         waveformPeaks?: number[] | null;
         audioReaped?: boolean;
+        view?: RecordingView;
+        isOwn?: boolean;
+        ownerName?: string | null;
     },
 ): Recording {
     return {
@@ -54,5 +67,12 @@ export function serializeRecording(
         waveformPeaks: flags?.waveformPeaks?.length
             ? flags.waveformPeaks
             : null,
+        ...(flags?.view === "org"
+            ? {
+                  view: "org" as const,
+                  isOwn: flags.isOwn ?? false,
+                  ownerName: flags.ownerName ?? null,
+              }
+            : {}),
     };
 }

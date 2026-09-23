@@ -12,10 +12,23 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
         name?: unknown;
         parentId?: unknown;
         beforeId?: unknown;
+        version?: unknown;
     } | null;
     if (!body) {
         throw new AppError(ErrorCode.INVALID_INPUT, "Invalid request", 400);
     }
+    if (
+        body.version !== undefined &&
+        (typeof body.version !== "number" || !Number.isInteger(body.version))
+    ) {
+        throw new AppError(
+            ErrorCode.INVALID_INPUT,
+            "Folder version must be an integer",
+            400,
+            { field: "version" },
+        );
+    }
+    const version = body.version as number | undefined;
 
     if (body.name !== undefined) {
         if (typeof body.name !== "string") {
@@ -30,6 +43,7 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
             userId: session.user.id,
             folderId: id,
             name: body.name,
+            version,
         });
         return NextResponse.json({ folder });
     }
@@ -52,6 +66,7 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
             folderId: id,
             parentId: body.parentId,
             beforeId: body.beforeId as string | null | undefined,
+            version,
         });
         return NextResponse.json({ folder });
     }

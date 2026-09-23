@@ -14,6 +14,15 @@
 
 import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 
+vi.mock("@/lib/org/config", () => ({
+    isOrgScopeVisible: () => false,
+    isOrgScopeEnabled: () => false,
+    getOrgUserId: async () => null,
+    assertOrgScopeWritable: () => {},
+    isOrgAccount: async () => false,
+    assertNotOrgAccount: async () => {},
+}));
+
 vi.mock("@/db", () => ({ db: { select: vi.fn() } }));
 
 vi.mock("@/lib/env", () => ({ env: { IS_HOSTED: false } }));

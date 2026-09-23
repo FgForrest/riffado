@@ -22,6 +22,15 @@ import {
     vi,
 } from "vitest";
 
+vi.mock("@/lib/org/config", () => ({
+    isOrgScopeVisible: () => false,
+    isOrgScopeEnabled: () => false,
+    getOrgUserId: async () => null,
+    assertOrgScopeWritable: () => {},
+    isOrgAccount: async () => false,
+    assertNotOrgAccount: async () => {},
+}));
+
 vi.mock("@/lib/env", () => ({
     env: {
         DEFAULT_STORAGE_TYPE: "local",

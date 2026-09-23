@@ -25,6 +25,10 @@ import { exportRecordingSidecarsIfEnabled } from "@/lib/export/document-sidecars
 import { retryWithBackoff } from "@/lib/jobs/backoff";
 import { isRetryableError } from "@/lib/jobs/retryable";
 import { captureServerEvent } from "@/lib/posthog-server";
+import type { RecordingView } from "@/lib/sharing/access";
+import { notifyIfShared, orgContentChanged } from "@/lib/sharing/notify";
+import { resolveRunContext } from "@/lib/sharing/run-context";
+import { findOrgSummarySource } from "@/lib/sharing/view-content";
 import { upsertEnhancement } from "@/lib/transcription/persist";
 import {
     clampRounds,
@@ -57,6 +61,12 @@ export interface GenerateSummaryOptions {
      * requirement.
      */
     onProgress?: (progress: MultiPassProgress) => void;
+    /**
+     * `org` summarizes the Organization view of a shared recording: the
+     * caller is the actor whose provider runs, with the organization's
+     * prompts and language.
+     */
+    view?: RecordingView;
 }
 
 export interface GenerateSummaryResult {
@@ -121,17 +131,32 @@ function bucketLength(chars: number): string {
  * can decide whether to retry or surface them.
  */
 export async function generateSummaryForRecording(
-    userId: string,
+    actorUserId: string,
     recordingId: string,
     opts: GenerateSummaryOptions = {},
 ): Promise<GenerateSummaryResult> {
+    const ctx = await resolveRunContext(
+        actorUserId,
+        recordingId,
+        opts.view ?? "private",
+    );
+    if (!ctx) {
+        throw new AppError(
+            ErrorCode.RECORDING_NOT_FOUND,
+            "Recording not found",
+            404,
+        );
+    }
+    const orgView = ctx.view === "org";
+    const userId = ctx.contentUserId;
+
     const [recording] = await db
         .select()
         .from(recordings)
         .where(
             and(
                 eq(recordings.id, recordingId),
-                eq(recordings.userId, userId),
+                eq(recordings.userId, ctx.ownerUserId),
                 isNull(recordings.deletedAt),
             ),
         )
@@ -145,17 +170,21 @@ export async function generateSummaryForRecording(
         );
     }
 
-    const [transcription] = await db
-        .select()
-        .from(transcriptions)
-        .where(
-            and(
-                eq(transcriptions.recordingId, recordingId),
-                eq(transcriptions.userId, userId),
-                eq(transcriptions.source, "riffado"),
-            ),
-        )
-        .limit(1);
+    const transcription = orgView
+        ? await findOrgSummarySource(recordingId, ctx)
+        : (
+              await db
+                  .select()
+                  .from(transcriptions)
+                  .where(
+                      and(
+                          eq(transcriptions.recordingId, recordingId),
+                          eq(transcriptions.userId, userId),
+                          eq(transcriptions.source, "riffado"),
+                      ),
+                  )
+                  .limit(1)
+          )[0];
 
     if (!transcription) {
         throw new AppError(
@@ -165,11 +194,21 @@ export async function generateSummaryForRecording(
         );
     }
 
+    // Content settings (prompts, language, merge prompt) follow the view;
+    // the engine settings (multi-pass rounds) follow the actor, who pays.
     const [userSettingsRow] = await db
         .select()
         .from(userSettings)
-        .where(eq(userSettings.userId, userId))
+        .where(eq(userSettings.userId, ctx.settingsUserId))
         .limit(1);
+    const [actorSettingsRow] =
+        ctx.actorUserId === ctx.settingsUserId
+            ? [userSettingsRow]
+            : await db
+                  .select()
+                  .from(userSettings)
+                  .where(eq(userSettings.userId, ctx.actorUserId))
+                  .limit(1);
 
     let promptConfig: SummaryPromptConfiguration =
         getDefaultSummaryPromptConfig();
@@ -220,7 +259,7 @@ export async function generateSummaryForRecording(
     const configuredCredentials = await db
         .select()
         .from(apiCredentials)
-        .where(eq(apiCredentials.userId, userId));
+        .where(eq(apiCredentials.userId, ctx.actorUserId));
 
     const credentials = pickEnhancementCredential(configuredCredentials);
 
@@ -429,15 +468,15 @@ Correct the serialization without dropping or inventing information. Return exac
     // summary is one recording the user is waiting on, while a sync can fire a
     // dozen, and each one multiplies by `rounds`.
     const multiPassOn =
-        userSettingsRow?.summaryMultiPass === true &&
-        (opts.trigger !== "auto" || userSettingsRow?.summaryMultiPassAuto);
+        actorSettingsRow?.summaryMultiPass === true &&
+        (opts.trigger !== "auto" || actorSettingsRow?.summaryMultiPassAuto);
 
     let payload: SummaryPayload;
     let multiPass: GenerateSummaryResult["multiPass"];
 
     if (multiPassOn) {
         const result = await runMultiPassSummary({
-            rounds: clampRounds(userSettingsRow?.summaryMultiPassRounds),
+            rounds: clampRounds(actorSettingsRow?.summaryMultiPassRounds),
             runPass,
             runMerge,
             // User-authored, so encrypted at rest like the summary prompts.
@@ -479,21 +518,28 @@ Correct the serialization without dropping or inventing information. Return exac
         model,
         multiPass,
         allowReaped: (opts.trigger ?? "manual") === "manual",
+        recordingOwnerId: ctx.ownerUserId,
+        producedByUserId: ctx.actorUserId,
     });
 
     if (!committed) {
         throw new AppError(ErrorCode.NOT_FOUND, "Recording was deleted", 410);
     }
 
-    await exportRecordingSidecarsIfEnabled(
-        userId,
-        recordingId,
-        "summary",
-        "riffado",
-    );
+    if (orgView) {
+        await orgContentChanged(recordingId);
+    } else {
+        await exportRecordingSidecarsIfEnabled(
+            userId,
+            recordingId,
+            "summary",
+            "riffado",
+        );
+        await notifyIfShared(recordingId);
+    }
 
     await captureServerEvent({
-        distinctId: userId,
+        distinctId: ctx.actorUserId,
         event: "summary_generated",
         properties: {
             trigger: opts.trigger ?? "manual",

@@ -1,4 +1,4 @@
-import { and, countDistinct, eq, isNull, max } from "drizzle-orm";
+import { and, countDistinct, eq, inArray, isNull, max } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { PeopleList } from "@/components/people/people-list";
@@ -6,6 +6,7 @@ import { db } from "@/db";
 import { recordings, transcriptions, transcriptSpeakers } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { listPeople } from "@/lib/knowledge/people";
+import { getOrgUserId } from "@/lib/org/config";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +17,10 @@ export default async function PeoplePage() {
     }
 
     const userId = session.user.id;
+    // The Organization view's names count too: its rows exist only for
+    // recordings that are shared, which everyone may see.
+    const orgUserId = await getOrgUserId();
+    const attributors = orgUserId ? [userId, orgUserId] : [userId];
 
     const [rows, appearances] = await Promise.all([
         listPeople(userId),
@@ -39,7 +44,7 @@ export default async function PeoplePage() {
             )
             .where(
                 and(
-                    eq(transcriptSpeakers.userId, userId),
+                    inArray(transcriptSpeakers.userId, attributors),
                     eq(transcriptSpeakers.status, "confirmed"),
                     isNull(recordings.deletedAt),
                 ),
@@ -61,6 +66,7 @@ export default async function PeoplePage() {
                     id: row.id,
                     displayName: row.displayName,
                     primaryEmail: row.primaryEmail,
+                    scope: row.scope,
                     recordingCount: stats.get(row.id)?.recordingCount ?? 0,
                     lastSeen:
                         stats.get(row.id)?.lastSeen?.toISOString() ?? null,

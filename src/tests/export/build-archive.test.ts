@@ -62,9 +62,15 @@ type Row = Record<string, unknown>;
 function mockSelectSequence(results: Row[][]) {
     let call = 0;
     dbMock.select.mockImplementation(() => ({
-        from: () => ({
-            where: () => Promise.resolve(results[call++] ?? []),
-        }),
+        from: () => {
+            // The folder assignment read joins its folder; the join itself
+            // adds nothing a canned result needs to reproduce.
+            const query = {
+                innerJoin: () => query,
+                where: () => Promise.resolve(results[call++] ?? []),
+            };
+            return query;
+        },
     }));
 }
 

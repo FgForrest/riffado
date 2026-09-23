@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { AppHeader } from "@/components/app-header";
@@ -9,6 +9,7 @@ import { recordings, transcriptions, transcriptSpeakers } from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { decryptText } from "@/lib/encryption/fields";
 import { getPerson } from "@/lib/knowledge/people";
+import { getOrgUserId } from "@/lib/org/config";
 
 export const dynamic = "force-dynamic";
 
@@ -27,6 +28,10 @@ export default async function PersonPage({ params }: Params) {
     if (!person) {
         notFound();
     }
+    // The Organization view's attributions exist only for shared recordings,
+    // which everyone may open; nobody else's private transcripts are read.
+    const orgUserId = await getOrgUserId();
+    const attributors = orgUserId ? [userId, orgUserId] : [userId];
 
     // Where this person has been heard. Joined through the transcript rather
     // than the recording, because an attribution belongs to one transcript
@@ -42,6 +47,7 @@ export default async function PersonPage({ params }: Params) {
             label: transcriptSpeakers.label,
             status: transcriptSpeakers.status,
             source: transcriptSpeakers.source,
+            attributor: transcriptSpeakers.userId,
         })
         .from(transcriptSpeakers)
         .innerJoin(
@@ -51,7 +57,7 @@ export default async function PersonPage({ params }: Params) {
         .innerJoin(recordings, eq(recordings.id, transcriptions.recordingId))
         .where(
             and(
-                eq(transcriptSpeakers.userId, userId),
+                inArray(transcriptSpeakers.userId, attributors),
                 eq(transcriptSpeakers.personId, id),
                 eq(transcriptSpeakers.status, "confirmed"),
                 isNull(recordings.deletedAt),
@@ -71,7 +77,13 @@ export default async function PersonPage({ params }: Params) {
                         displayName: person.displayName,
                         primaryEmail: person.primaryEmail,
                         notes: person.notes,
+                        scope: person.scope,
                     }}
+                    // Private people are their owner's to erase; the
+                    // Organization's are the organization account's.
+                    canManage={
+                        person.scope === "personal" || userId === orgUserId
+                    }
                     appearances={appearances
                         .map((row) => ({
                             recordingId: row.recordingId,
@@ -80,6 +92,10 @@ export default async function PersonPage({ params }: Params) {
                             label: row.label,
                             status: row.status,
                             source: row.source,
+                            view:
+                                row.attributor === orgUserId
+                                    ? ("org" as const)
+                                    : ("private" as const),
                         }))
                         .sort((a, b) =>
                             b.recordedAt.localeCompare(a.recordedAt),

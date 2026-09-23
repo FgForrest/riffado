@@ -31,6 +31,7 @@ import {
     type JobProgressSnapshot,
     type JobSnapshot,
 } from "@/lib/jobs/client";
+import { type RecordingView, withRecordingView } from "@/lib/sharing/view";
 import {
     createStreamEventParser,
     type SummaryStatusProgress,
@@ -91,6 +92,11 @@ export interface SummaryData {
      * to the default prompt instead. Only present on POST responses.
      */
     promptFallback?: boolean;
+    /**
+     * Organization view only: the summary shown is the owner's, because the
+     * organization has not produced its own yet.
+     */
+    fallback?: boolean;
 }
 
 interface UseTranscriptionSummaryOptions {
@@ -103,6 +109,8 @@ interface UseTranscriptionSummaryOptions {
      * server may have already auto-summarized after a re-transcribe.
      */
     transcriptionText: string | null | undefined;
+    /** `org` reads and writes the Organization view of a shared recording. */
+    view?: RecordingView;
 }
 
 /**
@@ -118,7 +126,16 @@ export function useTranscriptionSummary({
     recordingId,
     summarySource = "riffado",
     transcriptionText,
+    view,
 }: UseTranscriptionSummaryOptions) {
+    const summaryUrl = useCallback(
+        (targetId: string, query = "") =>
+            withRecordingView(
+                `/api/recordings/${targetId}/summary${query}`,
+                view,
+            ),
+        [view],
+    );
     const [summaryDataByKey, setSummaryDataByKey] = useState<
         Record<string, SummaryData | null>
     >({});
@@ -347,7 +364,7 @@ export function useTranscriptionSummary({
                 if (!snapshot || !isCurrent()) return;
                 if (snapshot.status === "completed") {
                     const response = await fetch(
-                        `/api/recordings/${targetId}/summary?source=riffado`,
+                        summaryUrl(targetId, "?source=riffado"),
                     );
                     if (!response.ok) return;
                     const data = (await response.json()) as SummaryData;
@@ -374,7 +391,7 @@ export function useTranscriptionSummary({
                 setSummaryElapsedMs(0);
             }
         },
-        [setSummaryFor],
+        [setSummaryFor, summaryUrl],
     );
 
     // Fetch when recording id changes or the re-fetch key bumps.
@@ -389,12 +406,9 @@ export function useTranscriptionSummary({
         const controller = new AbortController();
         getAbortRef.current = controller;
         const requestedSource = summarySource;
-        fetch(
-            `/api/recordings/${requestedId}/summary?source=${requestedSource}`,
-            {
-                signal: controller.signal,
-            },
-        )
+        fetch(summaryUrl(requestedId, `?source=${requestedSource}`), {
+            signal: controller.signal,
+        })
             .then((res) => res.json())
             .then((data: SummaryData) => {
                 if (
@@ -418,10 +432,9 @@ export function useTranscriptionSummary({
 
                 for (const source of availableSources) {
                     if (source === requestedSource) continue;
-                    void fetch(
-                        `/api/recordings/${requestedId}/summary?source=${source}`,
-                        { signal: controller.signal },
-                    )
+                    void fetch(summaryUrl(requestedId, `?source=${source}`), {
+                        signal: controller.signal,
+                    })
                         .then((response) => response.json())
                         .then((prefetched: SummaryData) => {
                             if (prefetched.summary) {
@@ -452,6 +465,7 @@ export function useTranscriptionSummary({
         summaryFetchKey,
         attachToActiveJob,
         setSummaryFor,
+        summaryUrl,
     ]);
 
     const handleSummarize = useCallback(async () => {
@@ -508,7 +522,7 @@ export function useTranscriptionSummary({
         const applyStoredSummary = async (): Promise<boolean> => {
             try {
                 const response = await fetch(
-                    `/api/recordings/${targetId}/summary?source=riffado`,
+                    summaryUrl(targetId, "?source=riffado"),
                 );
                 if (!response.ok) return false;
                 const data = (await response.json()) as SummaryData;
@@ -553,20 +567,21 @@ export function useTranscriptionSummary({
         };
 
         try {
-            const response = await fetch(
-                `/api/recordings/${targetId}/summary`,
-                {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json",
-                        // Opt in to progress. A server that predates streaming
-                        // ignores this and answers with JSON, which the branch
-                        // below still handles.
-                        Accept: "text/event-stream, application/json",
-                    },
-                    body: JSON.stringify({ preset: summaryPreset }),
+            const response = await fetch(summaryUrl(targetId), {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    // Opt in to progress. A server that predates streaming
+                    // ignores this and answers with JSON, which the branch
+                    // below still handles.
+                    Accept: "text/event-stream, application/json",
                 },
-            );
+                // The Organization view always uses the organization's
+                // own template, whatever this user's presets are.
+                body: JSON.stringify(
+                    view === "org" ? {} : { preset: summaryPreset },
+                ),
+            });
 
             const isStream = (
                 response.headers.get("content-type") ?? ""
@@ -647,7 +662,14 @@ export function useTranscriptionSummary({
             setSummaryProgress(null);
             setSummaryElapsedMs(0);
         }
-    }, [recordingId, setSummaryFor, summaryPreset, summarySource]);
+    }, [
+        recordingId,
+        setSummaryFor,
+        summaryPreset,
+        summarySource,
+        summaryUrl,
+        view,
+    ]);
 
     const handleDeleteSummary = useCallback(async () => {
         if (!recordingId) return;
@@ -663,7 +685,7 @@ export function useTranscriptionSummary({
 
         try {
             const response = await fetch(
-                `/api/recordings/${targetId}/summary?source=${summarySource}`,
+                summaryUrl(targetId, `?source=${summarySource}`),
                 { method: "DELETE" },
             );
             if (response.ok) {
@@ -685,7 +707,7 @@ export function useTranscriptionSummary({
                 toast.error("Failed to delete summary");
             }
         }
-    }, [recordingId, setSummaryFor, summaryData, summarySource]);
+    }, [recordingId, setSummaryFor, summaryData, summarySource, summaryUrl]);
 
     /**
      * Imperative re-fetch trigger. Use after a re-transcribe call

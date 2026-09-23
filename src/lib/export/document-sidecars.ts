@@ -208,11 +208,20 @@ export async function exportRecordingSidecars(
 }
 
 /** Build the same portable Markdown document used for disk sidecars. */
+/**
+ * Render a recording's transcript or summary as Markdown.
+ *
+ * `userId` owns the content rows read; `ownerUserId`, when different, owns
+ * the recording itself (the Organization view of a shared recording).
+ */
 export async function getRecordingMarkdownDocument(
     userId: string,
     recordingId: string,
     kind: SidecarKind,
     source?: string,
+    ownerUserId: string = userId,
+    /** Rendering for the Organization view: name Organization people only. */
+    orgPeopleOnly = false,
 ): Promise<RecordingMarkdownDocument | null> {
     const [recording] = await db
         .select()
@@ -220,7 +229,7 @@ export async function getRecordingMarkdownDocument(
         .where(
             and(
                 eq(recordings.id, recordingId),
-                eq(recordings.userId, userId),
+                eq(recordings.userId, ownerUserId),
                 isNull(recordings.deletedAt),
             ),
         )
@@ -235,6 +244,7 @@ export async function getRecordingMarkdownDocument(
         kind,
         recording.storagePath,
         source,
+        orgPeopleOnly,
     );
 }
 
@@ -245,12 +255,16 @@ async function renderRecordingMarkdownDocument(
     kind: SidecarKind,
     storagePath: string,
     source?: string,
+    orgPeopleOnly = false,
 ): Promise<RecordingMarkdownDocument | null> {
     if (kind === "transcript") {
         const projection = await loadSidecarProjectionContext(
             userId,
             recording.id,
             source,
+            undefined,
+            userId,
+            orgPeopleOnly,
         );
         const { primary } = projection;
         if (!primary) return null;
@@ -304,6 +318,8 @@ async function renderRecordingMarkdownDocument(
         recording.id,
         enhancement.source,
         enhancement.transcriptionId,
+        recording.userId,
+        orgPeopleOnly,
     );
     const filename = sidecarKey(storagePath, kind, enhancement.source)
         .split("/")
@@ -372,6 +388,8 @@ async function loadSidecarProjectionContext(
     recordingId: string,
     source?: string,
     transcriptionId?: string | null,
+    ownerUserId: string = userId,
+    orgPeopleOnly = false,
 ): Promise<SidecarProjectionContext> {
     const rows = await db
         .select()
@@ -382,6 +400,26 @@ async function loadSidecarProjectionContext(
                 eq(transcriptions.userId, userId),
             ),
         );
+    // An Organization summary may have been made from the owner's transcript
+    // before the organization had its own; that is the one it names.
+    if (
+        transcriptionId &&
+        ownerUserId !== userId &&
+        !rows.some((row) => row.id === transcriptionId)
+    ) {
+        rows.push(
+            ...(await db
+                .select()
+                .from(transcriptions)
+                .where(
+                    and(
+                        eq(transcriptions.id, transcriptionId),
+                        eq(transcriptions.recordingId, recordingId),
+                        eq(transcriptions.userId, ownerUserId),
+                    ),
+                )),
+        );
+    }
 
     const [settings] = await db
         .select({ preferred: userSettings.preferredTranscriptSource })
@@ -398,7 +436,9 @@ async function loadSidecarProjectionContext(
             : resolvePrimaryTranscript(rows, settings?.preferred ?? "plaud")) ??
         null;
     const resolve = primary
-        ? await buildNameResolver(userId, primary.id)
+        ? await buildNameResolver(primary.userId, primary.id, {
+              orgPeopleOnly,
+          })
         : undefined;
     const speakers = primary ? transcriptSpeakerLabels(primary) : [];
     return {

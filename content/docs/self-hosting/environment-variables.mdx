@@ -28,6 +28,10 @@ on production secrets.
 | ----------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `DISABLE_REGISTRATION`              | `false`                            | When `true`, sign-up is rejected server-side and the `/register` page is disabled. Existing users keep working.     |
 | `DISABLE_UPDATE_CHECK`              | `false`                            | When `true`, the footer never calls `api.github.com` to check for new release tags.                                 |
+| `SELF_HOST_MODE`                    | `shared`                           | `shared` allows the Organization scope; `local` keeps every account strictly private.                               |
+| `ORG_ACCOUNT_EMAIL`                 | unset                              | With `ORG_ACCOUNT_PASSWORD`, enables the Organization scope: a shared folder tree, and one organization account that curates it. Must not be an existing user's email. |
+| `ORG_ACCOUNT_PASSWORD`              | unset                              | Password of the organization account (12+ characters). Re-applied on every start.                                   |
+| `ORG_ACCOUNT_NAME`                  | `Organization`                     | Display name of the organization account.                                                                           |
 | `RIFFADO_VERSION`                 | `latest`                           | Read by Docker Compose, not the app. Sets which image tag Compose pulls.                                            |
 | `WEBHOOKS_REQUIRE_PUBLIC_TARGETS`   | `false`                            | When `true`, webhook URLs must be HTTPS and resolve to public IPs. Useful when your instance is exposed to others.  |
 | `RATE_LIMIT_TRUST_PROXY_HEADERS`    | `false`                            | When `true`, trust `X-Forwarded-For` for rate-limit buckets. Only safe behind a reverse proxy that overwrites the header. |

@@ -11,6 +11,16 @@ vi.mock("@/db", () => ({
     },
 }));
 
+// Ownership lives in the access layer, tested against a real database in
+// `src/tests/sharing/`; here the caller is the owner and the route's own
+// lookup decides whether the recording exists.
+vi.mock("@/lib/sharing/access", () => ({
+    requireRecordingAccess: vi.fn(async (userId: string) => ({
+        ownerUserId: userId,
+        role: "owner",
+    })),
+}));
+
 vi.mock("@/lib/auth-server", () => ({
     requireApiSession: vi.fn().mockResolvedValue({
         user: { id: "user-1" },

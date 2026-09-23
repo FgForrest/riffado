@@ -5,7 +5,42 @@ const mocks = vi.hoisted(() => ({
     getActiveJob: vi.fn(),
     limit: vi.fn(),
     select: vi.fn(),
+    access: { exists: true },
 }));
+
+// Ownership lives in the access layer, tested against a real database in
+// `src/tests/sharing/`; here it answers "owner" unless a test says otherwise.
+vi.mock("@/lib/org/config", () => ({
+    isOrgScopeVisible: () => false,
+    isOrgScopeEnabled: () => false,
+    getOrgUserId: async () => null,
+    assertOrgScopeWritable: () => {},
+    isOrgAccount: async () => false,
+    assertNotOrgAccount: async () => {},
+}));
+
+vi.mock("@/lib/sharing/access", async () => {
+    const { AppError, ErrorCode } =
+        await vi.importActual<typeof import("@/lib/errors")>("@/lib/errors");
+    return {
+        requestedRecordingView: (request: Request) =>
+            new URL(request.url).searchParams.get("view") === "org"
+                ? "org"
+                : "private",
+        recordingJobSubject: (id: string, view: string) =>
+            view === "org" ? `org:${id}` : id,
+        requireRecordingView: vi.fn(async (userId: string) => {
+            if (!mocks.access.exists) {
+                throw new AppError(
+                    ErrorCode.RECORDING_NOT_FOUND,
+                    "Recording not found",
+                    404,
+                );
+            }
+            return { ownerUserId: userId, contentUserId: userId };
+        }),
+    };
+});
 
 vi.mock("@/db", () => ({
     db: { select: mocks.select },
@@ -55,6 +90,7 @@ describe("recording transcription jobs route", () => {
             }),
         });
         mocks.limit.mockResolvedValue([{ id: "recording-1" }]);
+        mocks.access.exists = true;
         mocks.enqueueTranscriptionJob.mockResolvedValue({
             job: { id: "job-1", status: "pending" },
             created: true,
@@ -83,6 +119,7 @@ describe("recording transcription jobs route", () => {
             model: "whisper-large-v3",
             force: true,
             trigger: "manual",
+            view: "private",
         });
     });
 
@@ -122,7 +159,7 @@ describe("recording transcription jobs route", () => {
     });
 
     it("rejects a recording the caller does not own before queueing", async () => {
-        mocks.limit.mockResolvedValue([]);
+        mocks.access.exists = false;
 
         const response = await POST(request("POST"), context);
 

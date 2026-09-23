@@ -11,6 +11,7 @@ import {
     type SpeakerAttributions,
     speakerAnchorId,
 } from "@/lib/knowledge/speaker-references";
+import { type RecordingView, withRecordingView } from "@/lib/sharing/view";
 
 const SPEAKER_ACCENTS = [
     "bg-primary",
@@ -32,6 +33,11 @@ interface SpeakerTagsProps {
     speakers: TranscriptSpeakerTag[];
     attributions: SpeakerAttributions;
     onAttributionsChange: (attributions: SpeakerAttributions) => void;
+    /**
+     * On the Organization view names come from, and go to, the Organization's
+     * knowledge base, for everyone who can see the recording.
+     */
+    view?: RecordingView;
 }
 
 export interface SpeakerResponseRow {
@@ -63,8 +69,13 @@ export function SpeakerTags({
     speakers,
     attributions,
     onAttributionsChange,
+    view,
 }: SpeakerTagsProps) {
     const i18n = useExtracted();
+    const speakersUrl = withRecordingView(
+        `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
+        view,
+    );
     const [openLabel, setOpenLabel] = useState<string | null>(null);
     const [savingLabel, setSavingLabel] = useState<string | null>(null);
 
@@ -79,9 +90,7 @@ export function SpeakerTags({
         let cancelled = false;
         setOpenLabel(null);
 
-        void fetch(
-            `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
-        )
+        void fetch(speakersUrl)
             .then(async (response) => {
                 if (!response.ok) return null;
                 return (await response.json()) as {
@@ -98,21 +107,18 @@ export function SpeakerTags({
         return () => {
             cancelled = true;
         };
-    }, [applyAttributions, recordingId, source]);
+    }, [applyAttributions, speakersUrl]);
 
     async function attribute(
         label: string,
         choice: { personId?: string; displayName?: string } | null,
     ): Promise<boolean> {
         setSavingLabel(label);
-        const response = await fetch(
-            `/api/recordings/${recordingId}/speakers?source=${encodeURIComponent(source)}`,
-            {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ label, ...(choice ?? {}) }),
-            },
-        ).catch(() => null);
+        const response = await fetch(speakersUrl, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ label, ...(choice ?? {}) }),
+        }).catch(() => null);
         setSavingLabel(null);
 
         if (!response) {
@@ -216,6 +222,7 @@ export function SpeakerTags({
             {openSpeaker && (
                 <SpeakerPicker
                     label={openSpeaker.label}
+                    organizationOnly={view === "org"}
                     onPick={(choice) => attribute(openSpeaker.speaker, choice)}
                     onClose={() => setOpenLabel(null)}
                 />

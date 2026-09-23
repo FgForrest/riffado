@@ -17,6 +17,8 @@ export interface PersonSummary {
     id: string;
     displayName: string;
     primaryEmail: string | null;
+    /** `org` for a person the whole Organization shares. */
+    scope?: "personal" | "org";
     recordingCount: number;
     /** ISO 8601 timestamp, or null if the person has no confirmed appearance yet. */
     lastSeen: string | null;
@@ -221,6 +223,11 @@ export function PeopleList({ people }: { people: PersonSummary[] }) {
                                                 <span className="block truncate font-medium">
                                                     {person.displayName}
                                                 </span>
+                                                {person.scope === "org" && (
+                                                    <span className="mt-1 inline-block rounded-full border border-primary/20 bg-primary/5 px-1.5 py-0.5 text-[10px] leading-none text-muted-foreground">
+                                                        {i18n("Organization")}
+                                                    </span>
+                                                )}
                                                 <span className="mt-1 block truncate text-xs text-foreground/70">
                                                     {person.primaryEmail ??
                                                         i18n("No email added")}

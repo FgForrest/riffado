@@ -39,6 +39,7 @@ import {
     inferSummarySpeakerNumberOffset,
     type SpeakerAttributions,
 } from "@/lib/knowledge/speaker-references";
+import { withRecordingView } from "@/lib/sharing/view";
 import { describeMultiPass } from "@/lib/summary/multi-pass";
 import { formatElapsed } from "@/lib/summary/progress-stream";
 import {
@@ -184,6 +185,10 @@ export function TranscriptionPanel({
 }: TranscriptionPanelProps) {
     const i18n = useExtracted();
     const transcriptList = toTranscriptList(transcripts, transcription);
+    // The Organization view of a shared recording: its own transcript and
+    // summary, made with the organization's templates, never the owner's.
+    const view = recording.view;
+    const orgView = view === "org";
 
     const [activeSource, setActiveSource] = useState<string | undefined>(
         undefined,
@@ -193,8 +198,9 @@ export function TranscriptionPanel({
         transcriptList.find((t) => t.source === activeSource) ??
         transcriptList[0];
     const canHavePlaudSummary =
-        recording.deviceSn !== "local" ||
-        transcriptList.some((candidate) => candidate.source === "plaud");
+        !orgView &&
+        (recording.deviceSn !== "local" ||
+            transcriptList.some((candidate) => candidate.source === "plaud"));
     const speakerTags = useMemo(
         () => transcriptSpeakerTags(activeTranscript),
         [activeTranscript],
@@ -245,7 +251,10 @@ export function TranscriptionPanel({
         }
         const controller = new AbortController();
         void fetch(
-            `/api/recordings/${recording.id}/speakers?source=${encodeURIComponent(summaryTranscript.source)}`,
+            withRecordingView(
+                `/api/recordings/${recording.id}/speakers?source=${encodeURIComponent(summaryTranscript.source)}`,
+                view,
+            ),
             { signal: controller.signal },
         )
             .then(async (response) => {
@@ -270,6 +279,7 @@ export function TranscriptionPanel({
         recording.id,
         summaryAttributionKey,
         summaryTranscript,
+        view,
     ]);
 
     const {
@@ -287,6 +297,7 @@ export function TranscriptionPanel({
         recordingId: recording?.id,
         summarySource,
         transcriptionText: summaryTranscript?.text,
+        view,
     });
 
     // Null for a single-pass summary, so the badge simply does not
@@ -393,6 +404,7 @@ export function TranscriptionPanel({
                                     recordingId={recording.id}
                                     kind="transcript"
                                     source={activeTranscript.source}
+                                    view={view}
                                 />
                             )}
                             {activeTranscript?.text && (
@@ -440,24 +452,27 @@ export function TranscriptionPanel({
                                         <Sparkles className="size-4 mr-2" />{" "}
                                         {i18n("Transcribe")}
                                     </Button>
-                                    <TranscribeInBrowserButton
-                                        recordingId={recording.id}
-                                        disabled={
-                                            isTranscribing ||
-                                            recording.audioReaped
-                                        }
-                                        onComplete={
-                                            // Falling back to `onTranscribe` here
-                                            // would kick off a redundant SERVER
-                                            // transcription right after a
-                                            // successful browser one, possibly
-                                            // overwriting it. Callers that care
-                                            // about refreshing after a browser
-                                            // transcription must pass
-                                            // `onTranscribeComplete` explicitly.
-                                            onTranscribeComplete ?? (() => {})
-                                        }
-                                    />
+                                    {!orgView && (
+                                        <TranscribeInBrowserButton
+                                            recordingId={recording.id}
+                                            disabled={
+                                                isTranscribing ||
+                                                recording.audioReaped
+                                            }
+                                            onComplete={
+                                                // Falling back to `onTranscribe` here
+                                                // would kick off a redundant SERVER
+                                                // transcription right after a
+                                                // successful browser one, possibly
+                                                // overwriting it. Callers that care
+                                                // about refreshing after a browser
+                                                // transcription must pass
+                                                // `onTranscribeComplete` explicitly.
+                                                onTranscribeComplete ??
+                                                (() => {})
+                                            }
+                                        />
+                                    )}
                                 </>
                             )}
                         </div>
@@ -469,6 +484,7 @@ export function TranscriptionPanel({
                             speakers={speakerTags}
                             attributions={speakerAttributions}
                             onAttributionsChange={handleAttributionsChange}
+                            view={view}
                         />
                     )}
                 </CardHeader>
@@ -604,9 +620,11 @@ export function TranscriptionPanel({
                                         recordingId={recording.id}
                                         kind="summary"
                                         source={summarySource}
+                                        view={view}
                                     />
                                 )}
                                 {summarySource === "riffado" &&
+                                    !orgView &&
                                     !isSummarizing && (
                                         <Select
                                             value={summaryPreset}
@@ -637,7 +655,12 @@ export function TranscriptionPanel({
                                             summaryData ? "outline" : "default"
                                         }
                                         disabled={
-                                            isSummarizing || !summaryTranscript
+                                            isSummarizing ||
+                                            (!summaryTranscript &&
+                                                !(
+                                                    orgView &&
+                                                    transcriptList.length > 0
+                                                ))
                                         }
                                     >
                                         {isSummarizing ? (
@@ -689,6 +712,13 @@ export function TranscriptionPanel({
                                         : i18n("Expand summary")}
                                 </button>
 
+                                {summaryData.fallback && (
+                                    <p className="text-xs text-muted-foreground">
+                                        {i18n(
+                                            "Showing the owner's summary. Re-summarize to create the Organization version.",
+                                        )}
+                                    </p>
+                                )}
                                 {summaryExpanded && (
                                     <section
                                         aria-label={i18n("Summary content")}

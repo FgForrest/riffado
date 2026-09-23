@@ -13,6 +13,8 @@ const privateRoot: RecordingFolder = {
     name: "Private",
     kind: "private",
     sortOrder: 0,
+    scope: "personal",
+    version: 0,
 };
 const meetings: RecordingFolder = {
     id: "meetings",
@@ -20,6 +22,8 @@ const meetings: RecordingFolder = {
     name: "Meetings",
     kind: "custom",
     sortOrder: 0,
+    scope: "personal",
+    version: 0,
 };
 const planning: RecordingFolder = {
     id: "planning",
@@ -27,6 +31,8 @@ const planning: RecordingFolder = {
     name: "Planning",
     kind: "custom",
     sortOrder: 0,
+    scope: "personal",
+    version: 0,
 };
 const recordings: Recording[] = [
     {

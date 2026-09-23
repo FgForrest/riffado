@@ -1,8 +1,11 @@
 import {
     listArmedRetentionPolicies,
     listReapCandidates,
+    loadOrgRetentionContext,
+    type OrgRetentionContext,
     type RetentionPolicy,
 } from "@/db/queries/retention";
+import { findOrgAccountId } from "@/lib/org/config";
 import { captureServerException } from "@/lib/posthog-server";
 import { createStorageProvider } from "@/lib/storage/factory";
 import { reapRecording } from "./reap";
@@ -27,12 +30,14 @@ let running = false;
 async function sweepUser(
     storage: ReturnType<typeof createStorageProvider>,
     policy: RetentionPolicy,
+    org: OrgRetentionContext | null,
 ): Promise<void> {
     const now = new Date();
     const candidates = await listReapCandidates(
         policy,
         now,
         MAX_RECORDINGS_PER_USER_PER_TICK,
+        policy.isOrg ? null : org,
     );
     if (candidates.length === 0) return;
 
@@ -97,9 +102,11 @@ async function tick(): Promise<void> {
         if (policies.length === 0) return;
 
         const storage = createStorageProvider();
+        const orgUserId = await findOrgAccountId();
+        const org = orgUserId ? await loadOrgRetentionContext(orgUserId) : null;
         for (const policy of policies) {
             try {
-                await sweepUser(storage, policy);
+                await sweepUser(storage, policy, org);
             } catch (error) {
                 console.error(
                     `[retention] sweep failed for user ${policy.userId}:`,

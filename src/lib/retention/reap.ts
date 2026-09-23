@@ -98,7 +98,10 @@ export async function reapRecording(
 
     if (
         isDue(recording.startTime, policy.audioDays, now) &&
-        recording.audioReapedAt === null
+        recording.audioReapedAt === null &&
+        // A shared recording's audio serves the whole Organization; see
+        // `OrgRetentionContext`.
+        recording.audioReleasable !== false
     ) {
         // `deleteFile` throws on a key that isn't there, and "already
         // gone" is a perfectly ordinary state here (a failed stamp on an
@@ -114,7 +117,7 @@ export async function reapRecording(
 
     if (
         isDue(recording.startTime, policy.transcriptDays, now) &&
-        recording.transcriptReapedAt === null
+        (policy.isOrg || recording.transcriptReapedAt === null)
     ) {
         const removed = await deleteTranscriptsForRecording(
             recording.id,
@@ -129,7 +132,7 @@ export async function reapRecording(
 
     if (
         isDue(recording.startTime, policy.summaryDays, now) &&
-        recording.summaryReapedAt === null
+        (policy.isOrg || recording.summaryReapedAt === null)
     ) {
         const removed = await deleteSummaryForRecording(
             recording.id,
@@ -142,8 +145,12 @@ export async function reapRecording(
         }
     }
 
+    // The organization's reaping leaves no marker: markers describe the
+    // owner's rows, which it never touches.
     const localKinds = reaped.filter((kind) => kind !== "remoteOriginal");
-    await markKindsReaped(recording.id, policy.userId, localKinds, now);
+    if (!policy.isOrg) {
+        await markKindsReaped(recording.id, policy.userId, localKinds, now);
+    }
 
     return { reaped, skipped, failed };
 }

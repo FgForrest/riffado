@@ -53,13 +53,18 @@ export const summaryJobHandler: JobHandler<SummaryJobPayload> = {
         maxAttempts,
         reportProgress,
     }): Promise<JobResult> {
+        const orgView = payload.view === "org";
         try {
-            const allowed = await allowManualArtifactGeneration(
-                userId,
-                payload.recordingId,
-                "summary",
-                payload.trigger === "manual",
-            );
+            // The owner's erase marker governs only the owner's rows; the
+            // Organization view is re-authorized inside the run instead.
+            const allowed =
+                orgView ||
+                (await allowManualArtifactGeneration(
+                    userId,
+                    payload.recordingId,
+                    "summary",
+                    payload.trigger === "manual",
+                ));
             if (!allowed) {
                 throw new AppError(
                     ErrorCode.RECORDING_DATA_REAPED,
@@ -74,17 +79,21 @@ export const summaryJobHandler: JobHandler<SummaryJobPayload> = {
                     presetId: payload.presetId,
                     trigger: payload.trigger,
                     onProgress: (progress) => reportProgress(progress),
+                    view: payload.view,
                 },
             );
 
             // Emitted here rather than in the transcription pipeline, so the
             // event still means "the summary is written and readable" now
-            // that the write happens on a worker instead of inline.
-            await emitEvent(
-                "summary.completed",
-                userId,
-                payload.recordingId,
-            ).catch(() => {});
+            // that the write happens on a worker instead of inline. Webhooks
+            // are the owner's integration, so the Organization view is silent.
+            if (!orgView) {
+                await emitEvent(
+                    "summary.completed",
+                    userId,
+                    payload.recordingId,
+                ).catch(() => {});
+            }
 
             return {
                 provider: result.provider,
@@ -99,7 +108,7 @@ export const summaryJobHandler: JobHandler<SummaryJobPayload> = {
             // have it succeed a minute later, which is worse for them than
             // hearing about it once, late.
             const willRetry = attempt < maxAttempts && isRetryableError(error);
-            if (!willRetry) {
+            if (!willRetry && !orgView) {
                 const { message } = describeJobError(error);
                 await emitEvent("summary.failed", userId, payload.recordingId, {
                     error: message,

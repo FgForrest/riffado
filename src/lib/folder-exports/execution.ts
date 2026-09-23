@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
     aiEnhancements,
@@ -10,11 +10,13 @@ import {
     transcriptions,
 } from "@/db/schema";
 import { getRecordingMarkdownDocument } from "@/lib/export/document-sidecars";
-import { listFolderOrganization } from "@/lib/folders/folders";
+import { listExportFolderOrganization } from "@/lib/folders/folders";
 import {
     ancestorFolderIds,
     descendantFolderIds,
 } from "@/lib/folders/hierarchy";
+import { isOrgAccount } from "@/lib/org/config";
+import { sharedRecordingCondition } from "@/lib/sharing/shared";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import { enqueueExportMaterialization, enqueueExportPlan } from "./jobs";
 import { planFolderExport } from "./planner";
@@ -28,6 +30,9 @@ export async function materializeFolderExport(
     userId: string,
     materializationId: string,
 ): Promise<boolean> {
+    // The organization account's exports carry other people's shared
+    // recordings; everyone else's carry only their own.
+    const isOrg = await isOrgAccount(userId);
     const [state] = await db
         .select({
             id: folderExportMaterializations.id,
@@ -45,6 +50,7 @@ export async function materializeFolderExport(
             fileMd5: recordings.fileMd5,
             plaudVersion: recordings.plaudVersion,
             filesize: recordings.filesize,
+            ownerUserId: recordings.userId,
         })
         .from(folderExportMaterializations)
         .innerJoin(
@@ -70,7 +76,9 @@ export async function materializeFolderExport(
                 eq(folderExportMaterializations.id, materializationId),
                 eq(folderExportMaterializations.userId, userId),
                 eq(folderExportConfigurations.userId, userId),
-                eq(recordings.userId, userId),
+                isOrg
+                    ? sharedRecordingCondition(userId)
+                    : eq(recordings.userId, userId),
             ),
         )
         .limit(1);
@@ -107,40 +115,66 @@ export async function materializeFolderExport(
                 await enqueueExportPlan(userId, state.exportId);
                 return false;
             }
-            const storage = await createUserStorageProvider(userId);
+            const storage = await createUserStorageProvider(state.ownerUserId);
             await provider.materialize(
                 state.logicalPath,
                 await storage.downloadStream(state.storagePath),
             );
         } else {
+            // The Organization view may still be showing the owner's rows.
+            const readers = [userId, state.ownerUserId];
             const source =
                 state.artifactType === "transcript"
                     ? await db
-                          .select({ source: transcriptions.source })
+                          .select({
+                              source: transcriptions.source,
+                              userId: transcriptions.userId,
+                          })
                           .from(transcriptions)
                           .where(
                               and(
                                   eq(transcriptions.id, state.artifactId),
-                                  eq(transcriptions.userId, userId),
+                                  eq(
+                                      transcriptions.recordingId,
+                                      state.recordingId,
+                                  ),
+                                  or(
+                                      ...readers.map((reader) =>
+                                          eq(transcriptions.userId, reader),
+                                      ),
+                                  ),
                               ),
                           )
                           .limit(1)
                     : await db
-                          .select({ source: aiEnhancements.source })
+                          .select({
+                              source: aiEnhancements.source,
+                              userId: aiEnhancements.userId,
+                          })
                           .from(aiEnhancements)
                           .where(
                               and(
                                   eq(aiEnhancements.id, state.artifactId),
-                                  eq(aiEnhancements.userId, userId),
+                                  eq(
+                                      aiEnhancements.recordingId,
+                                      state.recordingId,
+                                  ),
+                                  or(
+                                      ...readers.map((reader) =>
+                                          eq(aiEnhancements.userId, reader),
+                                      ),
+                                  ),
                               ),
                           )
                           .limit(1);
             const document = source[0]
                 ? await getRecordingMarkdownDocument(
-                      userId,
+                      source[0].userId,
                       state.recordingId,
                       state.artifactType,
                       source[0].source,
+                      state.ownerUserId,
+                      isOrg,
                   )
                 : null;
             if (!document) {
@@ -201,7 +235,7 @@ export async function reconcileFolderExport(
     userId: string,
     selectedFolderId: string,
 ): Promise<{ checked: number; pending: number }> {
-    const organization = await listFolderOrganization(userId);
+    const organization = await listExportFolderOrganization(userId);
     if (
         !organization.folders.some((folder) => folder.id === selectedFolderId)
     ) {

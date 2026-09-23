@@ -16,6 +16,8 @@ const privateRoot: RecordingFolder = {
     name: "Private",
     kind: "private",
     sortOrder: 0,
+    scope: "personal",
+    version: 0,
 };
 const publicRoot: RecordingFolder = {
     id: "public",
@@ -23,6 +25,8 @@ const publicRoot: RecordingFolder = {
     name: "Public",
     kind: "public",
     sortOrder: 1000,
+    scope: "org",
+    version: 0,
 };
 const meetings: RecordingFolder = {
     id: "meetings",
@@ -30,6 +34,8 @@ const meetings: RecordingFolder = {
     name: "Meetings",
     kind: "custom",
     sortOrder: 0,
+    scope: "personal",
+    version: 0,
 };
 const weekly: RecordingFolder = {
     id: "weekly",
@@ -37,6 +43,8 @@ const weekly: RecordingFolder = {
     name: "Weekly",
     kind: "custom",
     sortOrder: 0,
+    scope: "personal",
+    version: 0,
 };
 const team: RecordingFolder = {
     id: "team",
@@ -44,6 +52,8 @@ const team: RecordingFolder = {
     name: "Team",
     kind: "custom",
     sortOrder: 1000,
+    scope: "personal",
+    version: 0,
 };
 const published: RecordingFolder = {
     id: "published",
@@ -51,6 +61,8 @@ const published: RecordingFolder = {
     name: "Published",
     kind: "custom",
     sortOrder: 0,
+    scope: "personal",
+    version: 0,
 };
 
 describe("folder hierarchy", () => {
@@ -79,6 +91,19 @@ describe("folder hierarchy", () => {
                 "r1",
             ]),
         ]).toEqual(["r1"]);
+    });
+
+    it("counts only the viewer's own recordings in Private", () => {
+        const folders = [privateRoot, publicRoot];
+        const assignments = [{ recordingId: "theirs", folderId: "public" }];
+        const counts = effectiveRecordingCounts(
+            folders,
+            assignments,
+            ["mine", "theirs"],
+            ["mine"],
+        );
+        expect(counts.get("private")).toBe(1);
+        expect(counts.get("public")).toBe(1);
     });
 
     it("changes effective visibility immediately when a folder moves", () => {
