@@ -499,8 +499,10 @@ async function transcribeRecordingInner(
         let detectedLanguage: string | null;
         let persistProvider: string;
         let persistModel: string;
-        // Only the diarizing providers set this; the rest leave it undefined
-        // and `upsertTranscription` clears any turns a previous run stored.
+        // Only providers that report timings set this (the diarizing ones, and
+        // Whisper's verbose format as speakerless paragraphs); the rest leave
+        // it undefined and `upsertTranscription` clears any turns a previous
+        // run stored.
         let turns: TranscriptTurn[] | undefined;
 
         if (useManaged) {

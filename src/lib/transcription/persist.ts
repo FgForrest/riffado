@@ -30,8 +30,8 @@ export interface UpsertTranscriptionArgs {
     /** Where it ran. Defaults to "server"; unrelated to `source`. */
     transcriptionType?: "server" | "browser";
     /**
-     * Diarized turns, encrypted at rest. Always written, including as
-     * undefined, so an undiarized re-run clears the previous run's turns
+     * Timed turns, encrypted at rest. Always written, including as
+     * undefined, so a re-run without timings clears the previous run's turns
      * instead of leaving them beside text they no longer describe.
      */
     turns?: TranscriptTurn[];

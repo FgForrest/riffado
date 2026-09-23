@@ -92,7 +92,7 @@ describe("parseTranscriptionResponse", () => {
         ).toBeUndefined();
     });
 
-    it("returns no turns for the undiarized formats", () => {
+    it("returns no turns for a response that carried no segments", () => {
         expect(
             parseTranscriptionResponse(
                 { text: "Ahoj", language: "cs" },
@@ -111,5 +111,56 @@ describe("parseTranscriptionResponse", () => {
                 "verbose_json",
             ),
         ).toEqual({ text: "Ahoj", detectedLanguage: "cs" });
+    });
+
+    describe("verbose responses with segments", () => {
+        const verbose = {
+            text: " Ahoj. Jak se máš? Dobře.",
+            language: "czech",
+            segments: [
+                { id: 0, start: 0, end: 1.2, text: " Ahoj." },
+                { id: 1, start: 1.2, end: 2.5, text: " Jak se máš?" },
+                { id: 2, start: 6, end: 7, text: " Dobře." },
+            ],
+        };
+
+        it("keeps the timings as speakerless paragraphs, split at the pause", () => {
+            expect(
+                parseTranscriptionResponse(verbose, "verbose_json").turns,
+            ).toEqual([
+                {
+                    speaker: "",
+                    startMs: 0,
+                    endMs: 2500,
+                    text: "Ahoj. Jak se máš?",
+                },
+                { speaker: "", startMs: 6000, endMs: 7000, text: "Dobře." },
+            ]);
+        });
+
+        it("renders the text from the same paragraphs", () => {
+            const parsed = parseTranscriptionResponse(verbose, "verbose_json");
+            expectTextAndTurnsAgree(parsed.text, parsed.turns);
+            expect(parsed.text).toBe("Ahoj. Jak se máš?\nDobře.");
+        });
+
+        it("still reports the detected language", () => {
+            expect(
+                parseTranscriptionResponse(verbose, "verbose_json")
+                    .detectedLanguage,
+            ).toBe("czech");
+        });
+
+        it("falls back to the flat text when every segment is blank", () => {
+            expect(
+                parseTranscriptionResponse(
+                    {
+                        text: "Ahoj",
+                        segments: [{ id: 0, start: 0, end: 1, text: " " }],
+                    },
+                    "verbose_json",
+                ),
+            ).toEqual({ text: "Ahoj", detectedLanguage: null });
+        });
     });
 });

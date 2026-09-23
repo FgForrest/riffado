@@ -124,6 +124,18 @@ export function TranscriptView({
                         key={`${turn.speaker}-${index}-${turn.text.slice(0, 24)}`}
                         className="space-y-1"
                     >
+                        {!turn.label && canSeek && (
+                            <button
+                                type="button"
+                                className="rounded-sm font-mono text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                onClick={() => onSeekToTurn(turn.startMs ?? 0)}
+                                aria-label={i18n("Seek audio to {time}", {
+                                    time: formatTimestamp(turn.startMs ?? 0),
+                                })}
+                            >
+                                {formatTimestamp(turn.startMs ?? 0)}
+                            </button>
+                        )}
                         {turn.label && (
                             <div className="relative flex items-center gap-2">
                                 <span
@@ -162,7 +174,9 @@ export function TranscriptView({
                                 )}
                             </div>
                         )}
-                        <p className="text-sm whitespace-pre-wrap leading-relaxed pl-3.5">
+                        <p
+                            className={`text-sm whitespace-pre-wrap leading-relaxed ${turn.label ? "pl-3.5" : ""}`}
+                        >
                             {turn.text}
                         </p>
                     </div>
