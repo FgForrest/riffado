@@ -1,3 +1,4 @@
+import { createReadStream } from "node:fs";
 import {
     mkdir,
     mkdtemp,
@@ -54,6 +55,21 @@ describe("filesystem export provider", () => {
             await readFile(path.join(root, "team/item/transcript.md"), "utf8"),
         ).toBe("two");
         expect(await provider.exists("team/item/transcript.md", 3)).toBe(true);
+    });
+
+    it("finishes a streamed write, as audio exports are", async () => {
+        const root = await mkdtemp(path.join(os.tmpdir(), "riffado-export-"));
+        roots.push(root);
+        const source = path.join(root, "source.mp3");
+        await writeFile(source, "audio-bytes");
+        const provider = new FilesystemExportProvider(root);
+        await provider.materialize(
+            "team/item/audio.mp3",
+            createReadStream(source),
+        );
+        expect(
+            await readFile(path.join(root, "team/item/audio.mp3"), "utf8"),
+        ).toBe("audio-bytes");
     });
 
     it("rejects symlink traversal beneath the configured root", async () => {

@@ -13,6 +13,7 @@
 - Inline rename for recording titles. Click the title in the player (or the recording page heading), edit, and press Enter. Persists via `PATCH /api/recordings/[id]` ([#217](https://github.com/riffado/riffado/issues/217)).
 
 ### Fixed
+- Filesystem exports of audio never finished: the streamed write into the export file waited for a `close` event that its stream never emits, so every audio materialization hung until its job timed out. Transcript and summary files, written from memory, were unaffected.
 - A summary whose `keyPoints`/`actionItems` came back as arrays of objects rather than strings — which smaller models and OpenAI-compatible shims do — was stored that way, and then crashed the recording's panel on every open (`point.slice is not a function`). Entries are now coerced to strings before they are persisted.
 - The settings dialog was a fixed 600×900px on every display, so sections scrolled even when the screen had room to show them whole. It now scales with the viewport, up to 1280px wide.
 - Changing the default summary prompt in Settings → Summary wiped any custom summary prompts on every save, since the request always sent `customPrompts: []` instead of the current list ([#199](https://github.com/riffado/riffado/issues/199)).
