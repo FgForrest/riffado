@@ -218,6 +218,13 @@ export function TranscriptionPanel({
         () => transcriptSpeakerTags(activeTranscript),
         [activeTranscript],
     );
+    // Topics are anchored to timed turns and written onto the viewer's own
+    // transcript row, so they are offered only there.
+    const canDetectTopics =
+        !orgView &&
+        (activeTranscript?.source === "plaud" ||
+            activeTranscript?.source === "riffado") &&
+        (activeTranscript.turns?.length ?? 0) > 0;
     const {
         topics,
         detecting: detectingTopics,
@@ -226,14 +233,8 @@ export function TranscriptionPanel({
         recording.id,
         activeTranscript?.source,
         activeTranscript?.topics,
+        canDetectTopics,
     );
-    // Topics are anchored to timed turns and written onto the viewer's own
-    // transcript row, so they are offered only there.
-    const canDetectTopics =
-        !orgView &&
-        (activeTranscript?.source === "plaud" ||
-            activeTranscript?.source === "riffado") &&
-        (activeTranscript.turns?.length ?? 0) > 0;
     const transcriptSectionRef = useRef<HTMLElement>(null);
     // A fresh object per jump, so jumping to the same topic twice scrolls
     // and highlights twice.

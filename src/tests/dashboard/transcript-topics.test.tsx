@@ -15,6 +15,20 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const toastMock = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock("sonner", () => ({ toast: toastMock }));
+vi.mock("@/lib/jobs/client", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("@/lib/jobs/client")>();
+    // Polls a few milliseconds apart instead of seconds.
+    return {
+        ...actual,
+        followJob: (id: string, opts: object) =>
+            actual.followJob(id, {
+                ...opts,
+                sleep: () => new Promise((resolve) => setTimeout(resolve, 5)),
+            }),
+    };
+});
 vi.mock("@/hooks/use-transcription-summary", () => ({
     useTranscriptionSummary: () => ({
         summaryData: null,
@@ -92,6 +106,39 @@ const PLAUD: TranscriptOption = {
 
 const fetchMock = vi.fn();
 
+function json(body: unknown, status = 200) {
+    return new Response(JSON.stringify(body), { status });
+}
+
+/**
+ * A server with a topics job already running: GET names it, and the job
+ * settles as `outcome` once the returned function is called.
+ */
+function serveRunningJob(outcome: "completed" | "failed") {
+    let settled = false;
+    fetchMock.mockImplementation(async (url: string) => {
+        if (url === "/api/jobs/job-1") {
+            const status = settled ? outcome : "processing";
+            return json({
+                id: "job-1",
+                kind: "topics",
+                status,
+                error: status === "failed" ? "The provider timed out" : null,
+            });
+        }
+        if (url.includes("/topics")) {
+            return json({
+                topics: settled && outcome === "completed" ? TOPICS : null,
+                jobId: settled ? null : "job-1",
+            });
+        }
+        return json({ speakers: [] });
+    });
+    return () => {
+        settled = true;
+    };
+}
+
 function renderPanel(
     transcript: TranscriptOption,
     props: {
@@ -123,6 +170,8 @@ function openTopics(count: number) {
 describe("transcript topics", () => {
     beforeEach(() => {
         fetchMock.mockReset();
+        toastMock.success.mockReset();
+        toastMock.error.mockReset();
         fetchMock.mockResolvedValue(
             new Response(JSON.stringify({ speakers: [] }), { status: 200 }),
         );
@@ -209,6 +258,47 @@ describe("transcript topics", () => {
             expect.objectContaining({ method: "POST" }),
         );
         expect(screen.getByText("Objednání jízdenky")).toBeTruthy();
+    });
+
+    it("picks up a job already running when the page opens", async () => {
+        const settle = serveRunningJob("completed");
+        renderPanel(PLAUD);
+
+        // The button shows the job instead of inviting a click that would
+        // only join it.
+        await waitFor(() =>
+            expect(
+                screen.getByRole("button", { name: "Detecting topics…" }),
+            ).toHaveProperty("disabled", true),
+        );
+        settle();
+        await screen.findByRole("button", { name: "Topics (2)" });
+        expect(toastMock.success).toHaveBeenCalledWith("Topics detected");
+    });
+
+    it("says so when a job it picked up fails", async () => {
+        const settle = serveRunningJob("failed");
+        renderPanel(PLAUD);
+        await screen.findByRole("button", { name: "Detecting topics…" });
+        settle();
+
+        await waitFor(() =>
+            expect(toastMock.error).toHaveBeenCalledWith(
+                "The provider timed out",
+            ),
+        );
+        expect(
+            screen.getByRole("button", { name: "Detect topics" }),
+        ).toHaveProperty("disabled", false);
+    });
+
+    it("does not look for a job where topics cannot be detected", () => {
+        renderPanel({ ...PLAUD, turns: null });
+        expect(
+            fetchMock.mock.calls.some(([url]) =>
+                String(url).includes("/topics"),
+            ),
+        ).toBe(false);
     });
 
     it("does not offer topics on a transcript without timings", () => {
