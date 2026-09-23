@@ -255,6 +255,90 @@ describe("markdown formatting directive", () => {
     });
 });
 
+/**
+ * Every prompt is written in English, so "auto" used to mean "no language
+ * instruction at all" -- and a Czech transcript came back in English, or in
+ * Czech under the English "###" headings the preset named.
+ */
+describe("output language under auto", () => {
+    beforeEach(() => {
+        createMock.mockReset();
+        selectResults.clear();
+    });
+
+    it("tells a pass to write in the transcription's language, headings included", async () => {
+        await summarize({ aiOutputLanguage: null });
+        const system = systemMessages()[0];
+        expect(system).toContain(
+            "the language the transcription is predominantly spoken in",
+        );
+        expect(system).toContain("every heading, label, and example wording");
+    });
+
+    it("treats an explicit auto the same as no preference", async () => {
+        await summarize({ aiOutputLanguage: "auto" });
+        expect(systemMessages()[0]).toContain(
+            "the language the transcription is predominantly spoken in",
+        );
+    });
+
+    it("points the merge at the passes, since it never sees the transcript", async () => {
+        await summarize({ summaryMultiPass: true, summaryMultiPassRounds: 2 });
+        const messages = systemMessages();
+        expect(messages[0]).toContain(
+            "the language the transcription is predominantly spoken in",
+        );
+        expect(messages.at(-1)).toContain(
+            "the language the extractions are written in",
+        );
+    });
+
+    it("keeps the English speaker placeholders the resolver matches on", async () => {
+        await summarize();
+        expect(systemMessages()[0]).toContain(
+            "keep speaker references such as [Speaker 1](#speaker-1) exactly as written",
+        );
+    });
+
+    it("gives way to a language the user chose", async () => {
+        await summarize({
+            aiOutputLanguage: "cs",
+            summaryMultiPass: true,
+            summaryMultiPassRounds: 2,
+        });
+        for (const system of systemMessages()) {
+            expect(system).toContain(
+                "Write all natural-language output in Czech",
+            );
+            expect(system).not.toContain("predominantly spoken in");
+            expect(system).not.toContain("the extractions are written in");
+        }
+    });
+
+    it("translates the preset's headings into a chosen language too", async () => {
+        // A chosen language had the same gap as auto: "Write in Czech" alone
+        // left the preset's English "### Attendees" in place, and said
+        // nothing to stop [Speaker 1] from being translated out of the form
+        // the resolver matches on.
+        await summarize({
+            aiOutputLanguage: "cs",
+            summaryMultiPass: true,
+            summaryMultiPassRounds: 2,
+        });
+        for (const system of systemMessages()) {
+            expect(system).toContain(
+                "every heading, label, and example wording",
+            );
+            expect(system).toContain(
+                "keep speaker references such as [Speaker 1](#speaker-1) exactly as written",
+            );
+            // The escape hatch for a custom prompt naming its own language
+            // belongs to auto only: a chosen language is the user's word.
+            expect(system).not.toContain("Follow a different output language");
+        }
+    });
+});
+
 describe("markdown content survives the parser", () => {
     beforeEach(() => {
         createMock.mockReset();
