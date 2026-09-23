@@ -1,3 +1,5 @@
+import type { TemplateConfiguration } from "@/lib/ai/prompt-templates";
+
 export type PromptPreset =
     | "default"
     | "meetings"
@@ -13,14 +15,5 @@ export interface PromptConfig {
     prompt: string;
 }
 
-export interface CustomPrompt {
-    id: string;
-    name: string;
-    prompt: string;
-    createdAt: string;
-}
-
-export interface PromptConfiguration {
-    selectedPrompt: string; // preset ID or custom prompt ID
-    customPrompts: CustomPrompt[];
-}
+/** Title templates are the shared prompt-template model. */
+export type PromptConfiguration = TemplateConfiguration;

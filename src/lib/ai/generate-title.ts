@@ -6,10 +6,10 @@ import { decrypt } from "@/lib/encryption";
 import { decryptJsonField } from "@/lib/encryption/fields";
 import { buildChatCompletionParams } from "./chat-completion-params";
 import {
-    getDefaultPromptConfig,
-    getPromptById,
-    type PromptConfiguration,
+    normalizeTitlePromptConfig,
+    TITLE_TEMPLATE_KIND,
 } from "./prompt-presets";
+import { resolveTemplate } from "./prompt-templates";
 import { getAiOutputLanguageDirective } from "./summary-presets";
 
 export async function generateTitleFromTranscription(
@@ -24,39 +24,19 @@ export async function generateTitleFromTranscription(
             .where(eq(userSettings.userId, userId))
             .limit(1);
 
-        // Get prompt config. `titleGenerationPrompt` is jsonb-envelope
-        // encrypted at rest; legacy plaintext rows pass through verbatim.
-        let promptConfig: PromptConfiguration = getDefaultPromptConfig();
-        if (userSettingsRow?.titleGenerationPrompt) {
-            const config =
-                decryptJsonField<PromptConfiguration>(
-                    userSettingsRow.titleGenerationPrompt,
-                ) ?? getDefaultPromptConfig();
-            promptConfig = {
-                selectedPrompt: config.selectedPrompt || "default",
-                customPrompts: config.customPrompts || [],
-            };
-        }
-
-        // Get the prompt by ID (preset or custom)
-        let promptTemplate = getPromptById(
-            promptConfig.selectedPrompt,
-            promptConfig,
+        // `titleGenerationPrompt` is jsonb-envelope encrypted at rest;
+        // legacy plaintext rows pass through verbatim. A missing value reads
+        // as the seeded built-ins.
+        const promptConfig = normalizeTitlePromptConfig(
+            userSettingsRow?.titleGenerationPrompt
+                ? decryptJsonField(userSettingsRow.titleGenerationPrompt)
+                : null,
         );
-
-        if (!promptTemplate) {
-            console.warn(
-                `Prompt not found: ${promptConfig.selectedPrompt}, using default`,
-            );
-            const defaultConfig = getDefaultPromptConfig();
-            promptTemplate = getPromptById(
-                defaultConfig.selectedPrompt,
-                defaultConfig,
-            );
-            if (!promptTemplate) {
-                return null;
-            }
-        }
+        const { prompt: promptTemplate } = resolveTemplate(
+            promptConfig,
+            promptConfig.selectedPrompt,
+            TITLE_TEMPLATE_KIND,
+        );
 
         // Get user's AI credentials (prefer enhancement provider, fallback to any configured provider)
         const [enhancementCredentials] = await db

@@ -10,13 +10,13 @@ import {
 } from "@/db/schema";
 import { buildChatCompletionParams } from "@/lib/ai/chat-completion-params";
 import { pickEnhancementCredential } from "@/lib/ai/enhancement-provider";
+import { resolveTemplate } from "@/lib/ai/prompt-templates";
 import {
     getAiOutputLanguageDirective,
-    getDefaultSummaryPromptConfig,
-    getSummaryPromptById,
+    normalizeSummaryPromptConfig,
     SUMMARY_MARKDOWN_DIRECTIVE,
     SUMMARY_SPEAKER_DIRECTIVE,
-    type SummaryPromptConfiguration,
+    SUMMARY_TEMPLATE_KIND,
 } from "@/lib/ai/summary-presets";
 import { decrypt } from "@/lib/encryption";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
@@ -210,49 +210,26 @@ export async function generateSummaryForRecording(
                   .where(eq(userSettings.userId, ctx.actorUserId))
                   .limit(1);
 
-    let promptConfig: SummaryPromptConfiguration =
-        getDefaultSummaryPromptConfig();
-    if (userSettingsRow?.summaryPrompt) {
-        // `summaryPrompt` is jsonb-envelope encrypted at rest. Decrypt
-        // (legacy plaintext rows pass through verbatim) before reading
-        // the user's prompt configuration.
-        const config =
-            decryptJsonField<SummaryPromptConfiguration>(
-                userSettingsRow.summaryPrompt,
-            ) ?? getDefaultSummaryPromptConfig();
-        promptConfig = {
-            selectedPrompt: config.selectedPrompt || "general",
-            customPrompts: config.customPrompts || [],
-        };
-    }
+    // `summaryPrompt` is jsonb-envelope encrypted at rest; legacy
+    // plaintext rows pass through verbatim. A missing value reads as the
+    // seeded built-ins.
+    const promptConfig = normalizeSummaryPromptConfig(
+        userSettingsRow?.summaryPrompt
+            ? decryptJsonField(userSettingsRow.summaryPrompt)
+            : null,
+    );
 
-    // Preset resolution: explicit override > user default > "general".
-    const selectedPreset =
-        opts.presetId || promptConfig.selectedPrompt || "general";
-    let promptTemplate = getSummaryPromptById(selectedPreset, promptConfig);
-
-    // Tracks the prompt id actually used, which can differ from
-    // `selectedPreset` below (e.g. the request or the saved default
-    // pointed at a custom prompt that was since deleted). Returned to the
-    // caller so it can warn instead of silently generating with a
-    // different prompt than the one requested.
-    let usedPromptId = selectedPreset;
-
-    if (!promptTemplate) {
-        const defaultConfig = getDefaultSummaryPromptConfig();
-        promptTemplate = getSummaryPromptById(
-            defaultConfig.selectedPrompt,
-            defaultConfig,
-        );
-        usedPromptId = defaultConfig.selectedPrompt;
-        if (!promptTemplate) {
-            throw new AppError(
-                ErrorCode.INTERNAL_ERROR,
-                "Failed to load summary prompt",
-                500,
-            );
-        }
-    }
+    // Template resolution: explicit override > user default > built-in.
+    // `usedPromptId` is the template actually used, which differs from the
+    // requested one when that template was since deleted. It is returned to
+    // the caller so it can warn instead of silently generating with a
+    // different template than the one requested.
+    const requestedPromptId = opts.presetId || promptConfig.selectedPrompt;
+    const { id: usedPromptId, prompt: promptTemplate } = resolveTemplate(
+        promptConfig,
+        requestedPromptId,
+        SUMMARY_TEMPLATE_KIND,
+    );
 
     // Credentials: prefer the user's enhancement-default provider, fall
     // back to any configured provider that can actually summarize.
@@ -567,7 +544,7 @@ Correct the serialization without dropping or inventing information. Return exac
         provider: credentials.provider,
         model,
         promptId: usedPromptId,
-        promptFallback: usedPromptId !== selectedPreset,
+        promptFallback: usedPromptId !== requestedPromptId,
         multiPass,
     };
 }

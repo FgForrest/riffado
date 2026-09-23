@@ -1,3 +1,11 @@
+import {
+    defaultTemplateConfig,
+    isValidTemplateConfig,
+    normalizeTemplateConfig,
+    type TemplateConfiguration,
+    type TemplateKind,
+} from "./prompt-templates";
+
 export type SummaryPreset =
     | "general"
     | "meeting-notes"
@@ -11,18 +19,8 @@ export interface SummaryPromptConfig {
     prompt: string;
 }
 
-export interface CustomSummaryPrompt {
-    id: string;
-    name: string;
-    prompt: string;
-    createdAt: string;
-}
-
-export interface SummaryPromptConfiguration {
-    /** Preset id or custom prompt id. */
-    selectedPrompt: string;
-    customPrompts: CustomSummaryPrompt[];
-}
+/** Summary templates are the shared prompt-template model. */
+export type SummaryPromptConfiguration = TemplateConfiguration;
 
 export const SUMMARY_PRESETS: Record<SummaryPreset, SummaryPromptConfig> = {
     general: {
@@ -105,43 +103,20 @@ Transcription:
     },
 };
 
-export function getSummaryPromptForPreset(preset: SummaryPreset): string {
-    return SUMMARY_PRESETS[preset].prompt;
-}
+export const SUMMARY_TEMPLATE_KIND: TemplateKind<SummaryPreset> = {
+    presets: SUMMARY_PRESETS,
+    fallbackId: "general",
+};
 
 export function getDefaultSummaryPromptConfig(): SummaryPromptConfiguration {
-    return {
-        selectedPrompt: "general",
-        customPrompts: [],
-    };
+    return defaultTemplateConfig(SUMMARY_TEMPLATE_KIND);
 }
 
-export function getAllSummaryPrompts(
-    config: SummaryPromptConfiguration,
-): Array<{
-    id: string;
-    name: string;
-    description: string;
-    prompt: string;
-    isPreset: boolean;
-}> {
-    const presets = Object.values(SUMMARY_PRESETS).map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: p.description,
-        prompt: p.prompt,
-        isPreset: true,
-    }));
-
-    const customs = config.customPrompts.map((p) => ({
-        id: p.id,
-        name: p.name,
-        description: "Custom prompt",
-        prompt: p.prompt,
-        isPreset: false,
-    }));
-
-    return [...presets, ...customs];
+/** Read a stored (decrypted) `summaryPrompt` value; see normalizeTemplateConfig. */
+export function normalizeSummaryPromptConfig(
+    raw: unknown,
+): SummaryPromptConfiguration {
+    return normalizeTemplateConfig(raw, SUMMARY_TEMPLATE_KIND);
 }
 
 export interface AiOutputLanguageOption {
@@ -250,40 +225,7 @@ export const SUMMARY_SPEAKER_DIRECTIVE = `SPEAKER REFERENCES:
 - Whenever referring to transcript label speaker_N, write exactly [Speaker N](#speaker-N), using the same number. Apply this in summary, keyPoints, and actionItems.
 - Preserve these Markdown references exactly during rewriting or merging. They are stable placeholders that Riffado resolves only after the user confirms an attribution.`;
 
-export function getSummaryPromptById(
-    id: string,
-    config: SummaryPromptConfiguration,
-): string | null {
-    if (id in SUMMARY_PRESETS) {
-        return SUMMARY_PRESETS[id as SummaryPreset].prompt;
-    }
-
-    const custom = config.customPrompts.find((p) => p.id === id);
-    return custom?.prompt || null;
-}
-
-/**
- * Validate an untrusted `summaryPrompt` payload before it's encrypted and
- * stored. Only shape is checked (strings where expected, array of
- * well-formed custom-prompt entries) -- this is user-owned settings data,
- * not a cross-user boundary, but a malformed value would otherwise be
- * silently encrypted and only surface as a broken dropdown or a crash in
- * `getAllSummaryPrompts` on the next read.
- */
-export function isValidSummaryPromptConfig(
-    value: unknown,
-): value is SummaryPromptConfiguration {
-    if (typeof value !== "object" || value === null) return false;
-    const config = value as Record<string, unknown>;
-    if (typeof config.selectedPrompt !== "string") return false;
-    if (!Array.isArray(config.customPrompts)) return false;
-    return config.customPrompts.every(
-        (p) =>
-            typeof p === "object" &&
-            p !== null &&
-            typeof (p as Record<string, unknown>).id === "string" &&
-            typeof (p as Record<string, unknown>).name === "string" &&
-            typeof (p as Record<string, unknown>).prompt === "string" &&
-            typeof (p as Record<string, unknown>).createdAt === "string",
-    );
+/** Validate an untrusted `summaryPrompt` payload; see isValidTemplateConfig. */
+export function isValidSummaryPromptConfig(value: unknown): boolean {
+    return isValidTemplateConfig(value, SUMMARY_TEMPLATE_KIND);
 }

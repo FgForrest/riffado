@@ -5,6 +5,7 @@ import { useExtracted } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { SettingsSectionHeader } from "@/components/settings/section-header";
+import { TemplateList } from "@/components/settings/template-list";
 import { Label } from "@/components/ui/label";
 import {
     Select,
@@ -14,7 +15,12 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useTitlePresetCopy } from "@/hooks/use-preset-copy";
 import { useSettings } from "@/hooks/use-settings";
+import {
+    normalizeTitlePromptConfig,
+    TITLE_TEMPLATE_KIND,
+} from "@/lib/ai/prompt-presets";
 
 // ISO-639-1 codes from Whisper's supported-languages list. Sticking to
 // languages with non-trivial user populations to keep the dropdown
@@ -86,6 +92,12 @@ export function TranscriptionSection() {
         useState("balanced");
     const [autoGenerateTitle, setAutoGenerateTitle] = useState(true);
     const [syncTitleToPlaud, setSyncTitleToPlaud] = useState(false);
+    // Starting state for <TemplateList>, which owns it once mounted: the
+    // list renders only after the settings fetch has settled.
+    const [titleTemplates, setTitleTemplates] = useState(() =>
+        normalizeTitlePromptConfig(null),
+    );
+    const titlePresetCopy = useTitlePresetCopy();
     const [importPlaudContent, setImportPlaudContent] = useState(false);
     const [transcriptMode, setTranscriptMode] = useState("plaud_only");
     const [preferredTranscriptSource, setPreferredTranscriptSource] =
@@ -107,6 +119,9 @@ export function TranscriptionSection() {
                     );
                     setAutoGenerateTitle(data.autoGenerateTitle ?? true);
                     setSyncTitleToPlaud(data.syncTitleToPlaud ?? false);
+                    setTitleTemplates(
+                        normalizeTitlePromptConfig(data.titleGenerationPrompt),
+                    );
                     setImportPlaudContent(data.importPlaudContent ?? false);
                     setTranscriptMode(data.transcriptMode ?? "plaud_only");
                     setPreferredTranscriptSource(
@@ -572,6 +587,34 @@ export function TranscriptionSection() {
                         />
                     </div>
                 )}
+
+                {/* Hidden rather than unmounted: the list owns its state after
+                    mounting, and remounting would restore the state fetched
+                    when the section opened, losing edits made since. */}
+                <div
+                    className="pl-4 border-l-2 border-primary/20"
+                    hidden={!autoGenerateTitle}
+                >
+                    <TemplateList
+                        field="titleGenerationPrompt"
+                        kind={TITLE_TEMPLATE_KIND}
+                        presetCopy={titlePresetCopy}
+                        initialConfig={titleTemplates}
+                        heading={i18n("Title templates")}
+                        promptHelp={
+                            <>
+                                {i18n("Use")}{" "}
+                                <code className="px-1 py-0.5 bg-muted rounded">
+                                    {"{transcription}"}
+                                </code>{" "}
+                                {i18n(
+                                    "where the transcript goes. The model must reply with the title alone, as plain text. Only the beginning of a long transcript is sent.",
+                                )}
+                            </>
+                        }
+                        disabled={isSavingSettings}
+                    />
+                </div>
             </div>
         </div>
     );
