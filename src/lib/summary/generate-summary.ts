@@ -302,14 +302,19 @@ export async function generateSummaryForRecording(
     // the LLM's input contract; ciphertext lives only in the DB.
     const transcriptText = decryptText(transcription.text);
 
-    // Apply AI output language directive (if configured) via the system
-    // message rather than the user prompt. This separates concerns: the
-    // user prompt carries the JSON-shape contract (English keys), the
-    // system message carries the output-language preference. Smaller
-    // models tend to honor this split more reliably than a combined
-    // prompt where language and JSON-shape rules compete.
+    // Apply the AI output language directive via the system message rather
+    // than the user prompt. This separates concerns: the user prompt carries
+    // the JSON-shape contract (English keys), the system message carries the
+    // output language. Smaller models tend to honor this split more reliably
+    // than a combined prompt where language and JSON-shape rules compete.
     const languageDirective = getAiOutputLanguageDirective(
         userSettingsRow?.aiOutputLanguage ?? null,
+    );
+    // The merge never sees the transcript, so under `auto` it has to take
+    // the language from the passes instead.
+    const mergeLanguageDirective = getAiOutputLanguageDirective(
+        userSettingsRow?.aiOutputLanguage ?? null,
+        "extractions",
     );
 
     // `replaceAll` with a function replacer so (a) a custom prompt that
@@ -454,7 +459,7 @@ Correct the serialization without dropping or inventing information. Return exac
                         mergePrompt,
                         SUMMARY_MARKDOWN_DIRECTIVE,
                         SUMMARY_SPEAKER_DIRECTIVE,
-                        languageDirective,
+                        mergeLanguageDirective,
                     ]
                         .filter(Boolean)
                         .join("\n\n"),

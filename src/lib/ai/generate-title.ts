@@ -111,7 +111,7 @@ export async function generateTitleFromTranscription(
                 ? `${transcriptionText.substring(0, maxTranscriptionLength)}...`
                 : transcriptionText;
 
-        // Apply AI output language directive (if configured) via the system
+        // Apply the AI output language directive via the system
         // message rather than the user prompt, so it doesn't compete with
         // the title-format rules in the user prompt.
         const languageDirective = getAiOutputLanguageDirective(
@@ -128,9 +128,7 @@ export async function generateTitleFromTranscription(
 
         const baseSystem =
             "You are a helpful assistant that generates concise, descriptive titles for audio recordings based on transcriptions. Always follow the rules strictly.";
-        const systemContent = languageDirective
-            ? `${baseSystem} ${languageDirective}`
-            : baseSystem;
+        const systemContent = `${baseSystem} ${languageDirective}`;
 
         const response = await openai.chat.completions.create(
             buildChatCompletionParams({

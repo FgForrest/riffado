@@ -189,14 +189,42 @@ export function normalizeAiOutputLanguage(value: unknown): string | null {
     return LANGUAGE_CODES.has(value) ? value : null;
 }
 
-/** Directive sentence for the model; null for `auto`/missing/unknown. */
+/**
+ * What the model reads to find the language under `auto`: the transcription
+ * itself, or -- for the multi-pass merge, which never sees the transcription
+ * -- the extractions produced from it.
+ */
+export type LanguageSource = "transcription" | "extractions";
+
+/**
+ * Directive for the model's output language.
+ *
+ * `auto` (and a missing or unknown code) gets a directive too, not silence:
+ * every prompt is written in English, and a model left to itself answers a
+ * Czech transcript in English, or in Czech under the English "###" headings
+ * the preset named. A chosen language has the same heading problem, so both
+ * share the rules after the first sentence. The speaker placeholders are
+ * exempted by name because `speaker-references.ts` resolves only the English
+ * `[Speaker N]` form.
+ */
 export function getAiOutputLanguageDirective(
     code: string | null | undefined,
-): string | null {
-    if (!code || code === "auto") return null;
-    const match = AI_OUTPUT_LANGUAGES.find((l) => l.code === code);
-    if (!match) return null;
-    return `IMPORTANT: Write all natural-language output in ${match.label}, regardless of the transcription's language. Keep any JSON keys in English exactly as specified.`;
+    source: LanguageSource = "transcription",
+): string {
+    const match =
+        code && code !== "auto"
+            ? AI_OUTPUT_LANGUAGES.find((l) => l.code === code)
+            : undefined;
+    const rules =
+        "That includes every heading, label, and example wording these instructions give in English: write it in that language rather than copying it. Keep names and technical terms as they were spoken. Keep any JSON keys in English exactly as specified, and keep speaker references such as [Speaker 1](#speaker-1) exactly as written.";
+    if (match) {
+        return `IMPORTANT: Write all natural-language output in ${match.label}, regardless of the transcription's language. ${rules}`;
+    }
+    const target =
+        source === "extractions"
+            ? "the language the extractions are written in, which is the language of the transcription they came from"
+            : "the language the transcription is predominantly spoken in";
+    return `IMPORTANT: Write all natural-language output in ${target}, even though these instructions are written in English. ${rules} Follow a different output language only if the user's instructions explicitly ask for one.`;
 }
 
 /**
