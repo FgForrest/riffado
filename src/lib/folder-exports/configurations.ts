@@ -8,6 +8,7 @@ import {
 import { env } from "@/lib/env";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { applicableExportConfigurationIds } from "@/lib/folders/hierarchy";
+import { assertOrgScopeWritable, isOrgAccount } from "@/lib/org/config";
 import { validateRelativeExportPath } from "./filesystem-provider";
 import { enqueueExportPlan } from "./jobs";
 import type { FolderExportConfigurationDto } from "./types";
@@ -39,7 +40,11 @@ function validateSelection(input: SaveFolderExportInput): void {
     }
 }
 
-async function assertPrivateFolder(userId: string, folderId: string) {
+/**
+ * Exports are configured in Private, or by the organization account in the
+ * Organization tree, which is its own.
+ */
+async function assertExportableFolder(userId: string, folderId: string) {
     const folders = await db
         .select({
             id: recordingFolders.id,
@@ -51,6 +56,10 @@ async function assertPrivateFolder(userId: string, folderId: string) {
     const byId = new Map(folders.map((folder) => [folder.id, folder]));
     let current = byId.get(folderId);
     while (current?.parentId) current = byId.get(current.parentId);
+    if (current?.kind === "public" && (await isOrgAccount(userId))) {
+        assertOrgScopeWritable();
+        return;
+    }
     if (!current || current.kind !== "private") {
         throw new AppError(
             ErrorCode.INVALID_INPUT,
@@ -115,7 +124,7 @@ export async function createFolderExport(
 ): Promise<FolderExportConfigurationDto> {
     assertFilesystemExportsAvailable();
     validateSelection(input);
-    await assertPrivateFolder(userId, folderId);
+    await assertExportableFolder(userId, folderId);
     let targetPath: string;
     try {
         targetPath = validateRelativeExportPath(input.targetPath);

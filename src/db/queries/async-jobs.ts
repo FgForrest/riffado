@@ -528,3 +528,18 @@ export async function listJobsForUser(
         .limit(opts.limit ?? 20);
     return rows as AsyncJobRow[];
 }
+
+/**
+ * One job by id with no owner scope.
+ *
+ * Only for callers that authorize by other means -- an Organization job is
+ * visible to everyone who can see the shared recording it acts on.
+ */
+export async function getJobById(jobId: string): Promise<AsyncJobRow | null> {
+    const [row] = await db
+        .select()
+        .from(asyncJobs)
+        .where(eq(asyncJobs.id, jobId))
+        .limit(1);
+    return (row as AsyncJobRow) ?? null;
+}

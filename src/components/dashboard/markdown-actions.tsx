@@ -6,23 +6,29 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import type { SidecarKind } from "@/lib/export/document-sidecars";
+import { type RecordingView, withRecordingView } from "@/lib/sharing/view";
 
 interface MarkdownActionsProps {
     kind: SidecarKind;
     recordingId: string;
     source: string;
+    view?: RecordingView;
 }
 
 export function MarkdownActions({
     kind,
     recordingId,
     source,
+    view,
 }: MarkdownActionsProps) {
     const i18n = useExtracted();
     const [copyState, setCopyState] = useState<"idle" | "copying" | "copied">(
         "idle",
     );
-    const endpoint = `/api/recordings/${encodeURIComponent(recordingId)}/markdown/${kind}?source=${encodeURIComponent(source)}`;
+    const endpoint = withRecordingView(
+        `/api/recordings/${encodeURIComponent(recordingId)}/markdown/${kind}?source=${encodeURIComponent(source)}`,
+        view,
+    );
     const documentLabel =
         kind === "transcript" ? i18n("transcript") : i18n("summary");
 

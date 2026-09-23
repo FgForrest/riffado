@@ -48,6 +48,7 @@ const recording = {
     transcriptReapedAt: null,
     summaryReapedAt: null,
     remoteRetentionClaimedAt: null,
+    unsharedAt: null,
     createdAt: now,
     updatedAt: now,
 };
@@ -74,6 +75,7 @@ const transcription = {
     model: "whisper-1",
     source: "riffado",
     turns: null,
+    producedByUserId: null,
     createdAt: now,
 };
 
@@ -92,6 +94,7 @@ const enhancement = {
     multiPassRounds: null,
     multiPassUsed: null,
     multiPassMerged: null,
+    producedByUserId: null,
     createdAt: now,
 };
 

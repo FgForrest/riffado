@@ -27,6 +27,19 @@ vi.mock("@/lib/auth-server", () => ({
     requireApiSession: vi.fn().mockResolvedValue({ user: { id: "user-1" } }),
 }));
 
+// Recording ownership is the access layer's (tested against a real database
+// in `src/tests/sharing/`); this file pins the transcript and person scoping.
+vi.mock("@/lib/sharing/access", () => ({
+    requestedRecordingView: (request: Request) =>
+        new URL(request.url).searchParams.get("view") === "org"
+            ? "org"
+            : "private",
+    requireRecordingView: vi.fn(async (userId: string) => ({
+        ownerUserId: userId,
+        contentUserId: userId,
+    })),
+}));
+
 const { refreshExistingRecordingSidecars } = vi.hoisted(() => ({
     refreshExistingRecordingSidecars: vi.fn(),
 }));

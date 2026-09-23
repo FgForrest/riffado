@@ -44,6 +44,10 @@ services:
       APP_URL: ${APP_URL:-http://localhost:3000}
       DISABLE_REGISTRATION: ${DISABLE_REGISTRATION:-}
       SELF_HOST_MODE: ${SELF_HOST_MODE:-shared}
+      # Organization scope (optional; both email and password enable it)
+      ORG_ACCOUNT_EMAIL: ${ORG_ACCOUNT_EMAIL:-}
+      ORG_ACCOUNT_PASSWORD: ${ORG_ACCOUNT_PASSWORD:-}
+      ORG_ACCOUNT_NAME: ${ORG_ACCOUNT_NAME:-}
 
       # Encryption
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}

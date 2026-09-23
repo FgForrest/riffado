@@ -7,6 +7,7 @@ import {
     movePlaudRecordingToTrash,
     restoreAudioFromPlaud,
 } from "@/lib/recordings/erase";
+import { notifyIfShared } from "@/lib/sharing/notify";
 
 type IdContext = { params: Promise<{ id: string }> };
 
@@ -32,5 +33,6 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
         await eraseLocalArtifact(session.user.id, id, parsed.data.scope);
     }
 
+    await notifyIfShared(id);
     return NextResponse.json({ success: true, scope: parsed.data.scope });
 });

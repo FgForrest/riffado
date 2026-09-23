@@ -11,6 +11,7 @@ import { sniffAudio } from "@/lib/audio/sniff";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { createPlaudClient } from "@/lib/plaud/client-factory";
 import { sidecarKey } from "@/lib/recordings/storage-files";
+import { recordingJobSubject } from "@/lib/sharing/view";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import type { StorageProvider } from "@/lib/storage/types";
 
@@ -152,6 +153,30 @@ export async function eraseLocalArtifact(
                 ["transcription"],
                 now,
             );
+            // Without audio the Organization view cannot be transcribed
+            // either; its queued run would only fail after being claimed.
+            await tx
+                .update(asyncJobs)
+                .set({
+                    status: "failed",
+                    completedAt: now,
+                    updatedAt: now,
+                    heartbeatAt: null,
+                    claimToken: null,
+                    errorCode: ErrorCode.RECORDING_DATA_REAPED,
+                    lastError:
+                        "Cancelled because the recording audio was erased",
+                })
+                .where(
+                    and(
+                        eq(
+                            asyncJobs.subjectId,
+                            recordingJobSubject(recordingId, "org"),
+                        ),
+                        eq(asyncJobs.kind, "transcription"),
+                        inArray(asyncJobs.status, ["pending", "processing"]),
+                    ),
+                );
             await tx
                 .update(recordings)
                 .set({

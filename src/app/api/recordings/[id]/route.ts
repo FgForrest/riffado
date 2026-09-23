@@ -1,8 +1,11 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import {
     aiEnhancements,
+    asyncJobs,
+    recordingFolderAssignments,
+    recordingFolders,
     recordings,
     transcriptions,
     webhookDeliveries,
@@ -11,12 +14,16 @@ import { requireApiSession } from "@/lib/auth-server";
 import { decryptText, encryptText } from "@/lib/encryption/fields";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { refreshExistingRecordingSidecars } from "@/lib/export/document-sidecars";
+import { getOrgUserId } from "@/lib/org/config";
+import { notifyOrgChange } from "@/lib/org/events";
 import { deleteRecordingStorageArtifacts } from "@/lib/recordings/erase";
 import {
     MAX_RECORDING_TITLE_LENGTH,
     normalizeRecordingTitle,
 } from "@/lib/recordings/filename";
 import { reconcileRecordingStorage } from "@/lib/recordings/reconcile-storage";
+import { notifyIfShared } from "@/lib/sharing/notify";
+import { recordingJobSubject } from "@/lib/sharing/view";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import { emitEvent } from "@/lib/webhooks/emit";
 import { createRedactedWebhookPayload } from "@/lib/webhooks/payload";
@@ -192,6 +199,7 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
     await refreshExistingRecordingSidecars(userId, id);
 
     await emitEvent("recording.updated", userId, updated.id);
+    await notifyIfShared(updated.id);
 
     return NextResponse.json({
         filename: decryptText(updated.filename),
@@ -267,6 +275,7 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
 
     // 2. Atomic DB writes: child rows, webhook delivery payload redaction,
     //    and tombstone in one transaction.
+    let wasShared = false;
     const didTombstone = await db.transaction(async (tx) => {
         const now = new Date();
 
@@ -289,23 +298,61 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
         // for us to do. Return false so we don't emit a duplicate event.
         if (!locked || locked.deletedAt) return false;
 
+        // Nothing queued for either view may run against a deleted
+        // recording; it would only fail after spending a provider call.
         await tx
-            .delete(transcriptions)
+            .update(asyncJobs)
+            .set({
+                status: "failed",
+                completedAt: now,
+                updatedAt: now,
+                heartbeatAt: null,
+                claimToken: null,
+                errorCode: ErrorCode.RECORDING_NOT_FOUND,
+                lastError: "Cancelled because the recording was deleted",
+            })
             .where(
                 and(
-                    eq(transcriptions.recordingId, id),
-                    eq(transcriptions.userId, userId),
+                    inArray(asyncJobs.subjectId, [
+                        recordingJobSubject(id, "private"),
+                        recordingJobSubject(id, "org"),
+                    ]),
+                    inArray(asyncJobs.kind, ["transcription", "summary"]),
+                    inArray(asyncJobs.status, ["pending", "processing"]),
                 ),
             );
 
+        // Every content row of the recording, not only the owner's: the
+        // Organization view of a shared recording is owned by the
+        // organization account and must go for everyone at once.
+        await tx
+            .delete(transcriptions)
+            .where(eq(transcriptions.recordingId, id));
+
         await tx
             .delete(aiEnhancements)
-            .where(
-                and(
-                    eq(aiEnhancements.recordingId, id),
-                    eq(aiEnhancements.userId, userId),
-                ),
-            );
+            .where(eq(aiEnhancements.recordingId, id));
+
+        const orgUserId = await getOrgUserId();
+        if (orgUserId) {
+            const orgFolderIds = tx
+                .select({ id: recordingFolders.id })
+                .from(recordingFolders)
+                .where(eq(recordingFolders.userId, orgUserId));
+            const unshared = await tx
+                .delete(recordingFolderAssignments)
+                .where(
+                    and(
+                        eq(recordingFolderAssignments.recordingId, id),
+                        inArray(
+                            recordingFolderAssignments.folderId,
+                            orgFolderIds,
+                        ),
+                    ),
+                )
+                .returning({ folderId: recordingFolderAssignments.folderId });
+            wasShared = unshared.length > 0;
+        }
 
         await tx
             .update(webhookDeliveries)
@@ -340,6 +387,9 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
 
     if (didTombstone) {
         await emitEvent("recording.deleted", userId, id);
+    }
+    if (wasShared) {
+        await notifyOrgChange({ type: "tree" });
     }
 
     return NextResponse.json({ success: true });

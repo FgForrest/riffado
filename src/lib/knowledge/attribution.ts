@@ -1,7 +1,8 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, or } from "drizzle-orm";
 import { db } from "@/db";
 import { people, transcriptions, transcriptSpeakers } from "@/db/schema";
 import { decryptText } from "@/lib/encryption/fields";
+import { orgOwnedCondition } from "@/lib/knowledge/org-people";
 import { speakerAnchorId } from "@/lib/knowledge/speaker-references";
 import {
     parseSpeakerTurns,
@@ -39,6 +40,22 @@ export interface SetTranscriptSpeakerArgs {
     status: AttributionStatus;
     confidence?: number | null;
     evidenceStartMs?: number | null;
+}
+
+export interface NameScopeOptions {
+    /**
+     * Name speakers with Organization people only. Set whenever the text is
+     * read through the Organization view: it may be showing the owner's
+     * transcript, whose attributions can still point at the owner's private
+     * people, and those names are the owner's alone.
+     */
+    orgPeopleOnly?: boolean;
+}
+
+function namePeopleCondition(ownerId: string, options: NameScopeOptions) {
+    return options.orgPeopleOnly
+        ? orgOwnedCondition(people.userId)
+        : or(eq(people.userId, ownerId), orgOwnedCondition(people.userId));
 }
 
 interface TransferableSpeakerRow {
@@ -182,11 +199,13 @@ export async function copyMatchingSpeakerAttributions({
  * `ownerId` is the user the transcript belongs to, not necessarily the user
  * asking: a speaker is named by the owner, so a reader of a shared transcript
  * must see the owner's naming rather than their own. It also bounds the join
- * to `people`, so a stored `personId` can never reach across a tenant.
+ * to `people` -- the owner's own, or the Organization's, which everyone
+ * shares -- so a stored `personId` can never reach another account's.
  */
 export async function getTranscriptSpeakers(
     ownerId: string,
     transcriptionId: string,
+    options: NameScopeOptions = {},
 ): Promise<TranscriptSpeaker[]> {
     const rows = await db
         .select({
@@ -204,7 +223,7 @@ export async function getTranscriptSpeakers(
             people,
             and(
                 eq(people.id, transcriptSpeakers.personId),
-                eq(people.userId, ownerId),
+                namePeopleCondition(ownerId, options),
             ),
         )
         .where(
@@ -286,6 +305,7 @@ export async function setTranscriptSpeaker({
 export async function buildNameResolver(
     ownerId: string,
     transcriptionId: string,
+    options: NameScopeOptions = {},
 ): Promise<SpeakerNameResolver | undefined> {
     const rows = await db
         .select({
@@ -297,7 +317,7 @@ export async function buildNameResolver(
             people,
             and(
                 eq(people.id, transcriptSpeakers.personId),
-                eq(people.userId, ownerId),
+                namePeopleCondition(ownerId, options),
             ),
         )
         .where(

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { assertNotOrgAccount } from "@/lib/org/config";
 import { plaudSendCode } from "@/lib/plaud/auth";
 
 /**
@@ -17,7 +18,8 @@ import { plaudSendCode } from "@/lib/plaud/auth";
  * Source: https://github.com/riffado/riffado/blob/main/src/app/api/plaud/auth/send-code/route.ts
  */
 export const POST = apiHandler(async (request: Request) => {
-    await requireApiSession(request);
+    const session = await requireApiSession(request);
+    await assertNotOrgAccount(session.user.id);
 
     // Tolerate malformed / null bodies: bad JSON from a client is a 400
     // input error, not a 500 server error. Without the catch,

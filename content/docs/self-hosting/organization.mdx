@@ -1,0 +1,97 @@
+---
+title: Organization
+description: Share recordings with everyone on your instance through one Organization folder tree.
+---
+
+A self-hosted Riffado can give its users a shared **Organization** next to
+their private library. Owners share a recording by filing it into the
+Organization tree; everyone on the instance can then open it, play it,
+and generate transcripts and summaries for it. Nothing is copied: the
+recording, its audio and the owner's private transcript and summary stay
+exactly where they were.
+
+## Turning it on
+
+Set both variables and restart. On start, Riffado creates (or updates) one
+**organization account** with these credentials.
+
+```bash
+SELF_HOST_MODE=shared             # the default
+ORG_ACCOUNT_EMAIL=organization@example.com
+ORG_ACCOUNT_PASSWORD=...          # 12+ characters, re-applied on every start
+ORG_ACCOUNT_NAME=Acme             # optional, defaults to "Organization"
+```
+
+The email must not belong to an existing user; Riffado refuses to turn a
+person's account into the organization account and logs why.
+
+Removing the two variables makes the Organization **read-only**: what was
+shared stays visible, nothing is deleted, and nothing new can be changed
+except that owners can still withdraw their recordings. `SELF_HOST_MODE=local`
+hides the Organization entirely.
+
+Encryption at rest is unchanged: one instance key (`ENCRYPTION_KEY`) for all
+data. The Organization is an access rule on top of it, not a separate
+cryptographic domain.
+
+## What people can do
+
+| Action                                                  | Owner | Other users | Organization account |
+| ------------------------------------------------------- | :---: | :---------: | :------------------: |
+| Share a recording (file it in the Organization tree)    |  yes  |      -      |          -           |
+| Withdraw a recording from the Organization              |  yes  |      -      |          -           |
+| Create, rename, move, delete Organization folders       |  yes  |     yes     |         yes          |
+| Move a shared recording between Organization folders    |  yes  |     yes     |         yes          |
+| Open, play, download a shared recording                 |  yes  |     yes     |         yes          |
+| Transcribe / summarize the Organization view            |  yes  |     yes     |         yes          |
+| Name speakers in the Organization view                  |  yes  |     yes     |         yes          |
+| Rename, merge or erase Organization people              |   -   |      -      |         yes          |
+| Configure filesystem exports of Organization folders    |   -   |      -      |         yes          |
+| Rename, delete, erase the recording itself              |  yes  |      -      |          -           |
+
+Deleting an Organization folder never unshares anything: its recordings move
+to the Organization root.
+
+## Two views of one recording
+
+- **Private view** (opened from *Private*): the owner's own transcript and
+  summary, made with the owner's templates. Only the owner changes them.
+- **Organization view** (opened from *Organization*): the organization's own
+  transcript and summary. Until someone creates them it shows the owner's,
+  read-only. Runs in this view use the clicker's AI provider, model and
+  keys -- whoever clicks pays -- and the organization account's templates,
+  prompts and output language. Title generation, Plaud title sync, webhooks
+  and the owner's automations never fire from it.
+
+Withdrawing or deleting a recording deletes its Organization view for
+everyone at once.
+
+## People
+
+Speakers named in shared recordings become **Organization people**: one record
+everyone names speakers with. Sharing a recording promotes every person
+confirmed on it; a new name given in the Organization view is an Organization
+person from the start. Suggestions and private notes are never shared --
+notes stay visible only to whoever wrote them.
+
+Everyone's People list shows their own people and the Organization's. Only the
+organization account renames, merges or erases Organization people, and its
+changes apply to every recording that names them, private ones included.
+Anyone can fold a private duplicate into an Organization person.
+
+## Retention
+
+- Each owner's retention settings govern their own transcripts and summaries.
+- The organization account's settings govern the Organization view's
+  transcripts and summaries.
+- Audio is shared, so while a recording is shared it is kept until **both**
+  the owner's and the organization's audio periods have passed; without an
+  organization audio period, shared audio is kept. After a recording is
+  withdrawn, its owner's audio period applies again after a 7-day grace.
+- Removing originals from Plaud is always the owner's setting alone.
+
+## Exports
+
+Sign in as the organization account, open an Organization folder and add a
+filesystem export as usual. It writes the Organization view of every shared
+recording in that subtree, with audio read from each owner's storage.

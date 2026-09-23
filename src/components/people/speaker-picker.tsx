@@ -18,6 +18,7 @@ export interface PickablePerson {
     id: string;
     displayName: string;
     primaryEmail: string | null;
+    scope?: "personal" | "org";
 }
 
 export interface SpeakerPickerProps {
@@ -29,6 +30,11 @@ export interface SpeakerPickerProps {
         displayName?: string;
     }) => Promise<boolean>;
     onClose: () => void;
+    /**
+     * The Organization view names speakers with Organization people only; a
+     * private person would leak into everyone's view.
+     */
+    organizationOnly?: boolean;
 }
 
 /**
@@ -39,7 +45,12 @@ export interface SpeakerPickerProps {
  * Typing a name that matches nobody creates them, so naming a new person is
  * one action rather than a detour through the People section.
  */
-export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
+export function SpeakerPicker({
+    label,
+    onPick,
+    onClose,
+    organizationOnly = false,
+}: SpeakerPickerProps) {
     const i18n = useExtracted();
     const [people, setPeople] = useState<PickablePerson[] | null>(null);
     const [query, setQuery] = useState("");
@@ -55,7 +66,13 @@ export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
                 response.ok ? response.json() : { people: [] },
             )
             .then((body: { people?: PickablePerson[] }) => {
-                if (!cancelled) setPeople(body.people ?? []);
+                if (cancelled) return;
+                const known = body.people ?? [];
+                setPeople(
+                    organizationOnly
+                        ? known.filter((person) => person.scope === "org")
+                        : known,
+                );
             })
             .catch(() => {
                 if (!cancelled) setPeople([]);
@@ -63,7 +80,7 @@ export function SpeakerPicker({ label, onPick, onClose }: SpeakerPickerProps) {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [organizationOnly]);
 
     const matched = useMemo(() => {
         const needle = query.trim().toLowerCase();

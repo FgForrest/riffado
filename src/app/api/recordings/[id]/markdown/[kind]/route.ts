@@ -5,6 +5,11 @@ import {
     type SidecarKind,
 } from "@/lib/export/document-sidecars";
 import { contentDispositionAttachment } from "@/lib/recordings/filename";
+import {
+    requestedRecordingView,
+    requireRecordingView,
+} from "@/lib/sharing/access";
+import { effectiveViewReader } from "@/lib/sharing/view-content";
 
 type MarkdownContext = {
     params: Promise<{ id: string; kind: string }>;
@@ -27,9 +32,17 @@ export const GET = apiHandler<MarkdownContext>(async (request, context) => {
         );
     }
 
-    const document = source
-        ? await getRecordingMarkdownDocument(session.user.id, id, kind, source)
-        : await getRecordingMarkdownDocument(session.user.id, id, kind);
+    const view = requestedRecordingView(request);
+    const access = await requireRecordingView(session.user.id, id, view);
+    const reader = await effectiveViewReader(id, access, kind);
+    const document = await getRecordingMarkdownDocument(
+        reader.userId,
+        id,
+        kind,
+        source,
+        access.ownerUserId,
+        view === "org",
+    );
     if (!document) {
         throw new AppError(
             ErrorCode.NOT_FOUND,

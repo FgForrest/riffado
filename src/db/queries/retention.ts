@@ -12,9 +12,12 @@ import {
 import { db } from "@/db";
 import {
     aiEnhancements,
+    recordingFolderAssignments,
+    recordingFolders,
     recordings,
     transcriptions,
     userSettings,
+    users,
 } from "@/db/schema";
 
 /** One kind of data a retention policy can remove. */
@@ -30,7 +33,29 @@ export interface RetentionPolicy {
     audioDays: number | null;
     transcriptDays: number | null;
     summaryDays: number | null;
+    /**
+     * The organization account's policy. It governs the Organization view's
+     * transcripts and summaries -- rows it owns, on recordings it does not --
+     * and never an owner's audio or Plaud original.
+     */
+    isOrg?: boolean;
 }
+
+/**
+ * What the Organization means for an owner's audio.
+ *
+ * While a recording is shared its audio serves everyone, so it is kept until
+ * both the owner's and the organization's audio periods have passed -- the
+ * longer wins, and a missing organization period means "keep". After an
+ * unshare the owner's period applies again, but only after a grace period.
+ */
+export interface OrgRetentionContext {
+    orgUserId: string;
+    audioDays: number | null;
+}
+
+/** Days an unshared recording's audio is still kept for, whatever the owner's policy. */
+export const UNSHARE_AUDIO_GRACE_DAYS = 7;
 
 export interface ReapCandidate {
     id: string;
@@ -42,6 +67,11 @@ export interface ReapCandidate {
     audioReapedAt: Date | null;
     transcriptReapedAt: Date | null;
     summaryReapedAt: Date | null;
+    /**
+     * Whether the owner's audio period may act on this recording now, given
+     * the Organization. Absent means yes.
+     */
+    audioReleasable?: boolean;
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -131,8 +161,10 @@ export async function listArmedRetentionPolicies(
             retentionDeleteAudio: userSettings.retentionDeleteAudio,
             retentionDeleteTranscript: userSettings.retentionDeleteTranscript,
             retentionDeleteSummary: userSettings.retentionDeleteSummary,
+            role: users.role,
         })
         .from(userSettings)
+        .innerJoin(users, eq(users.id, userSettings.userId))
         .where(
             or(
                 sql`${userSettings.retentionRemoteOriginalDays} > 0`,
@@ -154,8 +186,90 @@ export async function listArmedRetentionPolicies(
 
     return rows.flatMap((row) => {
         const policy = effectivePolicy(row);
-        return policy ? [policy] : [];
+        if (!policy) return [];
+        if (row.role !== "org") return [policy];
+        // The organization owns no audio and no Plaud originals; its audio
+        // period only extends owners' audio (see `OrgRetentionContext`).
+        const orgPolicy: RetentionPolicy = {
+            ...policy,
+            remoteOriginalDays: null,
+            audioDays: null,
+            isOrg: true,
+        };
+        return orgPolicy.transcriptDays !== null ||
+            orgPolicy.summaryDays !== null
+            ? [orgPolicy]
+            : [];
     });
+}
+
+/** The organization's audio period, read from its own settings. */
+export async function loadOrgRetentionContext(
+    orgUserId: string,
+): Promise<OrgRetentionContext> {
+    const [row] = await db
+        .select({
+            userId: userSettings.userId,
+            retentionRemoteOriginalDays:
+                userSettings.retentionRemoteOriginalDays,
+            retentionLocalAudioDays: userSettings.retentionLocalAudioDays,
+            retentionLocalTranscriptDays:
+                userSettings.retentionLocalTranscriptDays,
+            retentionLocalSummaryDays: userSettings.retentionLocalSummaryDays,
+            autoDeleteRecordings: userSettings.autoDeleteRecordings,
+            retentionDays: userSettings.retentionDays,
+            retentionDeleteAudio: userSettings.retentionDeleteAudio,
+            retentionDeleteTranscript: userSettings.retentionDeleteTranscript,
+            retentionDeleteSummary: userSettings.retentionDeleteSummary,
+        })
+        .from(userSettings)
+        .where(eq(userSettings.userId, orgUserId))
+        .limit(1);
+    const policy = row ? effectivePolicy(row) : null;
+    return { orgUserId, audioDays: policy?.audioDays ?? null };
+}
+
+function sharedWithOrgCondition(orgUserId: string) {
+    return sql`exists (
+        select 1
+        from ${recordingFolderAssignments}
+        inner join ${recordingFolders}
+            on ${recordingFolders.id} = ${recordingFolderAssignments.folderId}
+        where ${recordingFolderAssignments.recordingId} = ${recordings.id}
+            and ${recordingFolders.userId} = ${orgUserId}
+    )`;
+}
+
+/**
+ * SQL predicate: the owner's audio period may act on the recording now.
+ *
+ * Unshared and past the grace period; or shared and past the
+ * organization's audio period too.
+ */
+function audioReleasableCondition(
+    org: OrgRetentionContext | null | undefined,
+    now: number,
+) {
+    if (!org) return sql`true`;
+    const shared = sharedWithOrgCondition(org.orgUserId);
+    const graceCutoff = retentionCutoff(UNSHARE_AUDIO_GRACE_DAYS, now);
+    const released = and(
+        sql`not ${shared}`,
+        or(
+            isNull(recordings.unsharedAt),
+            lt(recordings.unsharedAt, graceCutoff),
+        ),
+    );
+    if (org.audioDays === null) return released ?? sql`true`;
+    return (
+        or(
+            released,
+            and(
+                shared,
+                lt(recordings.startTime, retentionCutoff(org.audioDays, now)),
+            ),
+        ) ?? sql`true`
+    );
 }
 
 /**
@@ -175,7 +289,11 @@ export async function listArmedRetentionPolicies(
  *
  * Returns null when the policy selects nothing.
  */
-function reapCandidateWhere(policy: RetentionPolicy, now: number) {
+function reapCandidateWhere(
+    policy: RetentionPolicy,
+    now: number,
+    org?: OrgRetentionContext | null,
+) {
     const stillHasSomething = [];
 
     if (policy.remoteOriginalDays !== null) {
@@ -199,6 +317,7 @@ function reapCandidateWhere(policy: RetentionPolicy, now: number) {
                     retentionCutoff(policy.audioDays, now),
                 ),
                 isNull(recordings.audioReapedAt),
+                audioReleasableCondition(org, now),
             ),
         );
     }
@@ -209,7 +328,11 @@ function reapCandidateWhere(policy: RetentionPolicy, now: number) {
                     recordings.startTime,
                     retentionCutoff(policy.transcriptDays, now),
                 ),
-                isNull(recordings.transcriptReapedAt),
+                // The markers describe the owner's rows; the organization's
+                // rows are selected by existing alone.
+                policy.isOrg
+                    ? undefined
+                    : isNull(recordings.transcriptReapedAt),
                 exists(
                     db
                         .select({ id: transcriptions.id })
@@ -231,7 +354,7 @@ function reapCandidateWhere(policy: RetentionPolicy, now: number) {
                     recordings.startTime,
                     retentionCutoff(policy.summaryDays, now),
                 ),
-                isNull(recordings.summaryReapedAt),
+                policy.isOrg ? undefined : isNull(recordings.summaryReapedAt),
                 exists(
                     db
                         .select({ id: aiEnhancements.id })
@@ -252,8 +375,11 @@ function reapCandidateWhere(policy: RetentionPolicy, now: number) {
     // would scan the table to return no rows.
     if (stillHasSomething.length === 0) return null;
 
+    // The organization's rows sit on other people's recordings; they are
+    // selected by the rows' owner, which the transcript and summary tests
+    // above already do.
     return and(
-        eq(recordings.userId, policy.userId),
+        policy.isOrg ? undefined : eq(recordings.userId, policy.userId),
         isNull(recordings.deletedAt),
         or(...stillHasSomething),
     );
@@ -263,8 +389,9 @@ export async function listReapCandidates(
     policy: RetentionPolicy,
     now: Date,
     limit: number,
+    org?: OrgRetentionContext | null,
 ): Promise<ReapCandidate[]> {
-    const where = reapCandidateWhere(policy, now.getTime());
+    const where = reapCandidateWhere(policy, now.getTime(), org);
     if (where === null) return [];
 
     return db
@@ -278,6 +405,9 @@ export async function listReapCandidates(
             audioReapedAt: recordings.audioReapedAt,
             transcriptReapedAt: recordings.transcriptReapedAt,
             summaryReapedAt: recordings.summaryReapedAt,
+            // Selected alongside so the reaper applies the exact condition
+            // that chose the row: it may have been chosen for its transcript.
+            audioReleasable: sql<boolean>`${audioReleasableCondition(org, now.getTime())}`,
         })
         .from(recordings)
         .where(where)
@@ -432,8 +562,9 @@ export async function releaseRemoteOriginalReapClaim(
 export async function countReapCandidates(
     policy: RetentionPolicy,
     now = Date.now(),
+    org?: OrgRetentionContext | null,
 ): Promise<number> {
-    const where = reapCandidateWhere(policy, now);
+    const where = reapCandidateWhere(policy, now, org);
     if (where === null) return 0;
 
     const [row] = await db

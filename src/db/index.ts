@@ -10,8 +10,11 @@ if (!env.DATABASE_URL && !isBuild) {
     );
 }
 
-export const db = env.DATABASE_URL
-    ? drizzle(postgres(env.DATABASE_URL), { schema })
+/** Raw client, for what drizzle does not wrap (LISTEN/NOTIFY). */
+export const sqlClient = env.DATABASE_URL ? postgres(env.DATABASE_URL) : null;
+
+export const db = sqlClient
+    ? drizzle(sqlClient, { schema })
     : ({} as ReturnType<typeof drizzle<typeof schema>>);
 
 export { schema };

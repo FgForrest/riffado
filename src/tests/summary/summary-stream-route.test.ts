@@ -18,6 +18,15 @@ import {
     type SummaryStreamEvent,
 } from "@/lib/summary/progress-stream";
 
+vi.mock("@/lib/org/config", () => ({
+    isOrgScopeVisible: () => false,
+    isOrgScopeEnabled: () => false,
+    getOrgUserId: async () => null,
+    assertOrgScopeWritable: () => {},
+    isOrgAccount: async () => false,
+    assertNotOrgAccount: async () => {},
+}));
+
 vi.mock("@/lib/posthog-server", () => ({
     captureServerException: vi.fn(),
     captureServerEvent: vi.fn(),
@@ -53,6 +62,44 @@ vi.mock("@/lib/summary/read-summary", () => ({
 }));
 vi.mock("@/db/queries/async-jobs", () => ({ getActiveJob: vi.fn() }));
 
+const { recordingAccess } = vi.hoisted(() => ({
+    recordingAccess: { exists: true },
+}));
+
+// Ownership lives in the access layer, which has its own tests against a
+// real database; here it answers "owner" unless a test says otherwise.
+vi.mock("@/lib/sharing/access", async () => {
+    const { AppError, ErrorCode } =
+        await vi.importActual<typeof import("@/lib/errors")>("@/lib/errors");
+    return {
+        requestedRecordingView: (request: Request) =>
+            new URL(request.url).searchParams.get("view") === "org"
+                ? "org"
+                : "private",
+        recordingJobSubject: (id: string, view: string) =>
+            view === "org" ? `org:${id}` : id,
+        requireRecordingView: vi.fn(async (userId: string, id: string) => {
+            if (!recordingAccess.exists) {
+                throw new AppError(
+                    ErrorCode.RECORDING_NOT_FOUND,
+                    "Recording not found",
+                    404,
+                );
+            }
+            return {
+                recordingId: id,
+                ownerUserId: userId,
+                contentUserId: userId,
+                role: "owner",
+                shared: false,
+                orgUserId: null,
+                view: "private",
+            };
+        }),
+    };
+});
+vi.mock("@/lib/sharing/jobs", () => ({ getJobVisibleTo: vi.fn() }));
+
 const { selectMock } = vi.hoisted(() => ({ selectMock: vi.fn() }));
 vi.mock("@/db", () => ({ db: { select: selectMock, transaction: vi.fn() } }));
 
@@ -62,6 +109,7 @@ import { readStoredSummary } from "@/lib/summary/read-summary";
 import { enqueueSummaryJob } from "@/lib/summary/summary-job";
 
 function stubRecordingExists() {
+    recordingAccess.exists = true;
     selectMock.mockReturnValue({
         from: () => ({
             where: () => ({ limit: () => Promise.resolve([{ id: "rec-1" }]) }),

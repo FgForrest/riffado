@@ -6,6 +6,7 @@ import { generateServerWaveform } from "@/lib/audio/server-waveform";
 import { DEFAULT_BUCKETS } from "@/lib/audio/waveform";
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { requireRecordingAccess } from "@/lib/sharing/access";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 
 type IdContext = { params: Promise<{ id: string }> };
@@ -16,6 +17,19 @@ const MIN_PEAKS = 32;
 export const POST = apiHandler<IdContext>(async (request, context) => {
     const session = await requireApiSession(request);
     const { id } = await (context as IdContext).params;
+    // Client-computed peaks are only taken from the owner; anyone else who
+    // can see the recording asks for server-computed ones (PUT).
+    const { ownerUserId, role } = await requireRecordingAccess(
+        session.user.id,
+        id,
+    );
+    if (role !== "owner") {
+        throw new AppError(
+            ErrorCode.RECORDING_NOT_FOUND,
+            "Recording not found",
+            404,
+        );
+    }
 
     let body: unknown;
     try {
@@ -63,7 +77,7 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
         .where(
             and(
                 eq(recordings.id, id),
-                eq(recordings.userId, session.user.id),
+                eq(recordings.userId, ownerUserId),
                 isNull(recordings.deletedAt),
             ),
         )
@@ -91,7 +105,7 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
         .where(
             and(
                 eq(recordings.id, id),
-                eq(recordings.userId, session.user.id),
+                eq(recordings.userId, ownerUserId),
                 isNull(recordings.deletedAt),
                 isNull(recordings.waveformPeaks),
             ),
@@ -105,6 +119,7 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
 export const PUT = apiHandler<IdContext>(async (request, context) => {
     const session = await requireApiSession(request);
     const { id } = await (context as IdContext).params;
+    const { ownerUserId } = await requireRecordingAccess(session.user.id, id);
 
     const [recording] = await db
         .select({
@@ -117,7 +132,7 @@ export const PUT = apiHandler<IdContext>(async (request, context) => {
         .where(
             and(
                 eq(recordings.id, id),
-                eq(recordings.userId, session.user.id),
+                eq(recordings.userId, ownerUserId),
                 isNull(recordings.deletedAt),
             ),
         )
@@ -141,7 +156,7 @@ export const PUT = apiHandler<IdContext>(async (request, context) => {
         );
     }
 
-    const storage = await createUserStorageProvider(session.user.id);
+    const storage = await createUserStorageProvider(ownerUserId);
     const audio = await storage.downloadFile(recording.storagePath);
     const peaks = await generateServerWaveform(audio, DEFAULT_BUCKETS);
 
@@ -151,7 +166,7 @@ export const PUT = apiHandler<IdContext>(async (request, context) => {
         .where(
             and(
                 eq(recordings.id, id),
-                eq(recordings.userId, session.user.id),
+                eq(recordings.userId, ownerUserId),
                 isNull(recordings.deletedAt),
                 isNull(recordings.waveformPeaks),
             ),

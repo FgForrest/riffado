@@ -26,6 +26,35 @@ const baseEnvSchema = z.object({
     /** Self-host topology. Ignored by hosted deployments. */
     SELF_HOST_MODE: z.enum(["local", "shared"]).optional().default("shared"),
 
+    /**
+     * Organization account for the shared Organization scope. Self-host with
+     * SELF_HOST_MODE=shared only; both must be set to enable the scope.
+     */
+    ORG_ACCOUNT_EMAIL: z
+        .string()
+        .optional()
+        .transform((val) => {
+            const trimmed = val?.trim().toLowerCase();
+            return trimmed ? trimmed : undefined;
+        })
+        .refine(
+            (val) =>
+                val === undefined || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val),
+            { message: "ORG_ACCOUNT_EMAIL must be an email address" },
+        ),
+    ORG_ACCOUNT_PASSWORD: z
+        .string()
+        .optional()
+        .transform((val) => (val === "" ? undefined : val))
+        .refine((val) => val === undefined || val.length >= 12, {
+            message: "ORG_ACCOUNT_PASSWORD must be at least 12 characters",
+        }),
+    /** Display name of the organization account. Defaults to "Organization". */
+    ORG_ACCOUNT_NAME: z
+        .string()
+        .optional()
+        .transform((val) => (val?.trim() ? val.trim() : undefined)),
+
     /** Disable email/password sign-up. */
     DISABLE_REGISTRATION: z
         .string()
@@ -722,6 +751,18 @@ export const envSchema = baseEnvSchema.superRefine((parsed, ctx) => {
         }
     }
 
+    if (
+        Boolean(parsed.ORG_ACCOUNT_EMAIL) !==
+        Boolean(parsed.ORG_ACCOUNT_PASSWORD)
+    ) {
+        ctx.addIssue({
+            code: "custom",
+            path: ["ORG_ACCOUNT_PASSWORD"],
+            message:
+                "ORG_ACCOUNT_EMAIL and ORG_ACCOUNT_PASSWORD must be set together",
+        });
+    }
+
     const currentPriceIds = [
         parsed.STRIPE_PRICE_ID_USD,
         parsed.STRIPE_PRICE_ID_EUR,
@@ -758,6 +799,9 @@ function validateEnv(): Env {
         const parsed = envSchema.parse({
             IS_HOSTED: process.env.IS_HOSTED,
             SELF_HOST_MODE: process.env.SELF_HOST_MODE,
+            ORG_ACCOUNT_EMAIL: process.env.ORG_ACCOUNT_EMAIL,
+            ORG_ACCOUNT_PASSWORD: process.env.ORG_ACCOUNT_PASSWORD,
+            ORG_ACCOUNT_NAME: process.env.ORG_ACCOUNT_NAME,
             DISABLE_REGISTRATION: process.env.DISABLE_REGISTRATION,
             DISABLE_UPDATE_CHECK: process.env.DISABLE_UPDATE_CHECK,
             DATABASE_URL: process.env.DATABASE_URL,

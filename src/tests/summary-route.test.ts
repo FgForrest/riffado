@@ -14,6 +14,15 @@ import { beforeEach, describe, expect, it, type Mock, vi } from "vitest";
  *      object it always did.
  */
 
+vi.mock("@/lib/org/config", () => ({
+    isOrgScopeVisible: () => false,
+    isOrgScopeEnabled: () => false,
+    getOrgUserId: async () => null,
+    assertOrgScopeWritable: () => {},
+    isOrgAccount: async () => false,
+    assertNotOrgAccount: async () => {},
+}));
+
 vi.mock("@/lib/posthog-server", () => ({
     captureServerEvent: vi.fn().mockResolvedValue(undefined),
     captureServerException: vi.fn(),
@@ -40,6 +49,44 @@ vi.mock("@/lib/summary/read-summary", () => ({
     readStoredSummaries: vi.fn(),
 }));
 vi.mock("@/db/queries/async-jobs", () => ({ getActiveJob: vi.fn() }));
+
+const { recordingAccess } = vi.hoisted(() => ({
+    recordingAccess: { exists: true },
+}));
+
+// Ownership lives in the access layer, which has its own tests against a
+// real database; here it answers "owner" unless a test says otherwise.
+vi.mock("@/lib/sharing/access", async () => {
+    const { AppError, ErrorCode } =
+        await vi.importActual<typeof import("@/lib/errors")>("@/lib/errors");
+    return {
+        requestedRecordingView: (request: Request) =>
+            new URL(request.url).searchParams.get("view") === "org"
+                ? "org"
+                : "private",
+        recordingJobSubject: (id: string, view: string) =>
+            view === "org" ? `org:${id}` : id,
+        requireRecordingView: vi.fn(async (userId: string, id: string) => {
+            if (!recordingAccess.exists) {
+                throw new AppError(
+                    ErrorCode.RECORDING_NOT_FOUND,
+                    "Recording not found",
+                    404,
+                );
+            }
+            return {
+                recordingId: id,
+                ownerUserId: userId,
+                contentUserId: userId,
+                role: "owner",
+                shared: false,
+                orgUserId: null,
+                view: "private",
+            };
+        }),
+    };
+});
+vi.mock("@/lib/sharing/jobs", () => ({ getJobVisibleTo: vi.fn() }));
 
 // `apiHandler` wraps the route in a try/catch that maps thrown AppErrors to
 // status codes. The real implementation is used so a regression in error
@@ -72,6 +119,7 @@ import { enqueueSummaryJob } from "@/lib/summary/summary-job";
 
 /** The recording-ownership check the route makes before queueing anything. */
 function stubRecordingExists(exists = true) {
+    recordingAccess.exists = exists;
     selectMock.mockReturnValue({
         from: () => ({
             where: () => ({
@@ -144,6 +192,7 @@ describe("POST /api/recordings/[id]/summary (manual)", () => {
             recordingId: "rec-1",
             presetId: "meeting-notes",
             trigger: "manual",
+            view: "private",
         });
     });
 
@@ -155,6 +204,7 @@ describe("POST /api/recordings/[id]/summary (manual)", () => {
             recordingId: "rec-1",
             presetId: undefined,
             trigger: "manual",
+            view: "private",
         });
     });
 
@@ -176,6 +226,7 @@ describe("POST /api/recordings/[id]/summary (manual)", () => {
             recordingId: "rec-1",
             presetId: undefined,
             trigger: "manual",
+            view: "private",
         });
     });
 

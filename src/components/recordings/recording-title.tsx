@@ -16,11 +16,14 @@ export function RecordingTitle({
     filename,
     onRenamed,
     className,
+    readOnly = false,
 }: {
     recordingId: string;
     filename: string;
     onRenamed?: (filename: string) => void;
     className?: string;
+    /** Someone else's recording: shown, never renamed. */
+    readOnly?: boolean;
 }) {
     const i18n = useExtracted();
     const [editing, setEditing] = useState(false);
@@ -90,6 +93,12 @@ export function RecordingTitle({
             setSaving(false);
         }
     };
+
+    if (readOnly) {
+        return (
+            <span className={cn("block truncate", className)}>{filename}</span>
+        );
+    }
 
     if (editing) {
         return (

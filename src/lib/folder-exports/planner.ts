@@ -14,12 +14,18 @@ import {
 } from "@/db/schema";
 import { decryptText } from "@/lib/encryption/fields";
 import { getRecordingMarkdownDocument } from "@/lib/export/document-sidecars";
-import { listFolderOrganization } from "@/lib/folders/folders";
+import { listExportFolderOrganization } from "@/lib/folders/folders";
 import {
     descendantFolderIds,
     exportPlacementFolderIds,
     relativeFolderChain,
 } from "@/lib/folders/hierarchy";
+import { isOrgAccount } from "@/lib/org/config";
+import { sharedRecordingCondition } from "@/lib/sharing/shared";
+import {
+    readOrgViewSummaryRows,
+    readOrgViewTranscriptRows,
+} from "@/lib/sharing/view-content";
 import type { RecordingFolder } from "@/types/folder";
 import { enqueueExportMaterialization } from "./jobs";
 import {
@@ -153,44 +159,66 @@ export async function planFolderExport(
         .limit(1);
     if (!configuration) return 0;
 
-    const organization = await listFolderOrganization(userId);
+    // The organization account exports the Organization view of every
+    // shared recording: its own rows, else the owner's, under the owner's
+    // audio. Everyone else exports their own library.
+    const isOrg = await isOrgAccount(userId);
+    const organization = await listExportFolderOrganization(userId);
     const configSubtree = descendantFolderIds(
         organization.folders,
         configuration.folderId,
     );
+    const recordingRows = await db
+        .select()
+        .from(recordings)
+        .where(
+            and(
+                isOrg
+                    ? sharedRecordingCondition(userId)
+                    : eq(recordings.userId, userId),
+                isNull(recordings.deletedAt),
+            ),
+        );
+    const refs = recordingRows.map((row) => ({
+        id: row.id,
+        ownerUserId: row.userId,
+    }));
     const [
-        recordingRows,
         transcriptRows,
         summaryRows,
         existingStates,
         existingDirectories,
         existingPlacements,
     ] = await Promise.all([
-        db
-            .select()
-            .from(recordings)
-            .where(
-                and(
-                    eq(recordings.userId, userId),
-                    isNull(recordings.deletedAt),
-                ),
-            ),
-        db
-            .select({
-                id: transcriptions.id,
-                recordingId: transcriptions.recordingId,
-                source: transcriptions.source,
-            })
-            .from(transcriptions)
-            .where(eq(transcriptions.userId, userId)),
-        db
-            .select({
-                id: aiEnhancements.id,
-                recordingId: aiEnhancements.recordingId,
-                source: aiEnhancements.source,
-            })
-            .from(aiEnhancements)
-            .where(eq(aiEnhancements.userId, userId)),
+        isOrg
+            ? readOrgViewTranscriptRows(refs, userId).then(({ rows }) =>
+                  rows.map((row) => ({
+                      id: row.id,
+                      recordingId: row.recordingId,
+                      source: row.source,
+                      userId: row.userId,
+                  })),
+              )
+            : db
+                  .select({
+                      id: transcriptions.id,
+                      recordingId: transcriptions.recordingId,
+                      source: transcriptions.source,
+                      userId: transcriptions.userId,
+                  })
+                  .from(transcriptions)
+                  .where(eq(transcriptions.userId, userId)),
+        isOrg
+            ? readOrgViewSummaryRows(refs, userId)
+            : db
+                  .select({
+                      id: aiEnhancements.id,
+                      recordingId: aiEnhancements.recordingId,
+                      source: aiEnhancements.source,
+                      userId: aiEnhancements.userId,
+                  })
+                  .from(aiEnhancements)
+                  .where(eq(aiEnhancements.userId, userId)),
         db
             .select({
                 id: folderExportMaterializations.id,
@@ -417,10 +445,12 @@ export async function planFolderExport(
                 (row) => row.recordingId === recording.id,
             )) {
                 const document = await getRecordingMarkdownDocument(
-                    userId,
+                    transcript.userId,
                     recording.id,
                     "transcript",
                     transcript.source,
+                    recording.userId,
+                    isOrg,
                 );
                 if (!document) continue;
                 const content = Buffer.from(document.content);
@@ -438,10 +468,12 @@ export async function planFolderExport(
                 (row) => row.recordingId === recording.id,
             )) {
                 const document = await getRecordingMarkdownDocument(
-                    userId,
+                    summary.userId,
                     recording.id,
                     "summary",
                     summary.source,
+                    recording.userId,
+                    isOrg,
                 );
                 if (!document) continue;
                 const content = Buffer.from(document.content);

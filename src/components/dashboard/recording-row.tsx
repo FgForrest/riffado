@@ -133,34 +133,41 @@ export function RecordingRow({
                         >
                             <Download /> {i18n("Download audio")}
                         </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                            variant="destructive"
-                            onSelect={(e) => {
-                                // Keep menu mounted so confirm dialog can take focus.
-                                e.preventDefault();
-                                void confirm({
-                                    title: i18n("Delete this recording?"),
-                                    description: (
-                                        <>
-                                            <span className="font-medium text-foreground">
-                                                {recording.filename}
-                                            </span>
-                                            <br />{" "}
-                                            {i18n(
-                                                "The audio file and any transcript or summary will be removed. If the file is still on your Plaud device, the next sync will re-download it.",
-                                            )}
-                                        </>
-                                    ),
-                                    confirmLabel: i18n("Delete"),
-                                    pendingLabel: i18n("Deleting…"),
-                                    destructive: true,
-                                    onConfirm: () => onDelete(recording),
-                                });
-                            }}
-                        >
-                            <Trash2 /> {i18n("Delete")}
-                        </DropdownMenuItem>
+                        {recording.isOwn !== false && (
+                            <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                    variant="destructive"
+                                    onSelect={(e) => {
+                                        // Keep menu mounted so confirm dialog can take focus.
+                                        e.preventDefault();
+                                        void confirm({
+                                            title: i18n(
+                                                "Delete this recording?",
+                                            ),
+                                            description: (
+                                                <>
+                                                    <span className="font-medium text-foreground">
+                                                        {recording.filename}
+                                                    </span>
+                                                    <br />{" "}
+                                                    {i18n(
+                                                        "The audio file and any transcript or summary will be removed. If the file is still on your Plaud device, the next sync will re-download it.",
+                                                    )}
+                                                </>
+                                            ),
+                                            confirmLabel: i18n("Delete"),
+                                            pendingLabel: i18n("Deleting…"),
+                                            destructive: true,
+                                            onConfirm: () =>
+                                                onDelete(recording),
+                                        });
+                                    }}
+                                >
+                                    <Trash2 /> {i18n("Delete")}
+                                </DropdownMenuItem>
+                            </>
+                        )}
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>

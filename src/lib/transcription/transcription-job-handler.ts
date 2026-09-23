@@ -72,12 +72,14 @@ export const transcriptionJobHandler: JobHandler<TranscriptionJobPayload> = {
             : isRetryableError(error),
 
     async run({ payload, userId }): Promise<JobResult> {
-        const allowed = await allowManualArtifactGeneration(
-            userId,
-            payload.recordingId,
-            "transcript",
-            payload.trigger === "manual",
-        );
+        const allowed =
+            payload.view === "org" ||
+            (await allowManualArtifactGeneration(
+                userId,
+                payload.recordingId,
+                "transcript",
+                payload.trigger === "manual",
+            ));
         if (!allowed) {
             throw new CompletedTranscriptionFailure(
                 ErrorCode.RECORDING_DATA_REAPED,
@@ -91,6 +93,7 @@ export const transcriptionJobHandler: JobHandler<TranscriptionJobPayload> = {
             model: payload.model,
             attributionSource: payload.attributionSource,
             force: payload.force,
+            view: payload.view,
         });
         if (!result.success) throw failedResultError(result.errorCode);
         return { transcribed: true };

@@ -31,11 +31,21 @@ export function RecordingPlayerHeader({
     onRenamed,
 }: RecordingPlayerHeaderProps) {
     const locale = useLocale();
+    const i18n = useExtracted();
     const metaParts: string[] = [
         formatDateTime(recording.startTime, "relative", locale),
         formatDuration(recording.duration / 1000),
         formatBytes(recording.filesize),
     ];
+    if (recording.view === "org") {
+        metaParts.push(
+            recording.isOwn
+                ? i18n("Organization view")
+                : i18n("Shared by {owner}", {
+                      owner: recording.ownerName ?? i18n("a colleague"),
+                  }),
+        );
+    }
 
     return (
         <header className="flex min-w-0 items-start justify-between gap-4 px-1">
@@ -45,6 +55,7 @@ export function RecordingPlayerHeader({
                         recordingId={recording.id}
                         filename={recording.filename}
                         onRenamed={onRenamed}
+                        readOnly={recording.isOwn === false}
                         className="text-xl font-semibold tracking-tight sm:text-2xl"
                     />
                 </h1>

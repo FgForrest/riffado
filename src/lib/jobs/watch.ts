@@ -45,6 +45,8 @@ export interface WatchJobOptions {
     signal?: AbortSignal;
     sleep?: (ms: number) => Promise<void>;
     now?: () => number;
+    /** How to read the row; defaults to the owner-scoped lookup. */
+    readJob?: (jobId: string, userId: string) => Promise<AsyncJobRow | null>;
 }
 
 export interface WatchJobResult {
@@ -85,7 +87,7 @@ export async function watchJob(
     for (;;) {
         if (opts.signal?.aborted) return { row: null, reason: "aborted" };
 
-        const row = await getJobForUser(jobId, userId);
+        const row = await (opts.readJob ?? getJobForUser)(jobId, userId);
         opts.onPoll?.(row);
 
         if (!row) return { row: null, reason: "missing" };

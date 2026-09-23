@@ -23,6 +23,7 @@ import { OnboardingDialog } from "@/components/onboarding-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { useAutoSync } from "@/hooks/use-auto-sync";
 import { useListKeyboardNav } from "@/hooks/use-list-keyboard-nav";
+import { useOrgEvents } from "@/hooks/use-org-events";
 import { useTheme } from "@/hooks/use-theme";
 import { useTranscribeQueue } from "@/hooks/use-transcribe-queue";
 import { useUploadQueue } from "@/hooks/use-upload-queue";
@@ -37,6 +38,7 @@ import {
     reconcileFilenameOverrides,
 } from "@/lib/recordings/filename-overrides";
 import type { InitialSettings } from "@/lib/settings/initial-settings";
+import { recordingJobSubject } from "@/lib/sharing/view";
 import { SYNC_CONFIG } from "@/lib/sync-config";
 import { cn } from "@/lib/utils";
 import type { FolderOrganization, RecordingFolder } from "@/types/folder";
@@ -62,6 +64,14 @@ interface Provider {
 }
 
 const EMPTY_PROVIDERS: Provider[] = [];
+const EMPTY_RECORDINGS: Recording[] = [];
+
+/** Shared recordings, read through their Organization view. */
+export interface OrganizationLibrary {
+    recordings: Recording[];
+    transcriptions: Map<string, TranscriptionData>;
+    transcriptVariants: Map<string, TranscriptOption[]>;
+}
 
 interface WorkstationProps {
     recordings: Recording[];
@@ -97,6 +107,10 @@ interface WorkstationProps {
     isHosted: boolean;
     filesystemExportsAvailable: boolean;
     initialFolderOrganization: FolderOrganization;
+    /** Null when the Organization scope is not enabled. */
+    organizationLibrary?: OrganizationLibrary | null;
+    /** The organization account: no private library, only the Organization. */
+    isOrgAccount?: boolean;
 }
 
 /**
@@ -126,12 +140,21 @@ export function Workstation({
     isHosted,
     filesystemExportsAvailable,
     initialFolderOrganization,
+    organizationLibrary = null,
+    isOrgAccount = false,
 }: WorkstationProps) {
     const i18n = useExtracted();
     const { refresh } = useRouter();
+    // A stable empty list: a fresh `[]` per render would re-run every effect
+    // that depends on it, and one of them resets optimistic renames.
+    const orgRecordings = organizationLibrary?.recordings ?? EMPTY_RECORDINGS;
+    // The organization account has no library of its own; its "recent" list
+    // is the Organization's.
+    const libraryRecordings = isOrgAccount ? orgRecordings : recordings;
     const [currentRecording, setCurrentRecording] = useState<Recording | null>(
-        recordings.length > 0 ? recordings[0] : null,
+        libraryRecordings.length > 0 ? libraryRecordings[0] : null,
     );
+    const [orgContentRevision, setOrgContentRevision] = useState(0);
     const [settingsOpen, setSettingsOpen] = useState(false);
     // Auto-opens on first paint when the account hasn't finished
     // onboarding yet (server-supplied truth, re-evaluated on every fresh
@@ -167,9 +190,19 @@ export function Workstation({
     useEffect(() => {
         if (initialFolderQueryHandled.current) return;
         initialFolderQueryHandled.current = true;
-        const folderId = new URLSearchParams(window.location.search).get(
-            "folder",
-        );
+        const params = new URLSearchParams(window.location.search);
+        const recordingId = params.get("recording");
+        if (recordingId) {
+            const linked = (
+                params.get("view") === "org" ? orgRecordings : recordings
+            ).find((recording) => recording.id === recordingId);
+            if (linked) {
+                setCurrentRecording(linked);
+                setMobileView("detail");
+                return;
+            }
+        }
+        const folderId = params.get("folder");
         if (
             folderId &&
             initialFolderOrganization.folders.some(
@@ -180,7 +213,7 @@ export function Workstation({
             setSelectedFolderId(folderId);
             setMobileView("detail");
         }
-    }, [initialFolderOrganization.folders]);
+    }, [initialFolderOrganization.folders, orgRecordings, recordings]);
 
     useEffect(() => {
         setFolderOrganization(initialFolderOrganization);
@@ -190,22 +223,47 @@ export function Workstation({
     const visibleRecordings = useMemo(
         () =>
             applyFilenameOverrides(
-                recordings.filter((r) => !hiddenIds.has(r.id)),
+                libraryRecordings.filter((r) => !hiddenIds.has(r.id)),
                 filenameOverrides,
             ),
-        [recordings, hiddenIds, filenameOverrides],
+        [libraryRecordings, hiddenIds, filenameOverrides],
+    );
+    const visibleOrgRecordings = useMemo(
+        () =>
+            applyFilenameOverrides(
+                orgRecordings.filter((r) => !hiddenIds.has(r.id)),
+                filenameOverrides,
+            ),
+        [orgRecordings, hiddenIds, filenameOverrides],
+    );
+    // Everything the folder tree counts: own recordings for Private, shared
+    // ones for the Organization tree.
+    const treeRecordings = useMemo(
+        () =>
+            isOrgAccount
+                ? visibleOrgRecordings
+                : [...visibleRecordings, ...visibleOrgRecordings],
+        [isOrgAccount, visibleOrgRecordings, visibleRecordings],
     );
 
+    const currentIsOrgView = currentRecording?.view === "org";
     const currentTranscription = currentRecording
-        ? transcriptions.get(currentRecording.id)
+        ? (currentIsOrgView
+              ? organizationLibrary?.transcriptions
+              : transcriptions
+          )?.get(currentRecording.id)
         : undefined;
     const currentTranscriptVariants = currentRecording
-        ? transcriptVariants?.get(currentRecording.id)
+        ? (currentIsOrgView
+              ? organizationLibrary?.transcriptVariants
+              : transcriptVariants
+          )?.get(currentRecording.id)
         : undefined;
 
     const selectedRecording = currentRecording
-        ? (visibleRecordings.find((r) => r.id === currentRecording.id) ??
-          currentRecording)
+        ? ((currentIsOrgView ? visibleOrgRecordings : visibleRecordings).find(
+              (r) => r.id === currentRecording.id,
+          ) ?? currentRecording)
         : null;
     const selectedFolder = selectedFolderId
         ? (folderOrganization.folders.find(
@@ -219,7 +277,9 @@ export function Workstation({
     useEffect(() => {
         setCurrentRecording((prev) => {
             if (!prev) return prev;
-            const updated = recordings.find((r) => r.id === prev.id);
+            const updated = (
+                prev.view === "org" ? orgRecordings : recordings
+            ).find((r) => r.id === prev.id);
             return updated ?? null;
         });
         // When server data comes back, clear any optimistic hides whose
@@ -234,9 +294,12 @@ export function Workstation({
             return next.size === prev.size ? prev : next;
         });
         setFilenameOverrides((prev) =>
-            reconcileFilenameOverrides(recordings, prev),
+            reconcileFilenameOverrides(
+                isOrgAccount ? orgRecordings : recordings,
+                prev,
+            ),
         );
-    }, [recordings]);
+    }, [isOrgAccount, recordings, orgRecordings]);
 
     const {
         isAutoSyncing,
@@ -334,7 +397,10 @@ export function Workstation({
 
     useEffect(() => {
         if (currentRecording) {
-            void observeTranscriptionById(currentRecording.id);
+            void observeTranscriptionById(
+                currentRecording.id,
+                currentRecording.view,
+            );
         }
     }, [currentRecording, observeTranscriptionById]);
 
@@ -348,15 +414,72 @@ export function Workstation({
     );
     const isCurrentTranscribing =
         currentRecording !== null &&
-        inFlightActions.get(currentRecording.id) === "transcribing";
+        inFlightActions.get(
+            recordingJobSubject(
+                currentRecording.id,
+                currentRecording.view ?? "private",
+            ),
+        ) === "transcribing";
     const isProcessing = anyTranscribing || isUploading;
+    // The organization account's library is the Organization view: its
+    // transcripts, and its in-flight work keyed by the Organization subject.
+    const libraryTranscriptions = isOrgAccount
+        ? (organizationLibrary?.transcriptions ?? transcriptions)
+        : transcriptions;
+    const libraryInFlightActions = useMemo(() => {
+        if (!isOrgAccount) return inFlightActions;
+        const prefix = recordingJobSubject("", "org");
+        return new Map(
+            [...inFlightActions].flatMap(([key, kind]) =>
+                key.startsWith(prefix)
+                    ? [[key.slice(prefix.length), kind] as const]
+                    : [],
+            ),
+        );
+    }, [inFlightActions, isOrgAccount]);
 
     const handleTranscribe = useCallback(
         async (attributionSource?: string) => {
             if (!currentRecording) return;
-            await transcribeById(currentRecording.id, attributionSource);
+            await transcribeById(
+                currentRecording.id,
+                attributionSource,
+                currentRecording.view,
+            );
         },
         [currentRecording, transcribeById],
+    );
+
+    // Other people's changes to the Organization arrive as invalidations.
+    // Tree changes refresh the server data; a change to the recording on
+    // screen also remounts its panels so they refetch the summary.
+    const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const currentRecordingRef = useRef(currentRecording);
+    currentRecordingRef.current = currentRecording;
+    const libraryIdsRef = useRef(new Set<string>());
+    libraryIdsRef.current = new Set(
+        [...recordings, ...orgRecordings].map((recording) => recording.id),
+    );
+    useOrgEvents(organizationLibrary !== null, (event) => {
+        if (event.type === "recording") {
+            // Refetching the whole dashboard is not cheap; only for a
+            // recording this viewer actually has in a list.
+            if (!libraryIdsRef.current.has(event.recordingId)) return;
+            if (
+                currentRecordingRef.current?.view === "org" &&
+                currentRecordingRef.current.id === event.recordingId
+            ) {
+                setOrgContentRevision((revision) => revision + 1);
+            }
+        }
+        if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = setTimeout(() => refresh(), 300);
+    });
+    useEffect(
+        () => () => {
+            if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+        },
+        [],
     );
 
     const handleDelete = useCallback(
@@ -437,11 +560,21 @@ export function Workstation({
 
     const handleRenameFolder = useCallback(
         async (folderId: string, name: string) => {
+            const version = folderOrganization.folders.find(
+                (folder) => folder.id === folderId,
+            )?.version;
             const response = await fetch(`/api/folders/${folderId}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ name }),
+                body: JSON.stringify({ name, version }),
             });
+            if (response.status === 409) {
+                refresh();
+                toast.error(
+                    i18n("Someone else changed this folder. Try again."),
+                );
+                throw new Error(i18n("Could not rename folder"));
+            }
             if (!response.ok) {
                 toast.error(
                     await getApiErrorMessage(
@@ -462,7 +595,7 @@ export function Workstation({
             }));
             toast.success(i18n("Folder renamed"));
         },
-        [i18n],
+        [folderOrganization.folders, i18n, refresh],
     );
 
     const handleMoveFolder = useCallback(
@@ -520,11 +653,22 @@ export function Workstation({
                     }),
                 };
             });
+            const version = previous.folders.find(
+                (folder) => folder.id === folderId,
+            )?.version;
             const response = await fetch(`/api/folders/${folderId}`, {
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ parentId, beforeId }),
+                body: JSON.stringify({ parentId, beforeId, version }),
             });
+            if (response.status === 409) {
+                setFolderOrganization(previous);
+                refresh();
+                toast.error(
+                    i18n("Someone else changed this folder. Try again."),
+                );
+                throw new Error(i18n("Could not move folder"));
+            }
             if (!response.ok) {
                 setFolderOrganization(previous);
                 toast.error(
@@ -535,9 +679,17 @@ export function Workstation({
                 );
                 throw new Error(i18n("Could not move folder"));
             }
+            setFolderOrganization((current) => ({
+                ...current,
+                folders: current.folders.map((folder) =>
+                    folder.id === folderId
+                        ? { ...folder, version: folder.version + 1 }
+                        : folder,
+                ),
+            }));
             toast.success(i18n("Folder moved"));
         },
-        [folderOrganization, i18n],
+        [folderOrganization, i18n, refresh],
     );
 
     const handleDeleteFolder = useCallback(
@@ -579,6 +731,15 @@ export function Workstation({
                     ),
                 };
             });
+            // Deleting an Organization folder refiles its recordings in the
+            // Organization root; only the server knows where they landed.
+            if (
+                folderOrganization.folders.find(
+                    (folder) => folder.id === folderId,
+                )?.scope === "org"
+            ) {
+                refresh();
+            }
             setSelectedFolderId((current) => {
                 if (!current || !deletedIds.has(current)) return current;
                 return (
@@ -589,7 +750,7 @@ export function Workstation({
             });
             toast.success(i18n("Folder deleted"));
         },
-        [folderOrganization.folders, i18n],
+        [folderOrganization.folders, i18n, refresh],
     );
 
     const handleFolderAssignment = useCallback(
@@ -635,6 +796,63 @@ export function Workstation({
                 );
                 throw new Error(i18n("Could not update folder assignment"));
             }
+            // Sharing or unsharing changes the Organization library itself.
+            if (
+                folderOrganization.folders.find(
+                    (folder) => folder.id === folderId,
+                )?.scope === "org"
+            ) {
+                refresh();
+            }
+        },
+        [
+            folderOrganization.assignments,
+            folderOrganization.folders,
+            i18n,
+            refresh,
+        ],
+    );
+
+    const handleMoveBetweenFolders = useCallback(
+        async (
+            recordingId: string,
+            fromFolderId: string,
+            toFolderId: string,
+        ) => {
+            const previous = folderOrganization.assignments;
+            setFolderOrganization((current) => ({
+                ...current,
+                assignments: [
+                    ...current.assignments.filter(
+                        (item) =>
+                            item.recordingId !== recordingId ||
+                            item.folderId !== fromFolderId,
+                    ),
+                    { recordingId, folderId: toFolderId },
+                ],
+            }));
+            const response = await fetch(
+                `/api/recordings/${recordingId}/folders`,
+                {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ fromFolderId, toFolderId }),
+                },
+            );
+            if (!response.ok) {
+                setFolderOrganization((current) => ({
+                    ...current,
+                    assignments: previous,
+                }));
+                toast.error(
+                    await getApiErrorMessage(
+                        response,
+                        i18n("Could not move recording"),
+                    ),
+                );
+                throw new Error(i18n("Could not move recording"));
+            }
+            toast.success(i18n("Recording moved"));
         },
         [folderOrganization.assignments, i18n],
     );
@@ -683,6 +901,7 @@ export function Workstation({
                     />
 
                     {visibleRecordings.length === 0 &&
+                    visibleOrgRecordings.length === 0 &&
                     pendingUploads.length === 0 ? (
                         <WorkstationEmptyState
                             isSyncing={isAutoSyncing}
@@ -711,10 +930,10 @@ export function Workstation({
                                     <RecordingList
                                         ref={listRef}
                                         recordings={visibleRecordings}
-                                        transcriptions={transcriptions}
+                                        transcriptions={libraryTranscriptions}
                                         currentRecording={currentRecording}
                                         pendingUploads={pendingUploads}
-                                        inFlightActions={inFlightActions}
+                                        inFlightActions={libraryInFlightActions}
                                         onSelect={(r) => {
                                             setCurrentRecording(r);
                                             setMobileView("detail");
@@ -740,7 +959,7 @@ export function Workstation({
                                         assignments={
                                             folderOrganization.assignments
                                         }
-                                        recordings={visibleRecordings}
+                                        recordings={treeRecordings}
                                         selectedFolderId={selectedFolderId}
                                         onRecent={() => {
                                             setLibraryMode("recent");
@@ -768,6 +987,9 @@ export function Workstation({
                                                 true,
                                             )
                                         }
+                                        onMoveRecording={
+                                            handleMoveBetweenFolders
+                                        }
                                     />
                                 )}
                             </div>
@@ -777,7 +999,11 @@ export function Workstation({
                                     folder={selectedFolder}
                                     folders={folderOrganization.folders}
                                     assignments={folderOrganization.assignments}
-                                    recordings={visibleRecordings}
+                                    recordings={
+                                        selectedFolder.scope === "org"
+                                            ? visibleOrgRecordings
+                                            : visibleRecordings
+                                    }
                                     dateTimeFormat={
                                         initialSettings.dateTimeFormat
                                     }
@@ -794,6 +1020,7 @@ export function Workstation({
                                     filesystemExportsAvailable={
                                         filesystemExportsAvailable
                                     }
+                                    isOrgAccount={isOrgAccount}
                                 />
                             ) : (
                                 <WorkstationDetailPane
@@ -803,7 +1030,11 @@ export function Workstation({
                                     isCurrentTranscribing={
                                         isCurrentTranscribing
                                     }
-                                    visibleRecordings={visibleRecordings}
+                                    visibleRecordings={
+                                        currentIsOrgView
+                                            ? visibleOrgRecordings
+                                            : visibleRecordings
+                                    }
                                     onTranscribe={handleTranscribe}
                                     onTranscribeComplete={refresh}
                                     onSelectRecording={setCurrentRecording}
@@ -849,6 +1080,10 @@ export function Workstation({
                                             false,
                                         )
                                     }
+                                    onMoveBetweenFolders={
+                                        handleMoveBetweenFolders
+                                    }
+                                    contentRevision={orgContentRevision}
                                 />
                             )}
                         </div>
@@ -860,9 +1095,9 @@ export function Workstation({
                 open={paletteOpen}
                 onOpenChange={setPaletteOpen}
                 recordings={visibleRecordings}
-                transcriptions={transcriptions}
+                transcriptions={libraryTranscriptions}
                 currentRecording={currentRecording}
-                inFlightActions={inFlightActions}
+                inFlightActions={libraryInFlightActions}
                 currentTheme={theme}
                 dateTimeFormat={initialSettings.dateTimeFormat}
                 onSelectRecording={(r) => {
@@ -874,7 +1109,14 @@ export function Workstation({
                 onOpenSettings={() => setSettingsOpen(true)}
                 onOpenShortcuts={() => setShortcutsOpen(true)}
                 onSetTheme={setTheme}
-                onTranscribeRecording={transcribeById}
+                onTranscribeRecording={(id) => {
+                    // The organization account's library is the
+                    // Organization view; everyone else's is private.
+                    const recording = visibleRecordings.find(
+                        (candidate) => candidate.id === id,
+                    );
+                    void transcribeById(id, undefined, recording?.view);
+                }}
             />
 
             <ShortcutsDialog

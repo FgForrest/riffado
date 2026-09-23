@@ -51,6 +51,9 @@ type FolderAction =
 type DropPlacement = "before" | "inside" | "after";
 
 const RECORDING_DRAG_TYPE = "application/x-riffado-recording";
+/** Set alongside a recording drag when it starts inside an Organization folder. */
+export const RECORDING_SOURCE_FOLDER_DRAG_TYPE =
+    "application/x-riffado-recording-source-folder";
 
 interface DropTarget {
     folderId: string;
@@ -73,6 +76,21 @@ interface FolderTreeProps {
     ) => Promise<void>;
     onDeleteFolder: (folderId: string) => Promise<void>;
     onAssignRecording: (recordingId: string, folderId: string) => Promise<void>;
+    /** Move a shared recording between Organization folders. */
+    onMoveRecording?: (
+        recordingId: string,
+        fromFolderId: string,
+        toFolderId: string,
+    ) => Promise<void>;
+}
+
+/** Display name of a folder; roots are labelled by what they are. */
+export function useFolderLabel() {
+    const i18n = useExtracted();
+    return (folder: RecordingFolder) =>
+        folder.parentId === null && folder.scope === "org"
+            ? i18n("Organization")
+            : folder.name;
 }
 
 export function FolderTree({
@@ -87,9 +105,11 @@ export function FolderTree({
     onMoveFolder,
     onDeleteFolder,
     onAssignRecording,
+    onMoveRecording,
 }: FolderTreeProps) {
     const i18n = useExtracted();
     const confirm = useConfirm();
+    const folderLabel = useFolderLabel();
     const [query, setQuery] = useState("");
     const [expanded, setExpanded] = useState<Set<string>>(
         () => new Set(folders.map((folder) => folder.id)),
@@ -130,6 +150,9 @@ export function FolderTree({
             folders,
             assignments,
             recordings.map((recording) => recording.id),
+            recordings
+                .filter((recording) => recording.view !== "org")
+                .map((recording) => recording.id),
         );
     }, [assignments, folders, recordings]);
 
@@ -201,6 +224,7 @@ export function FolderTree({
     ): DropPlacement => {
         const dragged = folders.find((folder) => folder.id === draggedFolderId);
         if (!dragged || target.kind !== "custom") return "inside";
+        if (dragged.scope !== target.scope) return "inside";
         const bounds = event.currentTarget.getBoundingClientRect();
         const position = (event.clientY - bounds.top) / bounds.height;
         if (dragged.parentId === target.parentId) {
@@ -217,6 +241,10 @@ export function FolderTree({
         placement: DropPlacement,
     ) => {
         if (draggedId === target.id) return;
+        // A folder never changes tree: Private folders are nobody else's
+        // business and Organization folders are nobody's to take private.
+        const dragged = folders.find((folder) => folder.id === draggedId);
+        if (!dragged || dragged.scope !== target.scope) return;
         if (placement === "inside") {
             void onMoveFolder(draggedId, target.id, null).catch(() => {});
             return;
@@ -344,7 +372,23 @@ export function FolderTree({
                                 event.preventDefault();
                                 setDropTarget(null);
                                 setRecordingDropFolderId(null);
-                                if (folder.kind !== "private") {
+                                const sourceFolderId =
+                                    event.dataTransfer.getData(
+                                        RECORDING_SOURCE_FOLDER_DRAG_TYPE,
+                                    );
+                                if (
+                                    sourceFolderId &&
+                                    folder.scope === "org" &&
+                                    onMoveRecording
+                                ) {
+                                    if (sourceFolderId !== folder.id) {
+                                        void onMoveRecording(
+                                            recordingId,
+                                            sourceFolderId,
+                                            folder.id,
+                                        ).catch(() => {});
+                                    }
+                                } else if (folder.kind !== "private") {
                                     void onAssignRecording(
                                         recordingId,
                                         folder.id,
@@ -372,7 +416,7 @@ export function FolderTree({
                         aria-label={i18n(
                             "{folder}, {count, plural, one {# recording} other {# recordings}}",
                             {
-                                folder: folder.name,
+                                folder: folderLabel(folder),
                                 count: countByFolder.get(folder.id) ?? 0,
                             },
                         )}
@@ -384,7 +428,7 @@ export function FolderTree({
                                 folder.kind !== "custom" && "fill-primary/10",
                             )}
                         />
-                        <span className="truncate">{folder.name}</span>
+                        <span className="truncate">{folderLabel(folder)}</span>
                         <span className="ml-auto text-xs tabular-nums text-muted-foreground">
                             {countByFolder.get(folder.id) ?? 0}
                         </span>
@@ -398,7 +442,7 @@ export function FolderTree({
                                 className="size-7 opacity-100 sm:opacity-0 sm:group-hover/folder:opacity-100 data-[state=open]:opacity-100"
                                 aria-label={i18n(
                                     "Folder actions for {folder}",
-                                    { folder: folder.name },
+                                    { folder: folderLabel(folder) },
                                 )}
                             >
                                 <MoreHorizontal className="size-4" />
@@ -440,9 +484,14 @@ export function FolderTree({
                                                     "Delete “{folder}”?",
                                                     { folder: folder.name },
                                                 ),
-                                                description: i18n(
-                                                    "This folder and all its subfolders will be deleted. Recordings stay intact; only their folder assignments are removed.",
-                                                ),
+                                                description:
+                                                    folder.scope === "org"
+                                                        ? i18n(
+                                                              "This folder and all its subfolders will be deleted for everyone. Their recordings stay shared and move to the Organization folder.",
+                                                          )
+                                                        : i18n(
+                                                              "This folder and all its subfolders will be deleted. Recordings stay intact; only their folder assignments are removed.",
+                                                          ),
                                                 confirmLabel:
                                                     i18n("Delete folder"),
                                                 pendingLabel: i18n("Deleting…"),
@@ -543,7 +592,7 @@ export function FolderTree({
                         </DialogTitle>
                         <DialogDescription>
                             {action?.kind === "create"
-                                ? `Add a folder inside ${action.folder.name}.`
+                                ? `Add a folder inside ${folderLabel(action.folder)}.`
                                 : action?.kind === "rename"
                                   ? i18n("Choose a clear name for this folder.")
                                   : i18n("Choose the new parent folder.")}
@@ -561,11 +610,12 @@ export function FolderTree({
                             {folders
                                 .filter(
                                     (folder) =>
-                                        !descendantsOfAction.has(folder.id),
+                                        !descendantsOfAction.has(folder.id) &&
+                                        folder.scope === action?.folder.scope,
                                 )
                                 .map((folder) => (
                                     <option key={folder.id} value={folder.id}>
-                                        {folder.name}
+                                        {folderLabel(folder)}
                                     </option>
                                 ))}
                         </select>

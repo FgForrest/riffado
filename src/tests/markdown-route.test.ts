@@ -16,6 +16,23 @@ vi.mock("@/lib/export/document-sidecars", () => ({
     getRecordingMarkdownDocument,
 }));
 
+vi.mock("@/lib/sharing/access", () => ({
+    requestedRecordingView: () => "private",
+    requireRecordingView: vi.fn(async (userId: string) => ({
+        ownerUserId: userId,
+        contentUserId: userId,
+    })),
+}));
+
+vi.mock("@/lib/sharing/view-content", () => ({
+    effectiveViewReader: vi.fn(
+        async (_id: string, owners: { contentUserId: string }) => ({
+            userId: owners.contentUserId,
+            fallback: false,
+        }),
+    ),
+}));
+
 import { GET } from "@/app/api/recordings/[id]/markdown/[kind]/route";
 
 function context(kind: string) {
@@ -52,6 +69,9 @@ describe("recording Markdown route", () => {
             "user-1",
             "rec-1",
             "transcript",
+            undefined,
+            "user-1",
+            false,
         );
     });
 

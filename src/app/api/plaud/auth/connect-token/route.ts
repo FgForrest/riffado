@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
+import { assertNotOrgAccount } from "@/lib/org/config";
 import {
     decodeAccessTokenExpiry,
     fetchPlaudUserMeEmail,
@@ -29,6 +30,7 @@ import { isValidPlaudApiUrl } from "@/lib/plaud/servers";
  */
 export const POST = apiHandler(async (request: Request) => {
     const session = await requireApiSession(request);
+    await assertNotOrgAccount(session.user.id);
 
     const body = (await request.json().catch(() => null)) as {
         accessToken?: unknown;

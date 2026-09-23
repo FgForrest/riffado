@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { followJob } from "@/lib/jobs/client";
+import {
+    type RecordingView,
+    recordingJobSubject,
+    withRecordingView,
+} from "@/lib/sharing/view";
 
 type ActionKind = "transcribing" | "summarizing";
 
@@ -22,6 +27,9 @@ interface Options {
  *
  * `markAction` is exposed so future summarize handlers can use the
  * same map without duplicating the Map-update plumbing.
+ *
+ * Entries are keyed by `recordingJobSubject(id, view)`: the private and the
+ * Organization view of one recording transcribe independently.
  */
 export function useTranscribeQueue({ onTranscribeComplete }: Options) {
     const [inFlightActions, setInFlightActions] = useState<
@@ -95,11 +103,16 @@ export function useTranscribeQueue({ onTranscribeComplete }: Options) {
      *     having to first change the selection.
      */
     const transcribeById = useCallback(
-        async (id: string, attributionSource?: string) => {
-            if (!beginTracking(id)) return;
+        async (
+            id: string,
+            attributionSource?: string,
+            view: RecordingView = "private",
+        ) => {
+            const key = recordingJobSubject(id, view);
+            if (!beginTracking(key)) return;
             try {
                 const response = await fetch(
-                    `/api/recordings/${id}/transcribe`,
+                    withRecordingView(`/api/recordings/${id}/transcribe`, view),
                     {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
@@ -113,7 +126,7 @@ export function useTranscribeQueue({ onTranscribeComplete }: Options) {
                     if (!data.jobId) {
                         throw new Error("Transcription job was not returned");
                     }
-                    await followTranscription(id, data.jobId);
+                    await followTranscription(key, data.jobId);
                     return;
                 } else {
                     const error = await response.json();
@@ -122,26 +135,27 @@ export function useTranscribeQueue({ onTranscribeComplete }: Options) {
             } catch {
                 toast.error("Failed to transcribe recording");
             } finally {
-                finishTracking(id);
+                finishTracking(key);
             }
         },
         [beginTracking, finishTracking, followTranscription],
     );
 
     const observeTranscriptionById = useCallback(
-        async (id: string) => {
-            if (activeIdsRef.current.has(id)) return;
+        async (id: string, view: RecordingView = "private") => {
+            const key = recordingJobSubject(id, view);
+            if (activeIdsRef.current.has(key)) return;
             try {
                 const response = await fetch(
-                    `/api/recordings/${id}/transcribe`,
+                    withRecordingView(`/api/recordings/${id}/transcribe`, view),
                     { signal: abortRef.current?.signal },
                 );
                 if (!response.ok) return;
                 const data = (await response.json()) as {
                     activeJob?: { jobId: string };
                 };
-                if (!data.activeJob || !beginTracking(id)) return;
-                await followTranscription(id, data.activeJob.jobId);
+                if (!data.activeJob || !beginTracking(key)) return;
+                await followTranscription(key, data.activeJob.jobId);
             } catch {
                 // Observation is best-effort. The durable job continues even
                 // when this page cannot reach its status endpoint.

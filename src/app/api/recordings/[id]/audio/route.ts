@@ -10,6 +10,7 @@ import {
     contentDispositionAttachment,
     isAudioDownloadRequest,
 } from "@/lib/recordings/filename";
+import { requireRecordingAccess } from "@/lib/sharing/access";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import { getAudioMimeType } from "@/lib/utils";
 
@@ -19,6 +20,7 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
     const session = await requireApiSession(request);
 
     const { id } = await (context as IdContext).params;
+    const { ownerUserId } = await requireRecordingAccess(session.user.id, id);
 
     const [recording] = await db
         .select()
@@ -26,7 +28,7 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
         .where(
             and(
                 eq(recordings.id, id),
-                eq(recordings.userId, session.user.id),
+                eq(recordings.userId, ownerUserId),
                 isNull(recordings.deletedAt),
             ),
         )
@@ -52,7 +54,7 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
         );
     }
 
-    const storage = await createUserStorageProvider(session.user.id);
+    const storage = await createUserStorageProvider(ownerUserId);
     const audioBuffer = await storage.downloadFile(recording.storagePath);
     const contentType = getAudioMimeType(recording.storagePath);
     const fileSize = audioBuffer.length;

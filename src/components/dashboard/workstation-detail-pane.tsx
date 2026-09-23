@@ -61,6 +61,16 @@ interface Props {
         recordingId: string,
         folderId: string,
     ) => Promise<void>;
+    onMoveBetweenFolders?: (
+        recordingId: string,
+        fromFolderId: string,
+        toFolderId: string,
+    ) => Promise<void>;
+    /**
+     * Bumped when someone else changes the Organization view of the current
+     * recording, so its panels reload what they show.
+     */
+    contentRevision?: number;
 }
 
 /**
@@ -96,6 +106,8 @@ export function WorkstationDetailPane({
     onSelectFolder,
     onAddToFolder,
     onRemoveFromFolder,
+    onMoveBetweenFolders,
+    contentRevision = 0,
 }: Props) {
     const i18n = useExtracted();
     const playerRef = useRef<RecordingPlayerHandle>(null);
@@ -133,11 +145,15 @@ export function WorkstationDetailPane({
                         recording={currentRecording}
                         onRenamed={onRenamed}
                         action={
-                            <EraseRecordingMenu
-                                recording={currentRecording}
-                                onDeleteLocal={onDelete}
-                                onChanged={onArtifactsChanged}
-                            />
+                            // Erasing and deleting act on the owner's own
+                            // copy, never on what the Organization view shows.
+                            currentRecording.view === "org" ? undefined : (
+                                <EraseRecordingMenu
+                                    recording={currentRecording}
+                                    onDeleteLocal={onDelete}
+                                    onChanged={onArtifactsChanged}
+                                />
+                            )
                         }
                     />
                     <RecordingFolderTags
@@ -147,6 +163,9 @@ export function WorkstationDetailPane({
                         onSelectFolder={onSelectFolder}
                         onAdd={onAddToFolder}
                         onRemove={onRemoveFromFolder}
+                        isOwn={currentRecording.isOwn !== false}
+                        organizationOnly={currentRecording.view === "org"}
+                        onMove={onMoveBetweenFolders}
                     />
                     {!currentRecording.audioReaped && (
                         <RecordingPlayer
@@ -174,7 +193,7 @@ export function WorkstationDetailPane({
                     )}
                     {(!currentRecording.audioReaped || hasTranscript) && (
                         <TranscriptionPanel
-                            key={`${currentRecording.id}:${currentRecording.audioReaped ? 1 : 0}:${hasTranscript ? 1 : 0}:${currentRecording.hasSummary ? 1 : 0}`}
+                            key={`${currentRecording.id}:${currentRecording.view ?? "private"}:${contentRevision}:${currentRecording.audioReaped ? 1 : 0}:${hasTranscript ? 1 : 0}:${currentRecording.hasSummary ? 1 : 0}`}
                             recording={currentRecording}
                             transcription={currentTranscription}
                             transcripts={transcripts}
