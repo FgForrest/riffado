@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+    paragraphsFromTimedSegments,
     renderTurnsAsText,
     type TranscriptTurn,
     turnsFromLabelledSegments,
@@ -106,5 +107,57 @@ describe("turnsFromLabelledSegments", () => {
 
     it("returns null when there are no usable segments", () => {
         expect(turnsFromLabelledSegments([])).toBeNull();
+    });
+});
+
+describe("paragraphsFromTimedSegments", () => {
+    const seg = (startS: number, endS: number, text: string) => ({
+        startMs: startS * 1000,
+        endMs: endS * 1000,
+        text,
+    });
+
+    it("joins segments spoken without a pause into one speakerless paragraph", () => {
+        expect(
+            paragraphsFromTimedSegments([
+                seg(0, 2, " Ahoj."),
+                seg(2.5, 4, " Jak se máš?"),
+            ]),
+        ).toEqual([
+            { speaker: "", startMs: 0, endMs: 4000, text: "Ahoj. Jak se máš?" },
+        ]);
+    });
+
+    it("starts a new paragraph after a pause", () => {
+        const paragraphs = paragraphsFromTimedSegments([
+            seg(0, 2, "Ahoj."),
+            seg(3.5, 5, "Dobrý den."),
+        ]);
+        expect(paragraphs?.map((p) => p.startMs)).toEqual([0, 3500]);
+    });
+
+    it("ends a long paragraph at the next sentence end, not before", () => {
+        const paragraphs = paragraphsFromTimedSegments([
+            seg(0, 31, "První dlouhá věta, která"),
+            seg(31, 33, "pokračuje."),
+            seg(33, 35, "Druhý odstavec."),
+        ]);
+        expect(paragraphs?.map((p) => p.text)).toEqual([
+            "První dlouhá věta, která pokračuje.",
+            "Druhý odstavec.",
+        ]);
+    });
+
+    it("breaks mid-sentence once a paragraph passes the hard limit", () => {
+        const paragraphs = paragraphsFromTimedSegments([
+            seg(0, 61, "bez tečky"),
+            seg(61, 62, "a dál"),
+        ]);
+        expect(paragraphs).toHaveLength(2);
+    });
+
+    it("skips blank segments and returns null when nothing survives", () => {
+        expect(paragraphsFromTimedSegments([seg(0, 1, "  ")])).toBeNull();
+        expect(paragraphsFromTimedSegments([])).toBeNull();
     });
 });

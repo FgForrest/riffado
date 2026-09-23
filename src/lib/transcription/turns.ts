@@ -85,3 +85,61 @@ export function turnsFromLabelledSegments(
 
     return turns.length > 0 ? turns : null;
 }
+
+/** A pause at least this long starts a new paragraph. */
+const PARAGRAPH_PAUSE_MS = 1500;
+/** Past this length a paragraph ends at the next sentence end. */
+const PARAGRAPH_SOFT_MAX_MS = 30_000;
+/** Past this length a paragraph ends even mid-sentence. */
+const PARAGRAPH_HARD_MAX_MS = 60_000;
+
+const SENTENCE_END = /[.!?…]["'”»)\]]*$/;
+
+/**
+ * Group an undiarized provider's timed segments into speakerless turns, one
+ * per paragraph.
+ *
+ * Whisper-style segments are a sentence or two each: stored as they come,
+ * they read as a column of fragments, and a topic or a seek could only land
+ * on the whole transcript if they were merged into one. So consecutive
+ * segments join until a pause, or until the paragraph has grown long enough
+ * to end at the next sentence. `turnsFromLabelledSegments` cannot do this:
+ * every segment here carries the same empty label, and it would merge them
+ * all into a single turn.
+ *
+ * Returns null when nothing usable survives, like `turnsFromLabelledSegments`.
+ */
+export function paragraphsFromTimedSegments(
+    segments: readonly { startMs: number; endMs: number; text: string }[],
+): TranscriptTurn[] | null {
+    const paragraphs: TranscriptTurn[] = [];
+
+    for (const segment of segments) {
+        const text = segment.text.trim();
+        if (!text) continue;
+
+        const previous = paragraphs.at(-1);
+        if (previous) {
+            const length = previous.endMs - previous.startMs;
+            const endsParagraph =
+                segment.startMs - previous.endMs >= PARAGRAPH_PAUSE_MS ||
+                length >= PARAGRAPH_HARD_MAX_MS ||
+                (length >= PARAGRAPH_SOFT_MAX_MS &&
+                    SENTENCE_END.test(previous.text));
+            if (!endsParagraph) {
+                previous.text = `${previous.text} ${text}`;
+                previous.endMs = Math.max(previous.endMs, segment.endMs);
+                continue;
+            }
+        }
+
+        paragraphs.push({
+            speaker: "",
+            startMs: segment.startMs,
+            endMs: segment.endMs,
+            text,
+        });
+    }
+
+    return paragraphs.length > 0 ? paragraphs : null;
+}
