@@ -54,14 +54,18 @@ export interface ClaimedAsyncJob {
     claimToken: string;
 }
 
-/** Postgres SQLSTATE for unique_violation. */
-const PG_UNIQUE_VIOLATION = "23505";
+/**
+ * A job still to be finished. Also the predicate of `async_jobs_active_unique`,
+ * which `enqueueJob` names as its conflict target, so the two must match.
+ */
+const IS_ACTIVE = sql`${asyncJobs.status} in ('pending', 'processing')`;
 
-function isUniqueViolation(error: unknown): boolean {
-    const code = (error as { code?: unknown })?.code;
-    const causeCode = (error as { cause?: { code?: unknown } })?.cause?.code;
-    return code === PG_UNIQUE_VIOLATION || causeCode === PG_UNIQUE_VIOLATION;
-}
+/**
+ * A queued job that finishes between a conflicting insert and the read that
+ * follows it leaves nothing to return; the next insert then succeeds. More
+ * than a couple of such races in a row means something else is wrong.
+ */
+const ENQUEUE_ATTEMPTS = 3;
 
 /**
  * `db.execute` returns an array on some drivers and `{ rows }` on others.
@@ -104,6 +108,10 @@ export interface EnqueueJobResult {
  * it. When the insert loses that race this returns the winner, so a
  * double-clicked button and a single click are indistinguishable to the
  * caller instead of one of them erroring.
+ *
+ * The insert skips the conflict (`on conflict ... do nothing`) rather than
+ * catching a unique violation: Postgres logs every violation as an ERROR,
+ * and a click that joins a running job is not one.
  */
 export async function enqueueJob(
     input: EnqueueJobInput,
@@ -118,18 +126,24 @@ export async function enqueueJob(
         nextAttemptAt: new Date(Date.now() + (input.delayMs ?? 0)),
     };
 
-    try {
-        const [row] = await db.insert(asyncJobs).values(values).returning();
-        return { job: row as AsyncJobRow, created: true };
-    } catch (error) {
-        if (!isUniqueViolation(error) || !input.subjectId) throw error;
+    for (let attempt = 0; attempt < ENQUEUE_ATTEMPTS; attempt++) {
+        const [row] = await db
+            .insert(asyncJobs)
+            .values(values)
+            .onConflictDoNothing({
+                target: [asyncJobs.kind, asyncJobs.subjectId],
+                where: IS_ACTIVE,
+            })
+            .returning();
+        if (row) return { job: row as AsyncJobRow, created: true };
+        // Only a subject can conflict: NULLs are distinct in the index.
+        if (!input.subjectId) break;
         const active = await getActiveJob(input.kind, input.subjectId);
         if (active) return { job: active, created: false };
-        // The conflicting job would have had to finish between the failed
-        // insert and this read. Vanishingly unlikely, and not worth
-        // swallowing into a confusing retry if something else is wrong.
-        throw error;
     }
+    throw new Error(
+        `Could not queue a ${input.kind} job for ${input.subjectId ?? "no subject"}`,
+    );
 }
 
 /** The pending-or-processing job for a subject, if there is one. */
@@ -144,7 +158,7 @@ export async function getActiveJob(
             and(
                 eq(asyncJobs.kind, kind),
                 eq(asyncJobs.subjectId, subjectId),
-                sql`${asyncJobs.status} in ('pending', 'processing')`,
+                IS_ACTIVE,
             ),
         )
         .limit(1);
@@ -518,7 +532,7 @@ export async function listJobsForUser(
     const filters = [eq(asyncJobs.userId, userId)];
     if (opts.kind) filters.push(eq(asyncJobs.kind, opts.kind));
     if (opts.activeOnly) {
-        filters.push(sql`${asyncJobs.status} in ('pending', 'processing')`);
+        filters.push(IS_ACTIVE);
     }
     const rows = await db
         .select()
