@@ -20,6 +20,7 @@ import {
     adminAuditLog,
     apiRateLimitBuckets,
     asyncJobs,
+    mailDeliveryLog,
     mcpAccessLog,
     sessions,
     stripeWebhookEvents,
@@ -240,6 +241,22 @@ describeWithDatabase("housekeeping prunes (PostgreSQL)", () => {
                 { id: "mcp-old", at: ago(91 * DAY), outcome: "ok" },
                 { id: "mcp-recent", at: ago(89 * DAY), outcome: "ok" },
             ]);
+        await db()
+            .insert(mailDeliveryLog)
+            .values([
+                {
+                    id: "mail-old",
+                    userId: USER,
+                    at: ago(31 * DAY),
+                    outcome: "refused",
+                },
+                {
+                    id: "mail-recent",
+                    userId: USER,
+                    at: ago(29 * DAY),
+                    outcome: "accepted",
+                },
+            ]);
 
         expect(await runHousekeeping()).toEqual({
             async_jobs: 2,
@@ -250,6 +267,7 @@ describeWithDatabase("housekeeping prunes (PostgreSQL)", () => {
             verifications: 1,
             admin_audit_log: 1,
             mcp_access_log: 1,
+            mail_delivery_log: 1,
         });
 
         expect(
@@ -296,6 +314,11 @@ describeWithDatabase("housekeeping prunes (PostgreSQL)", () => {
         expect(
             await ids(db().select({ id: mcpAccessLog.id }).from(mcpAccessLog)),
         ).toEqual(["mcp-recent"]);
+        expect(
+            await ids(
+                db().select({ id: mailDeliveryLog.id }).from(mailDeliveryLog),
+            ),
+        ).toEqual(["mail-recent"]);
     });
 
     function closedBuckets(count: number) {

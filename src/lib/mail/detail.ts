@@ -8,11 +8,15 @@ import {
     mailPendingShares,
     recordingFolderAssignments,
     recordingFolders,
+    users,
 } from "@/db/schema";
 import type { ContentSegment } from "@/lib/content/types";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
+import { type MailAccess, resolveMailAccess } from "@/lib/mail/access";
 import type { MailAuth } from "@/lib/mail/dkim";
 import type { AttachmentMeta } from "@/lib/mail/parse";
+import { secretAddressMasker } from "@/lib/mail/redact";
+import { getOrgUserId } from "@/lib/org/config";
 
 export interface MailParticipantView {
     ref: string;
@@ -22,9 +26,16 @@ export interface MailParticipantView {
     authenticated: boolean;
 }
 
-/** A mail as its detail page shows it. Owner only. */
+/**
+ * A mail as its detail page shows it: to its owner, or read-only to anyone
+ * while it is shared into the Organization.
+ */
 export interface MailDetail {
     id: string;
+    /** The viewer owns it; otherwise it is read through the Organization. */
+    isOwn: boolean;
+    /** Display name of the owner, for whoever else reads it. */
+    ownerName: string | null;
     subject: string;
     occurredAt: string;
     sentAt: string | null;
@@ -38,17 +49,21 @@ export interface MailDetail {
     segments: (Omit<ContentSegment, "at"> & { at: string | null })[];
     attachments: AttachmentMeta[];
     auth: MailAuth | null;
-    /** Organization folders it waits to be shared into (D2). */
+    /** Organization folders it waits to be shared into (D2); owner only. */
     pendingShares: { folderId: string; name: string }[];
-    /** The owner's folders it is filed into. */
+    /** The folders it is filed into the viewer can see. */
     folderIds: string[];
 }
 
-/** The owner's live mail `itemId`, decrypted, or null. */
+/** The live mail `itemId` as `viewerUserId` may read it, decrypted, or null. */
 export async function loadMailDetail(
-    ownerUserId: string,
+    viewerUserId: string,
     itemId: string,
 ): Promise<MailDetail | null> {
+    const access = await resolveMailAccess(viewerUserId, itemId);
+    if (!access) return null;
+    const ownerUserId = access.ownerUserId;
+    const isOwn = access.role === "owner";
     const [row] = await db
         .select({
             id: chatterItems.id,
@@ -63,8 +78,11 @@ export async function loadMailDetail(
             rawStoragePath: mailMessages.rawStoragePath,
             attachments: mailMessages.attachments,
             auth: mailMessages.auth,
+            ownerName: users.name,
+            ownerEmail: users.email,
         })
         .from(chatterItems)
+        .innerJoin(users, eq(users.id, chatterItems.userId))
         .innerJoin(
             mailMessages,
             and(
@@ -81,6 +99,7 @@ export async function loadMailDetail(
         )
         .limit(1);
     if (!row) return null;
+    const orgUserId = isOwn ? null : await getOrgUserId();
     const [participants, [content], pending, assignments] = await Promise.all([
         db
             .select()
@@ -102,22 +121,32 @@ export async function loadMailDetail(
                 ),
             )
             .limit(1),
-        db
-            .select({ folderId: mailPendingShares.folderId })
-            .from(mailPendingShares)
-            .where(
-                and(
-                    eq(mailPendingShares.itemId, itemId),
-                    eq(mailPendingShares.userId, ownerUserId),
-                ),
-            ),
+        isOwn
+            ? db
+                  .select({ folderId: mailPendingShares.folderId })
+                  .from(mailPendingShares)
+                  .where(
+                      and(
+                          eq(mailPendingShares.itemId, itemId),
+                          eq(mailPendingShares.userId, ownerUserId),
+                      ),
+                  )
+            : Promise.resolve([]),
         db
             .select({ folderId: recordingFolderAssignments.folderId })
             .from(recordingFolderAssignments)
+            .innerJoin(
+                recordingFolders,
+                eq(recordingFolders.id, recordingFolderAssignments.folderId),
+            )
             .where(
                 and(
                     eq(recordingFolderAssignments.itemId, itemId),
                     eq(recordingFolderAssignments.userId, ownerUserId),
+                    // The owner's private folders are theirs alone.
+                    orgUserId
+                        ? eq(recordingFolders.userId, orgUserId)
+                        : undefined,
                 ),
             ),
     ]);
@@ -140,9 +169,26 @@ export async function loadMailDetail(
         decryptJsonField<
             (Omit<ContentSegment, "at"> & { at: string | null })[]
         >(content?.segments) ?? [];
+    const people = participants.map((participant) => ({
+        ref: participant.ref,
+        roles: participant.roles,
+        name: participant.name ? decryptText(participant.name) : null,
+        address: participant.address ? decryptText(participant.address) : null,
+        authenticated: participant.authenticated,
+    }));
+    const subject = decryptText(row.title);
+    const mask = isOwn
+        ? (text: string) => text
+        : await secretAddressMasker([
+              subject,
+              ...people.map((person) => person.address ?? ""),
+              ...segments.map((segment) => segment.text),
+          ]);
     return {
         id: row.id,
-        subject: decryptText(row.title),
+        isOwn,
+        ownerName: isOwn ? null : row.ownerName || row.ownerEmail,
+        subject: mask(subject),
         occurredAt: row.occurredAt.toISOString(),
         sentAt: row.sentAt?.toISOString() ?? null,
         receivedAt: row.receivedAt.toISOString(),
@@ -150,18 +196,15 @@ export async function loadMailDetail(
         senderVerified: row.senderVerified,
         autoGenerated: row.autoGenerated,
         unreadable: row.unreadable,
-        hasRaw: row.rawStoragePath !== null,
-        participants: participants.map((participant) => ({
-            ref: participant.ref,
-            roles: participant.roles,
-            name: participant.name ? decryptText(participant.name) : null,
-            address: participant.address
-                ? decryptText(participant.address)
-                : null,
-            authenticated: participant.authenticated,
+        // The message as it arrived carries every header unmasked.
+        hasRaw: isOwn && row.rawStoragePath !== null,
+        participants: people.map((person) => ({
+            ...person,
+            address: person.address ? mask(person.address) : null,
         })),
         segments: segments.map((segment) => ({
             ...segment,
+            text: mask(segment.text),
             at: segment.at ? new Date(segment.at).toISOString() : null,
         })),
         attachments: decryptJsonField<AttachmentMeta[]>(row.attachments) ?? [],
@@ -174,27 +217,25 @@ export async function loadMailDetail(
     };
 }
 
-/** Where the owner's live mail's raw message is stored, or null. */
-export async function mailRawPath(
-    ownerUserId: string,
+/**
+ * Where the raw message of the mail `itemId` is stored, and whose it is, as
+ * `viewerUserId` may read it; null when they may not or it is gone.
+ */
+export async function mailRawFor(
+    viewerUserId: string,
     itemId: string,
-): Promise<string | null> {
+): Promise<{ access: MailAccess; path: string } | null> {
+    const access = await resolveMailAccess(viewerUserId, itemId);
+    if (!access) return null;
     const [row] = await db
         .select({ path: mailMessages.rawStoragePath })
         .from(mailMessages)
-        .innerJoin(
-            chatterItems,
-            and(
-                eq(chatterItems.id, mailMessages.id),
-                eq(chatterItems.userId, mailMessages.userId),
-            ),
-        )
         .where(
             and(
                 eq(mailMessages.id, itemId),
-                eq(mailMessages.userId, ownerUserId),
+                eq(mailMessages.userId, access.ownerUserId),
             ),
         )
         .limit(1);
-    return row?.path ?? null;
+    return row?.path ? { access, path: row.path } : null;
 }

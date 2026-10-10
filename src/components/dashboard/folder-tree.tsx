@@ -16,6 +16,7 @@ import {
 import { useExtracted } from "next-intl";
 import { type DragEvent, useMemo, useState } from "react";
 import { useConfirm } from "@/components/confirm-dialog";
+import { FolderDeletionAddresses } from "@/components/mail/folder-mail-addresses";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -82,6 +83,8 @@ interface FolderTreeProps {
         fromFolderId: string,
         toFolderId: string,
     ) => Promise<void>;
+    /** The instance receives mail: deleting a folder stops its addresses. */
+    mailEnabled?: boolean;
 }
 
 /** Display name of a folder; roots are labelled by what they are. */
@@ -106,6 +109,7 @@ export function FolderTree({
     onDeleteFolder,
     onAssignRecording,
     onMoveRecording,
+    mailEnabled = false,
 }: FolderTreeProps) {
     const i18n = useExtracted();
     const confirm = useConfirm();
@@ -484,14 +488,27 @@ export function FolderTree({
                                                     "Delete “{folder}”?",
                                                     { folder: folder.name },
                                                 ),
-                                                description:
-                                                    folder.scope === "org"
-                                                        ? i18n(
-                                                              "This folder and all its subfolders will be deleted for everyone. Their recordings stay shared and move to the Organization folder.",
-                                                          )
-                                                        : i18n(
-                                                              "This folder and all its subfolders will be deleted. Recordings stay intact; only their folder assignments are removed.",
-                                                          ),
+                                                description: (
+                                                    <>
+                                                        <p>
+                                                            {folder.scope ===
+                                                            "org"
+                                                                ? i18n(
+                                                                      "This folder and all its subfolders will be deleted for everyone. Their recordings stay shared and move to the Organization folder.",
+                                                                  )
+                                                                : i18n(
+                                                                      "This folder and all its subfolders will be deleted. Recordings stay intact; only their folder assignments are removed.",
+                                                                  )}
+                                                        </p>
+                                                        {mailEnabled && (
+                                                            <FolderDeletionAddresses
+                                                                folderId={
+                                                                    folder.id
+                                                                }
+                                                            />
+                                                        )}
+                                                    </>
+                                                ),
                                                 confirmLabel:
                                                     i18n("Delete folder"),
                                                 pendingLabel: i18n("Deleting…"),

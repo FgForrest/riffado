@@ -15,6 +15,7 @@ import { useExtracted, useLocale } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/confirm-dialog";
+import { RecordingFolderTags } from "@/components/recordings/recording-folder-tags";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { formatBytes } from "@/lib/format-bytes";
@@ -22,6 +23,10 @@ import { formatDateTime } from "@/lib/format-date";
 import type { MailDetail, MailParticipantView } from "@/lib/mail/detail";
 import { cn } from "@/lib/utils";
 import type { DateTimeFormat } from "@/types/common";
+import type {
+    RecordingFolder,
+    RecordingFolderAssignment,
+} from "@/types/folder";
 import type { Recording } from "@/types/recording";
 
 interface Props {
@@ -31,6 +36,22 @@ interface Props {
     hiddenOnMobile: boolean;
     /** The mail was deleted or shared: reload the pile. */
     onChanged: () => void;
+    folders: RecordingFolder[];
+    folderAssignments: RecordingFolderAssignment[];
+    onSelectFolder: (folder: RecordingFolder) => void;
+    onAddToFolder: (itemId: string, folderId: string) => Promise<void>;
+    onRemoveFromFolder: (
+        itemId: string,
+        folderId: string,
+        withdraw?: boolean,
+    ) => Promise<void>;
+    onMoveBetweenFolders: (
+        itemId: string,
+        fromFolderId: string,
+        toFolderId: string,
+    ) => Promise<void>;
+    /** The organization account, which may take shared mail out. */
+    isOrgAccount?: boolean;
 }
 
 function person(participant: MailParticipantView): string {
@@ -53,7 +74,8 @@ function withRole(
  * A mail in the Chatter pile: who it is from and to, its own text, its
  * signature, the quoted and forwarded messages (folded), attachments as
  * downloads only, and, on request, its formatted HTML in a sandboxed frame
- * that can run nothing and fetch nothing.
+ * that can run nothing and fetch nothing. A mail shared into the
+ * Organization reads the same for everyone, who cannot delete it.
  */
 export function MailDetailPane({
     mail,
@@ -61,6 +83,13 @@ export function MailDetailPane({
     onBackToList,
     hiddenOnMobile,
     onChanged,
+    folders,
+    folderAssignments,
+    onSelectFolder,
+    onAddToFolder,
+    onRemoveFromFolder,
+    onMoveBetweenFolders,
+    isOrgAccount = false,
 }: Props) {
     const i18n = useExtracted();
     const locale = useLocale();
@@ -182,6 +211,7 @@ export function MailDetailPane({
         });
     }, [confirm, i18n, mail.id, onChanged]);
 
+    const isOwn = mail.isOwn !== false;
     const from = detail ? withRole(detail.participants, "from")[0] : undefined;
     const sender = detail
         ? withRole(detail.participants, "sender")[0]
@@ -216,30 +246,55 @@ export function MailDetailPane({
                         <h2 className="text-lg font-semibold break-words">
                             {mail.filename || i18n("(no subject)")}
                         </h2>
-                        <div className="flex shrink-0 gap-1">
-                            <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={i18n("Download the message")}
-                                asChild
-                            >
-                                <a
-                                    href={`/api/mail/${encodeURIComponent(mail.id)}/raw`}
-                                    download
+                        {isOwn && (
+                            <div className="flex shrink-0 gap-1">
+                                <Button
+                                    variant="ghost"
+                                    size="icon-sm"
+                                    aria-label={i18n("Download the message")}
+                                    asChild
                                 >
-                                    <Download className="size-4" />
-                                </a>
-                            </Button>
-                            <Button
-                                variant="ghost"
-                                size="icon-sm"
-                                aria-label={i18n("Delete")}
-                                onClick={remove}
-                            >
-                                <Trash2 className="size-4" />
-                            </Button>
-                        </div>
+                                    <a
+                                        href={`/api/mail/${encodeURIComponent(mail.id)}/raw`}
+                                        download
+                                    >
+                                        <Download className="size-4" />
+                                    </a>
+                                </Button>
+                                {mail.view !== "org" && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        aria-label={i18n("Delete")}
+                                        onClick={remove}
+                                    >
+                                        <Trash2 className="size-4" />
+                                    </Button>
+                                )}
+                            </div>
+                        )}
                     </div>
+                    {!isOwn && mail.ownerName && (
+                        <p className="text-xs text-muted-foreground">
+                            {i18n("Shared by {owner}", {
+                                owner: mail.ownerName,
+                            })}
+                        </p>
+                    )}
+                    <RecordingFolderTags
+                        recordingId={mail.id}
+                        folders={folders}
+                        assignments={folderAssignments}
+                        onSelectFolder={onSelectFolder}
+                        onAdd={onAddToFolder}
+                        onRemove={onRemoveFromFolder}
+                        isOwn={isOwn}
+                        canWithdraw={
+                            isOwn || (mail.view === "org" && isOrgAccount)
+                        }
+                        organizationOnly={mail.view === "org"}
+                        onMove={onMoveBetweenFolders}
+                    />
                     {failed && (
                         <p className="text-sm text-destructive">
                             {i18n("The mail could not be loaded.")}

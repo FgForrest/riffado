@@ -1,8 +1,14 @@
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { chatterItems, mailAddresses, mailDeliveryLog } from "@/db/schema";
+import {
+    chatterItems,
+    mailAddresses,
+    mailDeliveryLog,
+    recordingFolders,
+} from "@/db/schema";
 import { decryptText } from "@/lib/encryption/fields";
 import {
+    ensureMailbox,
     listUserAddresses,
     type MailAddressKind,
     type MailAddressRow,
@@ -21,11 +27,13 @@ export interface MailAddressView {
     baseAddressId: string | null;
     lastReceivedAt: string | null;
     createdAt: string;
+    /** The folder's name, on the owner's own folder addresses. */
+    folderName?: string;
 }
 
 export interface MailSettingsView {
     domain: string;
-    /** The user has a mailbox: they sign in by single sign-on. */
+    /** The user may have addresses: they sign in by single sign-on. */
     eligible: boolean;
     /** Their addresses receive: they signed in recently enough. */
     receiving: boolean;
@@ -65,16 +73,44 @@ export function toAddressView(row: MailAddressRow): MailAddressView {
 export async function loadMailSettings(
     userId: string,
 ): Promise<MailSettingsView> {
-    const [rows, mailUser] = await Promise.all([
-        listUserAddresses(userId),
-        mailUserById(userId),
-    ]);
-    const live = rows.filter((row) => row.status !== "blocked");
+    const mailUser = await mailUserById(userId);
+    // Eligible since the last backfill: the mailbox comes now.
+    if (mailUser) await ensureMailbox(userId);
+    const live = (await listUserAddresses(userId)).filter(
+        (row) => row.status !== "blocked",
+    );
+    const folderIds = live.flatMap((row) =>
+        row.folderId ? [row.folderId] : [],
+    );
+    const folders =
+        folderIds.length > 0
+            ? await db
+                  .select({
+                      id: recordingFolders.id,
+                      name: recordingFolders.name,
+                  })
+                  .from(recordingFolders)
+                  .where(
+                      and(
+                          eq(recordingFolders.userId, userId),
+                          inArray(recordingFolders.id, folderIds),
+                      ),
+                  )
+            : [];
+    const nameOf = new Map(
+        folders.map((folder) => [folder.id, decryptText(folder.name)]),
+    );
     return {
         domain: mailDomain(),
-        eligible: live.some((row) => row.kind === "mailbox"),
+        eligible: mailUser !== null,
         receiving: mailUser?.active ?? false,
-        addresses: live.map(toAddressView),
+        addresses: live.map((row) => {
+            const view = toAddressView(row);
+            const folderName = row.folderId
+                ? nameOf.get(row.folderId)
+                : undefined;
+            return folderName ? { ...view, folderName } : view;
+        }),
     };
 }
 

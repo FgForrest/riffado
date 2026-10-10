@@ -110,12 +110,17 @@ import {
     ensureRootFolders,
     removeRecordingFromFolder,
 } from "@/lib/folders/folders";
-import { ensureMailbox, findFolderAddress } from "@/lib/mail/addresses";
+import {
+    createSecretAddress,
+    ensureMailbox,
+    findFolderAddress,
+    findMailbox,
+} from "@/lib/mail/addresses";
 import { collectArchivedMail } from "@/lib/mail/archive";
-import { loadMailDetail } from "@/lib/mail/detail";
+import { loadMailDetail, mailRawFor } from "@/lib/mail/detail";
 import { authenticateMessage } from "@/lib/mail/dkim";
 import { ingestMail, precheckMail } from "@/lib/mail/ingest";
-import { loadMailListRows } from "@/lib/mail/list";
+import { loadMailListRows, loadSharedMailRows } from "@/lib/mail/list";
 import { deleteMail, shareMail } from "@/lib/mail/manage";
 import { loadDeliveryLog } from "@/lib/mail/views";
 import { ensureOrgAccount } from "@/lib/org/account";
@@ -132,7 +137,8 @@ const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
 
 const company = testSigner("company.example");
-const resolver = testResolver([company]);
+const google = testSigner("google.com");
+const resolver = testResolver([company, google]);
 
 describeWithDatabase("inbound mail (PostgreSQL)", () => {
     let database: TestPostgresDatabase | null = null;
@@ -574,7 +580,9 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         const entries = await loadDeliveryLog("u-jan");
         expect(entries.length).toBeGreaterThan(0);
         const refused = entries.find(
-            (entry) => entry.reason === "sender_mismatch",
+            (entry) =>
+                entry.reason === "sender_mismatch" &&
+                entry.senderDomain === "company.example",
         );
         expect(refused).toMatchObject({
             address: "jan@klepna.example",
@@ -733,6 +741,114 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
                 .map((name) => `mail/${String(name)}`)
                 .sort(),
         ).toEqual(stored.map((row) => row.path).sort());
+    });
+
+    it("lets colleagues read a shared mail, its secret addresses masked, but not its original", async () => {
+        const mailbox = await findMailbox("u-jan");
+        if (!mailbox) throw new Error("no mailbox");
+        const secret = await createSecretAddress({
+            userId: "u-jan",
+            baseAddressId: mailbox.id,
+            label: null,
+        });
+        const secretAddress = `${secret.localPart}@klepna.example`;
+        const raw = await signMessage(
+            rawMessage(
+                headers("jan@company.example", "jan@klepna.example", [
+                    `Cc: ${secretAddress}`,
+                ]),
+                `For the record. Copies go to ${secretAddress} too.`,
+            ),
+            company,
+        );
+        await deliver(raw, ["jan@klepna.example"]);
+        const [message] = await db()
+            .select({ id: mailMessages.id })
+            .from(mailMessages)
+            .where(eq(mailMessages.sizeBytes, raw.length));
+        const itemId = message?.id ?? "";
+        expect(await loadMailDetail("u-eva", itemId)).toBeNull();
+        expect(await mailRawFor("u-eva", itemId)).toBeNull();
+
+        await addRecordingToFolder({
+            userId: "u-jan",
+            recordingId: itemId,
+            folderId: weeklyFolderId,
+        });
+        await addRecordingToFolder({
+            userId: "u-jan",
+            recordingId: itemId,
+            folderId: orgWeeklyFolderId,
+        });
+
+        const seen = await loadMailDetail("u-eva", itemId);
+        expect(seen).toMatchObject({ isOwn: false, hasRaw: false });
+        expect(seen?.ownerName).toEqual(expect.any(String));
+        expect(seen?.folderIds).toEqual([orgWeeklyFolderId]);
+        expect(seen?.pendingShares).toEqual([]);
+        const shown = JSON.stringify(seen);
+        expect(shown).not.toContain(secret.localPart);
+        expect(shown).toContain("jan.•••@klepna.example");
+        expect((await mailRawFor("u-eva", itemId))?.access.role).toBe("member");
+
+        const own = await loadMailDetail("u-jan", itemId);
+        expect(own).toMatchObject({ isOwn: true, hasRaw: true });
+        expect(JSON.stringify(own)).toContain(secretAddress);
+        expect(own?.folderIds.sort()).toEqual(
+            [weeklyFolderId, orgWeeklyFolderId].sort(),
+        );
+
+        const library = await loadSharedMailRows("u-eva", orgUserId);
+        expect(library.find((row) => row.id === itemId)).toMatchObject({
+            kind: "mail",
+            view: "org",
+            isOwn: false,
+        });
+        expect(
+            (await loadSharedMailRows("u-jan", orgUserId)).find(
+                (row) => row.id === itemId,
+            )?.isOwn,
+        ).toBe(true);
+    });
+
+    it("takes Gmail's forwarding confirmation on a secret address, from Google", async () => {
+        const mailbox = await findMailbox("u-jan");
+        if (!mailbox) throw new Error("no mailbox");
+        const secret = await createSecretAddress({
+            userId: "u-jan",
+            baseAddressId: mailbox.id,
+            label: "Gmail filter",
+        });
+        const to = `${secret.localPart}@klepna.example`;
+        const raw = await signMessage(
+            rawMessage(
+                [
+                    "From: Gmail Team <forwarding-noreply@google.com>",
+                    `To: ${to}`,
+                    "Subject: (#123456789) Gmail Forwarding Confirmation",
+                    "Date: Fri, 09 Oct 2026 14:02:00 +0000",
+                    "Message-ID: <confirm-1@google.com>",
+                    "MIME-Version: 1.0",
+                    "Content-Type: text/plain; charset=utf-8",
+                ],
+                "Confirmation code: 123456789",
+            ),
+            google,
+        );
+        // The same mail to the plain mailbox is someone else's.
+        expect((await deliver(raw, ["jan@klepna.example"])).ingest).toBeNull();
+        const { ingest } = await deliver(raw, [to]);
+        expect(ingest?.outcomes[0]?.outcome).toBe("accepted");
+        const [row] = (await loadMailListRows("u-jan")).filter((r) =>
+            r.filename.includes("Gmail Forwarding Confirmation"),
+        );
+        expect(row?.mail?.senderVerified).toBe(true);
+        const detail = await loadMailDetail("u-jan", row?.id ?? "");
+        expect(
+            detail?.segments.some((segment) =>
+                segment.text.includes("123456789"),
+            ),
+        ).toBe(true);
     });
 
     describe("the receiver's endpoints", () => {

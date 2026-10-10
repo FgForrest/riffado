@@ -21,7 +21,8 @@ import { isAdminEmail } from "@/lib/hosted/admin/guard";
 import { confirmedOverlays } from "@/lib/learn/llm-input";
 import { recordingsNeedingReview } from "@/lib/learn/pending";
 import { type OverlayCorrection, readTextOf } from "@/lib/learn/render";
-import { loadMailListRows } from "@/lib/mail/list";
+import { isMailEnabled } from "@/lib/mail/config";
+import { loadMailListRows, loadSharedMailRows } from "@/lib/mail/list";
 import { getOrgUserId, isOrgAccount } from "@/lib/org/config";
 import { initialSettingsFromRow } from "@/lib/settings/initial-settings";
 import { sharedRecordingCondition } from "@/lib/sharing/access";
@@ -210,8 +211,16 @@ async function loadOrganizationLibrary(
                 },
             ),
     );
+    const sharedMail = await loadSharedMailRows(viewerId, orgUserId);
     return {
-        recordings: library,
+        recordings:
+            sharedMail.length > 0
+                ? [...library, ...sharedMail].sort(
+                      (left, right) =>
+                          Date.parse(right.startTime) -
+                          Date.parse(left.startTime),
+                  )
+                : library,
         transcriptVariants: variants,
         transcriptions: primaryVariants(variants),
     };
@@ -385,6 +394,7 @@ export default async function DashboardPage() {
             initialSettings={initialSettings}
             plaudNeedsReconnect={connectionRow?.invalidatedAt != null}
             isHosted={env.IS_HOSTED}
+            mailEnabled={isMailEnabled() && !viewerIsOrgAccount}
             exportProviders={exportProvidersAvailability()}
             initialFolderOrganization={visibleFolderOrganization}
         />

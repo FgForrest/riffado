@@ -1,18 +1,23 @@
 import { requireApiSession } from "@/lib/auth-server";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
-import { mailRawPath } from "@/lib/mail/detail";
+import { mailRawFor } from "@/lib/mail/detail";
 import { readRawMail } from "@/lib/mail/raw-storage";
 import { contentDispositionAttachment } from "@/lib/recordings/filename";
 
 type IdContext = { params: Promise<{ id: string }> };
 
-/** The caller's mail as it arrived, as an `.eml` download. */
+/**
+ * The caller's mail as it arrived, as an `.eml` download: its owner only,
+ * as it carries every header unmasked.
+ */
 export const GET = apiHandler<IdContext>(async (request, context) => {
     const session = await requireApiSession(request);
     const { id } = await (context as IdContext).params;
-    const path = await mailRawPath(session.user.id, id);
-    if (!path) throw new AppError(ErrorCode.NOT_FOUND, "Mail not found", 404);
-    const raw = await readRawMail(session.user.id, path);
+    const found = await mailRawFor(session.user.id, id);
+    if (!found || found.access.role !== "owner") {
+        throw new AppError(ErrorCode.NOT_FOUND, "Mail not found", 404);
+    }
+    const raw = await readRawMail(found.access.ownerUserId, found.path);
     return new Response(new Uint8Array(raw), {
         headers: {
             "Content-Type": "message/rfc822",

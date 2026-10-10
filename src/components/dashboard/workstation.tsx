@@ -113,6 +113,8 @@ interface WorkstationProps {
      * hosted-mode behavior by forgetting to thread the value through.
      */
     isHosted: boolean;
+    /** The instance receives mail and the viewer may have addresses. */
+    mailEnabled?: boolean;
     exportProviders: ExportProvidersAvailability;
     initialFolderOrganization: FolderOrganization;
     /** Null when the Organization scope is not enabled. */
@@ -146,6 +148,7 @@ export function Workstation({
     initialSettings,
     plaudNeedsReconnect,
     isHosted,
+    mailEnabled = false,
     exportProviders,
     initialFolderOrganization,
     organizationLibrary = null,
@@ -417,7 +420,7 @@ export function Workstation({
         useTranscribeQueue({ onTranscribeComplete: refresh });
 
     useEffect(() => {
-        if (currentRecording) {
+        if (currentRecording && currentRecording.kind !== "mail") {
             void observeTranscriptionById(
                 currentRecording.id,
                 currentRecording.view,
@@ -1050,6 +1053,7 @@ export function Workstation({
                                         onMoveRecording={
                                             handleMoveBetweenFolders
                                         }
+                                        mailEnabled={mailEnabled}
                                     />
                                 )}
                             </div>
@@ -1079,6 +1083,7 @@ export function Workstation({
                                     }
                                     exportProviders={exportProviders}
                                     isOrgAccount={isOrgAccount}
+                                    mailEnabled={mailEnabled}
                                 />
                             ) : selectedRecording?.kind === "mail" ? (
                                 <MailDetailPane
@@ -1089,6 +1094,37 @@ export function Workstation({
                                     onBackToList={() => setMobileView("list")}
                                     hiddenOnMobile={mobileView === "list"}
                                     onChanged={refresh}
+                                    folders={folderOrganization.folders}
+                                    folderAssignments={
+                                        folderOrganization.assignments
+                                    }
+                                    onSelectFolder={(folder) => {
+                                        setLibraryMode("organize");
+                                        setSelectedFolderId(folder.id);
+                                    }}
+                                    onAddToFolder={(itemId, folderId) =>
+                                        handleFolderAssignment(
+                                            itemId,
+                                            folderId,
+                                            true,
+                                        )
+                                    }
+                                    onRemoveFromFolder={(
+                                        itemId,
+                                        folderId,
+                                        withdraw,
+                                    ) =>
+                                        handleFolderAssignment(
+                                            itemId,
+                                            folderId,
+                                            false,
+                                            withdraw,
+                                        )
+                                    }
+                                    onMoveBetweenFolders={
+                                        handleMoveBetweenFolders
+                                    }
+                                    isOrgAccount={isOrgAccount}
                                 />
                             ) : (
                                 <WorkstationDetailPane
@@ -1211,6 +1247,7 @@ export function Workstation({
                 onOpenChange={setSettingsOpen}
                 initialProviders={providers}
                 isHosted={isHosted}
+                mailEnabled={mailEnabled}
                 onReRunOnboarding={() => {
                     setSettingsOpen(false);
                     setOnboardingOpen(true);

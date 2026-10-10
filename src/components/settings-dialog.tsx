@@ -32,6 +32,8 @@ interface SettingsDialogProps {
     initialProviders?: Provider[];
     onReRunOnboarding?: () => void;
     isHosted?: boolean;
+    /** The instance receives mail and the viewer may have addresses. */
+    mailEnabled?: boolean;
     /** Forwarded to `SettingsContent` -> `PlaudAccountSection`. */
     onPlaudReconnected?: () => void;
 }
@@ -44,12 +46,13 @@ export function SettingsDialog({
     initialProviders = EMPTY_PROVIDERS,
     onReRunOnboarding,
     isHosted = false,
+    mailEnabled = false,
     onPlaudReconnected,
 }: SettingsDialogProps) {
     const i18n = useExtracted();
     const onClose = useCallback(() => onOpenChange(false), [onOpenChange]);
     const { activeSection, setActiveSection, keyboardSelectedIndex } =
-        useSettingsNav(open, onClose, isHosted);
+        useSettingsNav(open, onClose, isHosted, mailEnabled);
 
     const handleSectionChange = useCallback(
         (section: SettingsSection) => setActiveSection(section),
@@ -85,6 +88,7 @@ export function SettingsDialog({
                         keyboardSelectedIndex={keyboardSelectedIndex}
                         onSectionChange={handleSectionChange}
                         isHosted={isHosted}
+                        mailEnabled={mailEnabled}
                     />
 
                     <main className="flex h-[var(--settings-h,600px)] flex-1 flex-col overflow-hidden">
@@ -104,6 +108,7 @@ export function SettingsDialog({
                                 activeSection={activeSection}
                                 onSectionChange={handleSectionChange}
                                 isHosted={isHosted}
+                                mailEnabled={mailEnabled}
                             />
                             <HelpButton topic={`settings.${activeSection}`} />
                         </header>
@@ -118,6 +123,7 @@ export function SettingsDialog({
                                     initialProviders={initialProviders}
                                     onReRunOnboarding={onReRunOnboarding}
                                     isHosted={isHosted}
+                                    mailEnabled={mailEnabled}
                                     onPlaudReconnected={onPlaudReconnected}
                                 />
                             </div>

@@ -7,6 +7,7 @@ import {
     ArrowUpDown,
     Download,
     Folder,
+    Mail,
     MoreHorizontal,
     Pencil,
     Play,
@@ -20,6 +21,10 @@ import {
     RECORDING_SOURCE_FOLDER_DRAG_TYPE,
     useFolderLabel,
 } from "@/components/dashboard/folder-tree";
+import {
+    FolderDeletionAddresses,
+    FolderMailAddresses,
+} from "@/components/mail/folder-mail-addresses";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -70,6 +75,8 @@ interface FolderRecordingPaneProps {
     exportProviders: ExportProvidersAvailability;
     /** The organization account, which configures exports of its own tree. */
     isOrgAccount?: boolean;
+    /** The instance receives mail: custom folders have addresses. */
+    mailEnabled?: boolean;
 }
 
 export function FolderRecordingPane({
@@ -85,6 +92,7 @@ export function FolderRecordingPane({
     onBackToFolders,
     exportProviders,
     isOrgAccount = false,
+    mailEnabled = false,
 }: FolderRecordingPaneProps) {
     const i18n = useExtracted();
     const locale = useLocale();
@@ -267,6 +275,9 @@ export function FolderRecordingPane({
                             )}
                         </span>
                     </div>
+                    {mailEnabled && folder.kind === "custom" && (
+                        <FolderMailAddresses folderId={folder.id} />
+                    )}
                 </div>
                 <div className="flex shrink-0 flex-wrap gap-2">
                     <FolderExportActions
@@ -301,14 +312,24 @@ export function FolderRecordingPane({
                                         title: i18n("Delete “{name}”?", {
                                             name: folder.name,
                                         }),
-                                        description:
-                                            folder.scope === "org"
-                                                ? i18n(
-                                                      "This folder and all its subfolders will be deleted for everyone. Their recordings stay shared and move to the Organization folder.",
-                                                  )
-                                                : i18n(
-                                                      "This folder and all its subfolders will be deleted. Recordings stay intact; only their folder assignments are removed.",
-                                                  ),
+                                        description: (
+                                            <>
+                                                <p>
+                                                    {folder.scope === "org"
+                                                        ? i18n(
+                                                              "This folder and all its subfolders will be deleted for everyone. Their recordings stay shared and move to the Organization folder.",
+                                                          )
+                                                        : i18n(
+                                                              "This folder and all its subfolders will be deleted. Recordings stay intact; only their folder assignments are removed.",
+                                                          )}
+                                                </p>
+                                                {mailEnabled && (
+                                                    <FolderDeletionAddresses
+                                                        folderId={folder.id}
+                                                    />
+                                                )}
+                                            </>
+                                        ),
                                         confirmLabel: i18n("Delete folder"),
                                         pendingLabel: i18n("Deleting…"),
                                         destructive: true,
@@ -364,9 +385,15 @@ export function FolderRecordingPane({
                                     })}
                                     className="flex min-w-0 cursor-grab items-center gap-3 text-left active:cursor-grabbing"
                                 >
-                                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
-                                        <Play className="ml-0.5 size-4 fill-current" />
-                                    </span>
+                                    {recording.kind === "mail" ? (
+                                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                                            <Mail className="size-4" />
+                                        </span>
+                                    ) : (
+                                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-sm">
+                                            <Play className="ml-0.5 size-4 fill-current" />
+                                        </span>
+                                    )}
                                     <span className="min-w-0">
                                         <span className="block truncate text-sm font-medium">
                                             {recording.filename}
@@ -414,7 +441,9 @@ export function FolderRecordingPane({
                                     )}
                                 </span>
                                 <span className="text-xs tabular-nums text-muted-foreground">
-                                    {formatDurationMs(recording.duration)}
+                                    {recording.kind === "mail"
+                                        ? "—"
+                                        : formatDurationMs(recording.duration)}
                                 </span>
                                 <span className="text-xs tabular-nums text-muted-foreground max-md:hidden">
                                     {formatBytes(recording.filesize)}
@@ -441,20 +470,35 @@ export function FolderRecordingPane({
                                         >
                                             <Play /> {i18n("Open")}
                                         </DropdownMenuItem>
-                                        {!recording.audioReaped && (
-                                            <DropdownMenuItem
-                                                onSelect={() => {
-                                                    window.location.assign(
-                                                        recordingAudioDownloadPath(
-                                                            recording.id,
-                                                        ),
-                                                    );
-                                                }}
-                                            >
-                                                <Download />{" "}
-                                                {i18n("Download audio")}
-                                            </DropdownMenuItem>
-                                        )}
+                                        {recording.kind === "mail"
+                                            ? recording.isOwn !== false && (
+                                                  <DropdownMenuItem
+                                                      onSelect={() => {
+                                                          window.location.assign(
+                                                              `/api/mail/${encodeURIComponent(recording.id)}/raw`,
+                                                          );
+                                                      }}
+                                                  >
+                                                      <Download />{" "}
+                                                      {i18n(
+                                                          "Download the message",
+                                                      )}
+                                                  </DropdownMenuItem>
+                                              )
+                                            : !recording.audioReaped && (
+                                                  <DropdownMenuItem
+                                                      onSelect={() => {
+                                                          window.location.assign(
+                                                              recordingAudioDownloadPath(
+                                                                  recording.id,
+                                                              ),
+                                                          );
+                                                      }}
+                                                  >
+                                                      <Download />{" "}
+                                                      {i18n("Download audio")}
+                                                  </DropdownMenuItem>
+                                              )}
                                     </DropdownMenuContent>
                                 </DropdownMenu>
                             </div>

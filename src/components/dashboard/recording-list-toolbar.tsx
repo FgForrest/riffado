@@ -96,8 +96,7 @@ export function RecordingListToolbar({
                 </span>
                 <div className="flex items-center gap-1">
                     {kindFilter && onKindFilterChange && (
-                        <div
-                            role="radiogroup"
+                        <fieldset
                             aria-label={i18n("Show")}
                             className="flex items-center rounded-md border p-0.5"
                         >
@@ -111,8 +110,7 @@ export function RecordingListToolbar({
                                 <button
                                     key={value}
                                     type="button"
-                                    role="radio"
-                                    aria-checked={kindFilter === value}
+                                    aria-pressed={kindFilter === value}
                                     onClick={() => onKindFilterChange(value)}
                                     className={
                                         kindFilter === value
@@ -123,7 +121,7 @@ export function RecordingListToolbar({
                                     {label}
                                 </button>
                             ))}
-                        </div>
+                        </fieldset>
                     )}
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>

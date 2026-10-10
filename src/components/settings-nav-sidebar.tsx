@@ -23,6 +23,7 @@ interface Props {
     keyboardSelectedIndex: number;
     onSectionChange: (section: SettingsSection) => void;
     isHosted: boolean;
+    mailEnabled?: boolean;
 }
 
 /**
@@ -36,15 +37,16 @@ export function SettingsNavSidebar({
     keyboardSelectedIndex,
     onSectionChange,
     isHosted,
+    mailEnabled = false,
 }: Props) {
     const i18n = useExtracted();
     const settingsNavGroups = useMemo(
-        () => buildSettingsNavGroups({ isHosted }),
-        [isHosted],
+        () => buildSettingsNavGroups({ isHosted, mailEnabled }),
+        [isHosted, mailEnabled],
     );
     const settingsNav = useMemo(
-        () => buildSettingsNav({ isHosted }),
-        [isHosted],
+        () => buildSettingsNav({ isHosted, mailEnabled }),
+        [isHosted, mailEnabled],
     );
     const sectionName = (section: SettingsSection) => {
         switch (section) {
@@ -80,6 +82,8 @@ export function SettingsNavSidebar({
                 return i18n("Billing");
             case "google-account":
                 return i18n("Google Account");
+            case "mail":
+                return i18n("Mail");
             case "dev":
                 return i18n("Developer Tools");
         }

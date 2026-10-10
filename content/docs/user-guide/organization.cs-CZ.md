@@ -57,4 +57,4 @@ Organizační účet je sdílený přístup, který drží Váš administrátor.
 
 Nastavení retence se vztahuje na sdílené nahrávky po dobu jejich sdílení.
 
-Další: [Exporty, zálohy a retence](exports-backups-retention.md)
+Další: [Pošta](mail.md)
