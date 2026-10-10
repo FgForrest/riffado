@@ -1,4 +1,9 @@
 import {
+    listArmedMailRetentionPolicies,
+    listMailReapCandidates,
+    type MailRetentionPolicy,
+} from "@/db/queries/mail-retention";
+import {
     listArmedRetentionPolicies,
     listReapCandidates,
     type RetentionPolicy,
@@ -7,6 +12,7 @@ import { getOrgUserId } from "@/lib/org/config";
 import { captureServerException } from "@/lib/posthog-server";
 import { createStorageProvider } from "@/lib/storage/factory";
 import { reapRecording } from "./reap";
+import { reapMail } from "./reap-mail";
 
 // Retention is measured in days; sweeping hourly is already far finer
 // than the setting's own resolution. A tighter tick would only spend
@@ -92,6 +98,63 @@ async function sweepUser(
     }
 }
 
+async function sweepUserMail(
+    policy: MailRetentionPolicy,
+    orgUserId: string | null,
+): Promise<void> {
+    if (policy.isOrg && policy.userId !== orgUserId) return;
+    const now = new Date();
+    const candidates = await listMailReapCandidates(
+        policy,
+        now,
+        MAX_RECORDINGS_PER_USER_PER_TICK,
+        orgUserId,
+    );
+    if (candidates.length === 0) return;
+    const totals = { raw: 0, content: 0, summary: 0 };
+    let failures = 0;
+    for (const candidate of candidates) {
+        const { reaped, failed } = await reapMail(
+            policy,
+            candidate,
+            now,
+            orgUserId,
+        );
+        for (const kind of reaped) totals[kind] += 1;
+        for (const [kind, error] of Object.entries(failed)) {
+            failures += 1;
+            console.error(
+                `[retention] failed to reap mail ${kind} for ${candidate.id}:`,
+                error,
+            );
+        }
+    }
+    if (totals.raw + totals.content + totals.summary > 0 || failures > 0) {
+        console.log(
+            `[retention] user ${policy.userId}: removed ${totals.raw} mail message(s), ${totals.content} mail text(s), ${totals.summary} mail summary(ies)` +
+                (failures > 0 ? `; ${failures} failed, will retry` : ""),
+        );
+    }
+}
+
+async function sweepMail(orgUserId: string | null): Promise<void> {
+    const policies = await listArmedMailRetentionPolicies(MAX_USERS_PER_TICK);
+    for (const policy of policies) {
+        try {
+            await sweepUserMail(policy, orgUserId);
+        } catch (error) {
+            console.error(
+                `[retention] mail sweep failed for user ${policy.userId}:`,
+                error,
+            );
+            captureServerException(error, {
+                source: "retention-worker",
+                userId: policy.userId,
+            });
+        }
+    }
+}
+
 async function tick(): Promise<void> {
     // A sweep that outlives its interval must not have a second one
     // started on top of it: two workers reaping the same candidate list
@@ -100,12 +163,17 @@ async function tick(): Promise<void> {
     running = true;
 
     try {
+        // The Organization the writer rule follows (`sharing/writer.ts`).
+        const orgUserId = await getOrgUserId();
+        // Its own failure leaves the recordings' sweep to run.
+        await sweepMail(orgUserId).catch((error: unknown) => {
+            console.error("[retention] mail sweep failed:", error);
+            captureServerException(error, { source: "retention-worker" });
+        });
         const policies = await listArmedRetentionPolicies(MAX_USERS_PER_TICK);
         if (policies.length === 0) return;
 
         const storage = createStorageProvider();
-        // The Organization the writer rule follows (`sharing/writer.ts`).
-        const orgUserId = await getOrgUserId();
         for (const policy of policies) {
             try {
                 await sweepUser(storage, policy, orgUserId);

@@ -8,6 +8,10 @@ import { SettingsSectionHeader } from "@/components/settings/section-header";
 import { SettingsCard } from "@/components/settings/settings-card";
 import { BreakdownBar } from "@/components/settings-sections/storage/breakdown-bar";
 import { LargestRecordings } from "@/components/settings-sections/storage/largest-recordings";
+import {
+    MailRetentionCard,
+    readMailRetention,
+} from "@/components/settings-sections/storage/mail-retention-card";
 import { UsageHero } from "@/components/settings-sections/storage/usage-hero";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -136,6 +140,11 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
         null,
     );
     const [usage, setUsage] = useState<StorageUsage | null>(null);
+    // Mail's own policy, shown where this instance receives mail.
+    const [mailRetention, setMailRetention] = useState<ReturnType<
+        typeof readMailRetention
+    > | null>(null);
+    const [mailOffered, setMailOffered] = useState(false);
     // Distinct from `usage === null` so we can tell "haven't loaded
     // yet" apart from "loaded and the API returned no shape we can
     // use". Without this, the UsageHero rendered all-zero numbers
@@ -168,6 +177,7 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                     retentionPolicyRef.current = policy;
                     persistedRetentionPolicyRef.current = policy;
                     setRetentionPolicy(policy);
+                    setMailRetention(readMailRetention(data));
                 }
             } catch (error) {
                 if (cancelled) return;
@@ -183,7 +193,12 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
         fetch("/api/settings/storage", { signal: controller.signal })
             .then(async (res) => {
                 if (!res.ok) return null;
-                const data = (await res.json()) as Partial<StorageUsage>;
+                const data = (await res.json()) as Partial<StorageUsage> & {
+                    mailRetentionOffered?: boolean;
+                };
+                if (!cancelled) {
+                    setMailOffered(data?.mailRetentionOffered === true);
+                }
                 // Defensive shape check — only the fields the UI actually
                 // reads. Missing optional fields fall back to safe zeros.
                 if (
@@ -537,6 +552,9 @@ export function StorageSection({ isHosted = false }: StorageSectionProps) {
                     )}
                 </p>
             </SettingsCard>
+            {mailOffered && mailRetention && (
+                <MailRetentionCard initial={mailRetention} />
+            )}
         </div>
     );
 }

@@ -63,6 +63,15 @@ const EMPTY_RETENTION_SETTINGS: RetentionSettings = {
     retentionLocalSummaryDays: null,
 };
 
+// Mail's own policy: apart from the recordings' fields, so changing it
+// leaves their legacy policy alone.
+const MAIL_RETENTION_FIELDS = [
+    "retentionMailRawDays",
+    "retentionMailContentDays",
+    "retentionMailSummaryDays",
+] as const;
+const MAIL_RETENTION_FIELD_SET = new Set<string>(MAIL_RETENTION_FIELDS);
+
 const DEFAULT_SETTINGS = {
     autoTranscribe: false,
     autoSummarize: false,
@@ -89,6 +98,9 @@ const DEFAULT_SETTINGS = {
     listDensity: "comfortable" as const,
     theme: "system" as const,
     ...EMPTY_RETENTION_SETTINGS,
+    retentionMailRawDays: null,
+    retentionMailContentDays: null,
+    retentionMailSummaryDays: null,
     browserNotifications: true,
     emailNotifications: false,
     barkNotifications: false,
@@ -138,6 +150,7 @@ const SETTINGS_FIELDS = [
     "listDensity",
     "theme",
     ...RETENTION_FIELDS,
+    ...MAIL_RETENTION_FIELDS,
     "browserNotifications",
     "emailNotifications",
     "barkNotifications",
@@ -312,6 +325,18 @@ export const PUT = apiHandler(async (request: Request) => {
     for (const field of SETTINGS_FIELDS) {
         if (RETENTION_FIELD_SET.has(field)) continue;
         let value = body[field];
+        if (
+            MAIL_RETENTION_FIELD_SET.has(field) &&
+            value !== undefined &&
+            !validRetentionDays(value)
+        ) {
+            throw new AppError(
+                ErrorCode.INVALID_INPUT,
+                `${field} must be null or an integer between 1 and 365`,
+                400,
+                { field },
+            );
+        }
         if (
             field in ENUM_FIELDS &&
             value !== undefined &&

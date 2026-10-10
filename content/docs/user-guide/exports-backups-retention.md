@@ -62,4 +62,12 @@ Each archive stays downloadable for seven days. A backup holds your own recordin
 
 The recording stays in your library with a note saying what was removed, and Riffado does not bring it back on its own. The top of the Storage page shows how much space your recordings take, and which ones take the most.
 
+Where your instance receives mail, **Auto-delete old mail** below it does the same for mail, counted from when a mail arrived:
+
+- **Mail as it arrived**: the stored message with its attachments.
+- **Mail text**: the text Riffado read. Facts learned only from it are deleted with it.
+- **Mail summary**: the summary and the tasks proposed from it.
+
+The mail stays in your pile with its sender, recipients and subject, and says what was removed. While a mail is shared into the Organization, the Organization's mail policy applies to it instead of yours.
+
 Next: [Settings](settings.md)

@@ -743,6 +743,13 @@
       "when": 1791669140960,
       "tag": "0105_folder_export_mail",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1791669722480,
+      "tag": "0106_mail_retention",
+      "breakpoints": true
     }
   ]
 }

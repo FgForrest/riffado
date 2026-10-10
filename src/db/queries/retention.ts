@@ -75,7 +75,8 @@ export function retentionCutoff(retentionDays: number, now = Date.now()): Date {
     return new Date(now - retentionDays * DAY_MS);
 }
 
-function validRetentionDays(value: number | null): number | null {
+/** A stored period when it is one (1 to 365 days), else null. */
+export function validRetentionDays(value: number | null): number | null {
     return Number.isInteger(value) &&
         value !== null &&
         value >= 1 &&

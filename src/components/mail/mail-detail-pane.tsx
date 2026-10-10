@@ -250,19 +250,23 @@ export function MailDetailPane({
                         </h2>
                         {isOwn && (
                             <div className="flex shrink-0 gap-1">
-                                <Button
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    aria-label={i18n("Download the message")}
-                                    asChild
-                                >
-                                    <a
-                                        href={`/api/mail/${encodeURIComponent(mail.id)}/raw`}
-                                        download
+                                {detail?.hasRaw && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon-sm"
+                                        aria-label={i18n(
+                                            "Download the message",
+                                        )}
+                                        asChild
                                     >
-                                        <Download className="size-4" />
-                                    </a>
-                                </Button>
+                                        <a
+                                            href={`/api/mail/${encodeURIComponent(mail.id)}/raw`}
+                                            download
+                                        >
+                                            <Download className="size-4" />
+                                        </a>
+                                    </Button>
+                                )}
                                 {mail.view !== "org" && (
                                     <Button
                                         variant="ghost"
@@ -409,13 +413,55 @@ export function MailDetailPane({
                             )}
                         </p>
                     )}
-                    {detail?.unreadable && (
+                    {detail?.unreadable && !detail.rawReapedAt && (
                         <p className="text-sm text-muted-foreground">
                             {i18n(
                                 "This mail's content is not readable here (encrypted or packed). Download the message to open it.",
                             )}
                         </p>
                     )}
+                    {detail &&
+                        [
+                            detail.rawReapedAt &&
+                                i18n(
+                                    "Retention removed the message as it arrived and its attachments on {date}.",
+                                    {
+                                        date: formatDateTime(
+                                            detail.rawReapedAt,
+                                            "absolute",
+                                            locale,
+                                        ),
+                                    },
+                                ),
+                            detail.contentReapedAt &&
+                                i18n("Retention removed its text on {date}.", {
+                                    date: formatDateTime(
+                                        detail.contentReapedAt,
+                                        "absolute",
+                                        locale,
+                                    ),
+                                }),
+                            detail.summaryReapedAt &&
+                                i18n(
+                                    "Retention removed its summary on {date}.",
+                                    {
+                                        date: formatDateTime(
+                                            detail.summaryReapedAt,
+                                            "absolute",
+                                            locale,
+                                        ),
+                                    },
+                                ),
+                        ]
+                            .filter(Boolean)
+                            .map((note) => (
+                                <p
+                                    key={note as string}
+                                    className="text-xs text-muted-foreground"
+                                >
+                                    {note}
+                                </p>
+                            ))}
                 </CardContent>
             </Card>
 
@@ -436,19 +482,21 @@ export function MailDetailPane({
             {detail && detail.segments.length > 0 && (
                 <Card>
                     <CardContent className="space-y-3 p-4 sm:p-6">
-                        <div className="flex justify-end">
-                            <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 gap-1 px-2 text-xs"
-                                onClick={() => void toggleFormatted()}
-                            >
-                                <FileCode2 className="size-3.5" />
-                                {showFormatted
-                                    ? i18n("Show text")
-                                    : i18n("Show formatted")}
-                            </Button>
-                        </div>
+                        {!detail.rawReapedAt && (
+                            <div className="flex justify-end">
+                                <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 gap-1 px-2 text-xs"
+                                    onClick={() => void toggleFormatted()}
+                                >
+                                    <FileCode2 className="size-3.5" />
+                                    {showFormatted
+                                        ? i18n("Show text")
+                                        : i18n("Show formatted")}
+                                </Button>
+                            </div>
+                        )}
                         {showFormatted && formatted ? (
                             <iframe
                                 title={i18n("Formatted mail")}
@@ -528,23 +576,31 @@ export function MailDetailPane({
                             {i18n("Attachments")}
                         </h3>
                         <ul className="space-y-1 text-sm">
-                            {detail.attachments.map((attachment) => (
-                                <li key={attachment.index}>
-                                    <a
-                                        href={`/api/mail/${encodeURIComponent(mail.id)}/attachments/${attachment.index}`}
-                                        download
-                                        className="text-primary hover:underline"
-                                    >
-                                        {attachment.filename ??
-                                            i18n("Attachment {n}", {
-                                                n: String(attachment.index + 1),
-                                            })}
-                                    </a>{" "}
-                                    <span className="text-xs text-muted-foreground">
-                                        {formatBytes(attachment.size)}
-                                    </span>
-                                </li>
-                            ))}
+                            {detail.attachments.map((attachment) => {
+                                const name =
+                                    attachment.filename ??
+                                    i18n("Attachment {n}", {
+                                        n: String(attachment.index + 1),
+                                    });
+                                return (
+                                    <li key={attachment.index}>
+                                        {detail.rawReapedAt ? (
+                                            <span>{name}</span>
+                                        ) : (
+                                            <a
+                                                href={`/api/mail/${encodeURIComponent(mail.id)}/attachments/${attachment.index}`}
+                                                download
+                                                className="text-primary hover:underline"
+                                            >
+                                                {name}
+                                            </a>
+                                        )}{" "}
+                                        <span className="text-xs text-muted-foreground">
+                                            {formatBytes(attachment.size)}
+                                        </span>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     </CardContent>
                 </Card>

@@ -2759,6 +2759,12 @@ export const userSettings = pgTable("user_settings", {
     retentionLocalAudioDays: integer("retention_local_audio_days"),
     retentionLocalTranscriptDays: integer("retention_local_transcript_days"),
     retentionLocalSummaryDays: integer("retention_local_summary_days"),
+    // Mail's own policy, counted from when a mail arrived; null keeps it:
+    // the message as it arrived (attachments with it), its text, its
+    // summary. The organization account's governs mail while it is shared.
+    retentionMailRawDays: integer("retention_mail_raw_days"),
+    retentionMailContentDays: integer("retention_mail_content_days"),
+    retentionMailSummaryDays: integer("retention_mail_summary_days"),
     // Notification settings
     browserNotifications: boolean("browser_notifications")
         .notNull()

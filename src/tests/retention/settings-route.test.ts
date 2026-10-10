@@ -171,6 +171,37 @@ describe("independent retention settings", () => {
         expect(updates).toHaveLength(0);
     });
 
+    it("keeps mail's own policy apart from the recordings' legacy policy", async () => {
+        existingRow.value = [
+            existingSettings({
+                autoDeleteRecordings: true,
+                retentionDays: 30,
+                retentionDeleteAudio: true,
+            }),
+        ];
+
+        const response = await put({
+            retentionMailRawDays: 90,
+            retentionMailSummaryDays: null,
+        });
+
+        expect(response.status).toBe(200);
+        const update = updates.at(-1);
+        expect(update).toMatchObject({
+            retentionMailRawDays: 90,
+            retentionMailSummaryDays: null,
+        });
+        expect(update).not.toHaveProperty("autoDeleteRecordings");
+        expect(update).not.toHaveProperty("retentionLocalAudioDays");
+    });
+
+    it("refuses a mail period out of range", async () => {
+        const response = await put({ retentionMailContentDays: 400 });
+
+        expect(response.status).toBe(400);
+        expect(updates).toHaveLength(0);
+    });
+
     it("returns legacy settings through the independent API shape", async () => {
         existingRow.value = [
             existingSettings({

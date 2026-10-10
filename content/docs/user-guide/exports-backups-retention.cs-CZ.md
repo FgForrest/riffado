@@ -74,4 +74,12 @@ Každý archiv zůstává ke stažení po dobu sedmi dnů. Záloha obsahuje vaš
 
 Nahrávka zůstává ve vaší knihovně s poznámkou o tom, co bylo odstraněno, a Riffado ji samo znovu nenastahuje. V horní části stránky Úložiště vidíte, kolik místa vaše nahrávky zabírají a které jsou největší.
 
+Kde vaše instance přijímá poštu, dělá totéž pro e-maily **Automatické mazání staré pošty** pod tím, počítáno od chvíle, kdy e-mail přišel:
+
+- **E-mail tak, jak přišel**: uložená zpráva i s přílohami.
+- **Text e-mailu**: text, který Riffado přečetlo. Fakta naučená jen z něj se smažou s ním.
+- **Souhrn e-mailu**: souhrn a úkoly z něj navržené.
+
+E-mail zůstává ve vaší hromádce s odesílatelem, adresáty a předmětem a říká, co bylo odstraněno. Dokud je e-mail sdílený do Organizace, platí pro něj místo vašich pravidel pravidla Organizace.
+
 Pokračujte na: [Nastavení](settings.md)

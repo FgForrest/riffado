@@ -8,6 +8,7 @@ import { requireApiSession } from "@/lib/auth-server";
 import { decryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
 import { apiHandler } from "@/lib/errors";
+import { isMailEnabled } from "@/lib/mail/config";
 
 export const GET = apiHandler(async (request: Request) => {
     const session = await requireApiSession(request);
@@ -71,5 +72,7 @@ export const GET = apiHandler(async (request: Request) => {
         largest,
         diskFreeBytes,
         quotaBytes: null as number | null,
+        // Mail has its own retention policy here, the Organization's too.
+        mailRetentionOffered: isMailEnabled(),
     });
 });
