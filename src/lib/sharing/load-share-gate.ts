@@ -69,7 +69,7 @@ export async function loadShareGate(
         .from(learnRuns)
         .where(
             and(
-                eq(learnRuns.recordingId, recordingId),
+                eq(learnRuns.itemId, recordingId),
                 eq(learnRuns.view, "private"),
                 learnRunOpen(),
             ),
@@ -81,7 +81,7 @@ export async function loadShareGate(
         .from(recordingTasks)
         .where(
             and(
-                eq(recordingTasks.recordingId, recordingId),
+                eq(recordingTasks.itemId, recordingId),
                 eq(recordingTasks.userId, ownerUserId),
                 eq(recordingTasks.status, "proposed"),
             ),
@@ -93,7 +93,7 @@ export async function loadShareGate(
         .from(taskUpdateProposals)
         .where(
             and(
-                eq(taskUpdateProposals.recordingId, recordingId),
+                eq(taskUpdateProposals.itemId, recordingId),
                 eq(taskUpdateProposals.userId, ownerUserId),
                 liveFollowUpCondition(),
             ),

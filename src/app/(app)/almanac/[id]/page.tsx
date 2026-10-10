@@ -3,7 +3,13 @@ import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { PersonDetail } from "@/components/people/person-detail";
 import { db } from "@/db";
-import { recordings, transcriptions, transcriptSpeakers } from "@/db/schema";
+import { recordingItemJoin } from "@/db/items";
+import {
+    chatterItems,
+    recordings,
+    transcriptions,
+    transcriptSpeakers,
+} from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { decryptText } from "@/lib/encryption/fields";
 import { listAliases } from "@/lib/knowledge/aliases";
@@ -54,8 +60,8 @@ export default async function PersonPage({ params }: Params) {
     const appearances = await db
         .select({
             recordingId: recordings.id,
-            filename: recordings.filename,
-            startTime: recordings.startTime,
+            filename: chatterItems.title,
+            startTime: chatterItems.occurredAt,
             label: transcriptSpeakers.label,
             status: transcriptSpeakers.status,
             source: transcriptSpeakers.source,
@@ -67,6 +73,7 @@ export default async function PersonPage({ params }: Params) {
             eq(transcriptions.id, transcriptSpeakers.transcriptionId),
         )
         .innerJoin(recordings, eq(recordings.id, transcriptions.recordingId))
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 or(

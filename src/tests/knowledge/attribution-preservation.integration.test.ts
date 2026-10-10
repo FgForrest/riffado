@@ -19,7 +19,6 @@ import {
 } from "vitest";
 import {
     people,
-    recordings,
     transcriptions,
     transcriptSpeakerRejections,
     transcriptSpeakers,
@@ -87,6 +86,7 @@ vi.mock("@/lib/webhooks/emit", () => ({
 import { encryptJsonField, encryptText } from "@/lib/encryption/fields";
 import { copyMatchingSpeakerAttributions } from "@/lib/knowledge/attribution";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -135,23 +135,21 @@ describeWithDatabase(
         beforeEach(async () => {
             await db().delete(users);
             await db().insert(users).values({ id: ALICE, email: "a@x.test" });
-            await db()
-                .insert(recordings)
-                .values({
-                    id: REC,
-                    userId: ALICE,
-                    deviceSn: "SN-1",
-                    plaudFileId: "plaud-1",
-                    filename: encryptText("Weekly"),
-                    duration: 100_000,
-                    startTime: new Date("2026-09-01T10:00:00Z"),
-                    endTime: new Date("2026-09-01T10:01:40Z"),
-                    filesize: 11,
-                    fileMd5: "0".repeat(32),
-                    storageType: "local",
-                    storagePath: `${ALICE}/rec.mp3`,
-                    plaudVersion: "1",
-                });
+            await insertRecordings(db(), {
+                id: REC,
+                userId: ALICE,
+                deviceSn: "SN-1",
+                plaudFileId: "plaud-1",
+                filename: encryptText("Weekly"),
+                duration: 100_000,
+                startTime: new Date("2026-09-01T10:00:00Z"),
+                endTime: new Date("2026-09-01T10:01:40Z"),
+                filesize: 11,
+                fileMd5: "0".repeat(32),
+                storageType: "local",
+                storagePath: `${ALICE}/rec.mp3`,
+                plaudVersion: "1",
+            });
             const inserted = await db()
                 .insert(people)
                 .values([

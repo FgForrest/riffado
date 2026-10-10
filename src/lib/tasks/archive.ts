@@ -88,7 +88,7 @@ export async function tasksForArchive(
     const rows = await db
         .select({
             id: recordingTasks.id,
-            recordingId: recordingTasks.recordingId,
+            recordingId: recordingTasks.itemId,
             status: recordingTasks.status,
             text: recordingTasks.text,
             assigneePersonId: recordingTasks.assigneePersonId,
@@ -109,7 +109,7 @@ export async function tasksForArchive(
         .innerJoin(
             recordings,
             and(
-                eq(recordings.id, recordingTasks.recordingId),
+                eq(recordings.id, recordingTasks.itemId),
                 eq(recordings.userId, recordingTasks.userId),
             ),
         )
@@ -117,7 +117,7 @@ export async function tasksForArchive(
         .where(
             and(
                 archivedTaskCondition(scope),
-                inArray(recordingTasks.recordingId, [...recordingIds]),
+                inArray(recordingTasks.itemId, [...recordingIds]),
                 proposals ? undefined : ne(recordingTasks.status, "proposed"),
             ),
         )
@@ -176,7 +176,7 @@ export async function taskUpdatesForArchive(
     const rows = await db
         .select({
             id: taskUpdateProposals.id,
-            recordingId: taskUpdateProposals.recordingId,
+            recordingId: taskUpdateProposals.itemId,
             taskId: taskUpdateProposals.taskId,
             kind: taskUpdateProposals.kind,
             dueDate: taskUpdateProposals.dueDate,
@@ -190,7 +190,7 @@ export async function taskUpdatesForArchive(
         .innerJoin(
             recordings,
             and(
-                eq(recordings.id, taskUpdateProposals.recordingId),
+                eq(recordings.id, taskUpdateProposals.itemId),
                 eq(recordings.userId, taskUpdateProposals.userId),
             ),
         )
@@ -199,7 +199,7 @@ export async function taskUpdatesForArchive(
                 scope.kind === "personal"
                     ? eq(taskUpdateProposals.userId, scope.userId)
                     : archivedRecordingCondition(scope),
-                inArray(taskUpdateProposals.recordingId, [...recordingIds]),
+                inArray(taskUpdateProposals.itemId, [...recordingIds]),
             ),
         )
         .orderBy(taskUpdateProposals.createdAt);

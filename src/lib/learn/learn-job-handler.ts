@@ -94,7 +94,12 @@ export function learnFingerprintHmac(fingerprint: string): string {
     return domainLookupHash(FINGERPRINT_DOMAIN, fingerprint);
 }
 
-type RunRow = typeof learnRuns.$inferSelect;
+/** A run on a recording: it read one of its transcripts. */
+type RunRow = typeof learnRuns.$inferSelect & { transcriptionId: string };
+
+function isRecordingRun(run: typeof learnRuns.$inferSelect): run is RunRow {
+    return run.transcriptionId !== null;
+}
 
 /**
  * What a person rejected that a run in their scope must not propose again:
@@ -104,7 +109,7 @@ function dismissalsFor(run: RunRow) {
     return and(
         eq(learnDismissals.userId, run.scopeUserId),
         or(
-            eq(learnDismissals.recordingId, run.recordingId),
+            eq(learnDismissals.itemId, run.itemId),
             eq(learnDismissals.scopeWide, true),
         ),
     );
@@ -137,7 +142,7 @@ async function setStatus(
 function chatFor(run: RunRow, signal: AbortSignal) {
     return learnChatClients({
         actorUserId: run.actorUserId ?? "",
-        recordingId: run.recordingId,
+        recordingId: run.itemId,
         ownerUserId: run.userId,
         operation: "learn",
         schemaName: "learn_output",
@@ -151,13 +156,13 @@ function chatFor(run: RunRow, signal: AbortSignal) {
  * resolved by the caller, outside any transaction (`sharingOrgUserId`).
  */
 export async function mayStillRun(
-    run: Pick<RunRow, "actorUserId" | "recordingId" | "userId" | "view">,
+    run: Pick<RunRow, "actorUserId" | "itemId" | "userId" | "view">,
     orgUserId: string | null,
     executor?: Parameters<typeof contentWriterRefusal>[0],
 ): Promise<boolean> {
     if (!run.actorUserId) return false;
     const refusal = await contentWriterRefusal(executor, {
-        recordingId: run.recordingId,
+        recordingId: run.itemId,
         ownerUserId: run.userId,
         actorUserId: run.actorUserId,
         orgUserId,
@@ -514,7 +519,7 @@ function counts(
 async function settled(runId: string): Promise<void> {
     const [run] = await db
         .select({
-            recordingId: learnRuns.recordingId,
+            recordingId: learnRuns.itemId,
             status: learnRuns.status,
         })
         .from(learnRuns)
@@ -555,6 +560,13 @@ async function runLearnJob({
     if (!run) return { skipped: "gone" };
     if (run.status !== "queued" && run.status !== "running") {
         return { skipped: run.status };
+    }
+    if (!isRecordingRun(run)) {
+        await db
+            .update(learnRuns)
+            .set({ status: "cancelled", updatedAt: new Date() })
+            .where(eq(learnRuns.id, run.id));
+        return { skipped: "unsupported kind" };
     }
     const claimed = await db
         .update(learnRuns)
@@ -724,7 +736,7 @@ async function runLearnJob({
                 await tx
                     .select({ id: recordings.id })
                     .from(recordings)
-                    .where(eq(recordings.id, run.recordingId))
+                    .where(eq(recordings.id, run.itemId))
                     .for("share");
                 // Speaker answers are written under the transcript held
                 // for update: holding it for share keeps them still.

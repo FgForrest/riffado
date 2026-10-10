@@ -16,12 +16,12 @@ import {
     people,
     recordingFolderAssignments,
     recordingFolders,
-    recordings,
     transcriptions,
     transcriptSpeakerRejections,
     transcriptSpeakers,
     users,
 } from "@/db/schema";
+import { insertRecordings } from "@/tests/integration/items";
 import {
     createMigratedTestDatabase,
     getTestDatabaseUrl,
@@ -59,23 +59,21 @@ describeWithDatabase("merging the Organization's rows (PostgreSQL)", () => {
     }, 30_000);
 
     async function recording(id: string) {
-        await db()
-            .insert(recordings)
-            .values({
-                id,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: id,
-                filename: "Weekly",
-                duration: 60_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:01:00Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/${id}.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: id,
+            filename: "Weekly",
+            duration: 60_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:01:00Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/${id}.mp3`,
+            plaudVersion: "1",
+        });
     }
 
     async function transcript(
@@ -107,7 +105,7 @@ describeWithDatabase("merging the Organization's rows (PostgreSQL)", () => {
         const [row] = await db()
             .insert(aiEnhancements)
             .values({
-                recordingId,
+                itemId: recordingId,
                 userId,
                 transcriptionId,
                 summary: text,
@@ -133,19 +131,19 @@ describeWithDatabase("merging the Organization's rows (PostgreSQL)", () => {
         await recording("rec-shared");
         await recording("rec-withdrawn");
         // The owner's retention had reaped their rows; the Organization's
-        // stayed, and become the recording's here.
-        await db()
-            .update(recordings)
-            .set({
-                transcriptReapedAt: new Date("2026-09-10T00:00:00Z"),
-                summaryReapedAt: new Date("2026-09-10T00:00:00Z"),
-            })
-            .where(eq(recordings.id, "rec-shared"));
+        // stayed, and become the recording's here. The markers were on
+        // `recordings` when this migration ran.
+        await db().execute(sql`
+            UPDATE recordings
+            SET transcript_reaped_at = '2026-09-10T00:00:00Z',
+                summary_reaped_at = '2026-09-10T00:00:00Z'
+            WHERE id = 'rec-shared'
+        `);
         await db()
             .insert(recordingFolderAssignments)
             .values({
                 userId: OWNER,
-                recordingId: "rec-shared",
+                itemId: "rec-shared",
                 folderId: folder?.id ?? "",
             });
         const [jana] = await db()
@@ -280,13 +278,15 @@ describeWithDatabase("merging the Organization's rows (PostgreSQL)", () => {
                 .where(eq(transcriptions.userId, ORG)),
         ).toEqual([]);
         // Present again, so no longer marked reaped: retention sees them.
-        const [shared] = await db()
-            .select({
-                transcript: recordings.transcriptReapedAt,
-                summary: recordings.summaryReapedAt,
-            })
-            .from(recordings)
-            .where(eq(recordings.id, "rec-shared"));
+        const [shared] = await db().execute<{
+            transcript: string | null;
+            summary: string | null;
+        }>(sql`
+            SELECT transcript_reaped_at AS transcript,
+                summary_reaped_at AS summary
+            FROM recordings
+            WHERE id = 'rec-shared'
+        `);
         expect(shared).toEqual({ transcript: null, summary: null });
     });
 });

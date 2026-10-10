@@ -28,7 +28,6 @@ import {
     people,
     recordingFolderAssignments,
     recordingFolders,
-    recordings,
     transcriptions,
     transcriptSpeakers,
     userSettings,
@@ -161,6 +160,7 @@ import { copyMatchingSpeakerAttributions } from "@/lib/knowledge/attribution";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { upsertTranscription } from "@/lib/transcription/persist";
 import { transcriptionJobHandler } from "@/lib/transcription/transcription-job-handler";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -216,23 +216,21 @@ describeWithDatabase(
                     { id: BOB, email: "bob@example.test" },
                 ]);
             orgUserId = (await ensureOrgAccount()) ?? "";
-            await db()
-                .insert(recordings)
-                .values({
-                    id: REC,
-                    userId: OWNER,
-                    deviceSn: "SN-1",
-                    plaudFileId: "plaud-1",
-                    filename: encryptText("Weekly"),
-                    duration: 60_000,
-                    startTime: new Date("2026-09-01T10:00:00Z"),
-                    endTime: new Date("2026-09-01T10:01:00Z"),
-                    filesize: 11,
-                    fileMd5: "0".repeat(32),
-                    storageType: "local",
-                    storagePath: `${OWNER}/rec.mp3`,
-                    plaudVersion: "1",
-                });
+            await insertRecordings(db(), {
+                id: REC,
+                userId: OWNER,
+                deviceSn: "SN-1",
+                plaudFileId: "plaud-1",
+                filename: encryptText("Weekly"),
+                duration: 60_000,
+                startTime: new Date("2026-09-01T10:00:00Z"),
+                endTime: new Date("2026-09-01T10:01:00Z"),
+                filesize: 11,
+                fileMd5: "0".repeat(32),
+                storageType: "local",
+                storagePath: `${OWNER}/rec.mp3`,
+                plaudVersion: "1",
+            });
             // Transcribed without speakers, so nothing stands in the way of
             // sharing it.
             await db()
@@ -660,7 +658,7 @@ describeWithDatabase(
                 .insert(recordingFolderAssignments)
                 .values({
                     userId: OWNER,
-                    recordingId: REC,
+                    itemId: REC,
                     folderId: root?.id ?? "",
                 });
 

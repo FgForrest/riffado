@@ -102,12 +102,15 @@ const userId = "user-1";
 const recordingId = "rec-1";
 const transcriptionId = "tx-1";
 
+/** One lookup's rows; a recording is read joined to its item. */
 function rows(result: unknown[]) {
+    const where = vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue(result),
+    });
     return {
         from: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({
-                limit: vi.fn().mockResolvedValue(result),
-            }),
+            innerJoin: vi.fn().mockReturnValue({ where }),
+            where,
         }),
     };
 }
@@ -124,7 +127,7 @@ function stubLookups(existingTranscript: Record<string, unknown> | null) {
                 {
                     id: recordingId,
                     userId,
-                    filename: "meeting.mp3",
+                    title: "meeting.mp3",
                     storagePath: "meeting.mp3",
                     deletedAt: null,
                     audioReapedAt: null,

@@ -120,6 +120,7 @@ import {
 import { mergePeople } from "@/lib/knowledge/people";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { upsertTranscription } from "@/lib/transcription/persist";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -246,23 +247,21 @@ describeWithDatabase("speaker answers and suggestions (PostgreSQL)", () => {
                 { id: ALICE, email: "alice@example.test" },
                 { id: BOB, email: "bob@example.test" },
             ]);
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: ALICE,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 60_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:01:00Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${ALICE}/rec.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: ALICE,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 60_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:01:00Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${ALICE}/rec.mp3`,
+            plaudVersion: "1",
+        });
         const [row] = await db()
             .insert(transcriptions)
             .values({
@@ -459,23 +458,21 @@ describeWithDatabase("speaker answers and suggestions (PostgreSQL)", () => {
         });
 
         it("refuses another account's transcript", async () => {
-            await db()
-                .insert(recordings)
-                .values({
-                    id: "rec-bob",
-                    userId: BOB,
-                    deviceSn: "SN-2",
-                    plaudFileId: "plaud-2",
-                    filename: encryptText("Bob's"),
-                    duration: 60_000,
-                    startTime: new Date("2026-09-01T10:00:00Z"),
-                    endTime: new Date("2026-09-01T10:01:00Z"),
-                    filesize: 11,
-                    fileMd5: "1".repeat(32),
-                    storageType: "local",
-                    storagePath: `${BOB}/rec.mp3`,
-                    plaudVersion: "1",
-                });
+            await insertRecordings(db(), {
+                id: "rec-bob",
+                userId: BOB,
+                deviceSn: "SN-2",
+                plaudFileId: "plaud-2",
+                filename: encryptText("Bob's"),
+                duration: 60_000,
+                startTime: new Date("2026-09-01T10:00:00Z"),
+                endTime: new Date("2026-09-01T10:01:00Z"),
+                filesize: 11,
+                fileMd5: "1".repeat(32),
+                storageType: "local",
+                storagePath: `${BOB}/rec.mp3`,
+                plaudVersion: "1",
+            });
             const [bobs] = await db()
                 .insert(transcriptions)
                 .values({

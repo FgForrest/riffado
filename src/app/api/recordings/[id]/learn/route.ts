@@ -53,7 +53,7 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
         )
         .where(
             and(
-                eq(learnRuns.recordingId, access.recordingId),
+                eq(learnRuns.itemId, access.recordingId),
                 eq(learnRuns.view, access.view),
             ),
         )

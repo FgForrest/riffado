@@ -32,8 +32,10 @@ const now = new Date("2026-05-06T12:00:00.000Z");
 function selectRows(rows: unknown[]) {
     return {
         from: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({
-                orderBy: vi.fn().mockResolvedValue(rows),
+            innerJoin: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({
+                    orderBy: vi.fn().mockResolvedValue(rows),
+                }),
             }),
         }),
     };
@@ -55,9 +57,10 @@ describe("GET /api/recordings", () => {
                     userId: "user-1",
                     deviceSn: "SN-1",
                     plaudFileId: "plaud-1",
-                    filename: "encrypted:Planning Call",
+                    title: "encrypted:Planning Call",
+                    titleEditedAt: null,
                     duration: 120000,
-                    startTime: now,
+                    occurredAt: now,
                     endTime: now,
                     filesize: 12345,
                     fileMd5: "abc",
@@ -70,6 +73,9 @@ describe("GET /api/recordings", () => {
                     scene: null,
                     isTrash: false,
                     deletedAt: null,
+                    summaryDueAt: null,
+                    contentReapedAt: null,
+                    summaryReapedAt: null,
                     createdAt: now,
                     updatedAt: now,
                 },

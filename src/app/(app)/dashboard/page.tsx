@@ -1,8 +1,10 @@
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { Workstation } from "@/components/dashboard/workstation";
 import { db } from "@/db";
+import { recordingItemJoin } from "@/db/items";
 import {
     aiEnhancements,
+    chatterItems,
     plaudConnections,
     recordings,
     transcriptions,
@@ -117,9 +119,9 @@ async function loadOrganizationLibrary(
         .select({
             id: recordings.id,
             userId: recordings.userId,
-            filename: recordings.filename,
+            filename: chatterItems.title,
             duration: recordings.duration,
-            startTime: recordings.startTime,
+            startTime: chatterItems.occurredAt,
             filesize: recordings.filesize,
             deviceSn: recordings.deviceSn,
             waveformPeaks: recordings.waveformPeaks,
@@ -128,6 +130,7 @@ async function loadOrganizationLibrary(
             ownerEmail: users.email,
         })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .innerJoin(users, eq(users.id, recordings.userId))
         .where(
             and(
@@ -135,7 +138,7 @@ async function loadOrganizationLibrary(
                 sharedRecordingCondition(orgUserId),
             ),
         )
-        .orderBy(desc(recordings.startTime));
+        .orderBy(desc(chatterItems.occurredAt));
     const [transcriptRows, summaryRows] = await Promise.all([
         db
             .select({ transcription: transcriptions })
@@ -155,12 +158,12 @@ async function loadOrganizationLibrary(
             )
             .then((found) => found.map((row) => row.transcription)),
         db
-            .select({ recordingId: aiEnhancements.recordingId })
+            .select({ recordingId: aiEnhancements.itemId })
             .from(aiEnhancements)
             .innerJoin(
                 recordings,
                 and(
-                    eq(recordings.id, aiEnhancements.recordingId),
+                    eq(recordings.id, aiEnhancements.itemId),
                     eq(recordings.userId, aiEnhancements.userId),
                 ),
             )
@@ -229,9 +232,9 @@ export default async function DashboardPage() {
         db
             .select({
                 id: recordings.id,
-                filename: recordings.filename,
+                filename: chatterItems.title,
                 duration: recordings.duration,
-                startTime: recordings.startTime,
+                startTime: chatterItems.occurredAt,
                 filesize: recordings.filesize,
                 deviceSn: recordings.deviceSn,
                 waveformPeaks: recordings.waveformPeaks,
@@ -241,13 +244,14 @@ export default async function DashboardPage() {
                 audioReapedAt: recordings.audioReapedAt,
             })
             .from(recordings)
+            .innerJoin(chatterItems, recordingItemJoin)
             .where(
                 and(
                     eq(recordings.userId, session.user.id),
                     isNull(recordings.deletedAt),
                 ),
             )
-            .orderBy(desc(recordings.startTime)),
+            .orderBy(desc(chatterItems.occurredAt)),
         db
             .select({
                 // Which stored transcript each text is: speaker changes
@@ -274,7 +278,7 @@ export default async function DashboardPage() {
         // list status chip — the full summary is still fetched on
         // selection by the existing /api/recordings/[id]/summary route.
         db
-            .select({ recordingId: aiEnhancements.recordingId })
+            .select({ recordingId: aiEnhancements.itemId })
             .from(aiEnhancements)
             .where(
                 and(

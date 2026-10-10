@@ -28,7 +28,6 @@ import {
     people,
     recordingFolderAssignments,
     recordingFolders,
-    recordings,
     transcriptions,
     transcriptSpeakers,
     userSettings,
@@ -137,6 +136,7 @@ import {
 } from "@/lib/sharing/access";
 import { upsertTranscription } from "@/lib/transcription/persist";
 import { storeBrowserTranscription } from "@/lib/transcription/transcribe-recording";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -235,23 +235,21 @@ describeWithDatabase("Organization scope (PostgreSQL)", () => {
         userId: string,
         { transcribed = true }: { transcribed?: boolean } = {},
     ) {
-        await db()
-            .insert(recordings)
-            .values({
-                id,
-                userId,
-                deviceSn: "SN-1",
-                plaudFileId: `plaud-${id}`,
-                filename: encryptText(`Recording ${id}`),
-                duration: 60_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:01:00Z"),
-                filesize: 1000,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${userId}/${id}.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id,
+            userId,
+            deviceSn: "SN-1",
+            plaudFileId: `plaud-${id}`,
+            filename: encryptText(`Recording ${id}`),
+            duration: 60_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:01:00Z"),
+            filesize: 1000,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${userId}/${id}.mp3`,
+            plaudVersion: "1",
+        });
         // Transcribed, without speakers: nothing stands in the way of
         // sharing it.
         if (transcribed) await insertTranscript(id, userId);
@@ -380,7 +378,7 @@ describeWithDatabase("Organization scope (PostgreSQL)", () => {
                 .insert(recordingFolderAssignments)
                 .values({
                     userId: ALICE,
-                    recordingId: "rec-a",
+                    itemId: "rec-a",
                     folderId: alicePublic?.id ?? "",
                 });
 
@@ -668,7 +666,7 @@ describeWithDatabase("Organization scope (PostgreSQL)", () => {
             const assignments = await db()
                 .select()
                 .from(recordingFolderAssignments)
-                .where(eq(recordingFolderAssignments.recordingId, "rec-a"));
+                .where(eq(recordingFolderAssignments.itemId, "rec-a"));
             expect(assignments).toEqual([
                 expect.objectContaining({ folderId: root, userId: ALICE }),
             ]);
@@ -700,7 +698,7 @@ describeWithDatabase("Organization scope (PostgreSQL)", () => {
             const moved = await db()
                 .select()
                 .from(recordingFolderAssignments)
-                .where(eq(recordingFolderAssignments.recordingId, "rec-a"));
+                .where(eq(recordingFolderAssignments.itemId, "rec-a"));
             expect(moved.map((row) => row.folderId)).toEqual([sales.id]);
             expect(moved[0]?.userId).toBe(ALICE);
 
@@ -1054,7 +1052,7 @@ describeWithDatabase("Organization scope (PostgreSQL)", () => {
             return db()
                 .select({ folderId: recordingFolderAssignments.folderId })
                 .from(recordingFolderAssignments)
-                .where(eq(recordingFolderAssignments.recordingId, "rec-a"));
+                .where(eq(recordingFolderAssignments.itemId, "rec-a"));
         }
 
         async function ownerOf(personId: string) {
@@ -1107,7 +1105,7 @@ describeWithDatabase("Organization scope (PostgreSQL)", () => {
             await db()
                 .insert(aiEnhancements)
                 .values({
-                    recordingId: "rec-a",
+                    itemId: "rec-a",
                     userId: ALICE,
                     transcriptionId: riffado,
                     summary: encryptText("What was said"),

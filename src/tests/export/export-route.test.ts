@@ -84,9 +84,9 @@ describe("GET /api/export (regression: summary decryption)", () => {
             {
                 id: "rec-1",
                 userId: "user-1",
-                filename: "enc:Planning Call",
+                title: "enc:Planning Call",
                 duration: 60000,
-                startTime: now,
+                occurredAt: now,
                 filesize: 100,
                 deletedAt: null,
             },
@@ -98,7 +98,7 @@ describe("GET /api/export (regression: summary decryption)", () => {
         // 4) aiEnhancements
         queueSelect([
             {
-                recordingId: "rec-1",
+                itemId: "rec-1",
                 summary: "enc:A concise summary",
                 actionItems: ["enc:do a thing"],
                 keyPoints: ["enc:key point"],
@@ -145,9 +145,9 @@ describe("GET /api/export and speaker names", () => {
             {
                 id: "rec-1",
                 userId: "user-1",
-                filename: "enc:Planning Call",
+                title: "enc:Planning Call",
                 duration: 60000,
-                startTime: now,
+                occurredAt: now,
                 filesize: 100,
                 deletedAt: null,
             },
@@ -196,9 +196,9 @@ describe("GET /api/export and speaker names", () => {
             {
                 id: "rec-1",
                 userId: "user-1",
-                filename: "enc:Planning Call",
+                title: "enc:Planning Call",
                 duration: 60000,
-                startTime: now,
+                occurredAt: now,
                 filesize: 100,
                 deletedAt: null,
             },

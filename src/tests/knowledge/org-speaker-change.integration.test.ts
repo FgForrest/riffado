@@ -23,7 +23,6 @@ import {
 import {
     people,
     recordingFolders,
-    recordings,
     transcriptions,
     transcriptSpeakers,
     users,
@@ -128,6 +127,7 @@ import { encryptJsonField, encryptText } from "@/lib/encryption/fields";
 import { addRecordingToFolder, unshareRecording } from "@/lib/folders/folders";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { upsertTranscription } from "@/lib/transcription/persist";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -227,23 +227,21 @@ describeWithDatabase(
                     { id: BOB, email: "bob@example.test" },
                 ]);
             orgUserId = (await ensureOrgAccount()) ?? "";
-            await db()
-                .insert(recordings)
-                .values({
-                    id: REC,
-                    userId: OWNER,
-                    deviceSn: "SN-1",
-                    plaudFileId: "plaud-1",
-                    filename: encryptText("Weekly"),
-                    duration: 60_000,
-                    startTime: new Date("2026-09-01T10:00:00Z"),
-                    endTime: new Date("2026-09-01T10:01:00Z"),
-                    filesize: 11,
-                    fileMd5: "0".repeat(32),
-                    storageType: "local",
-                    storagePath: `${OWNER}/rec.mp3`,
-                    plaudVersion: "1",
-                });
+            await insertRecordings(db(), {
+                id: REC,
+                userId: OWNER,
+                deviceSn: "SN-1",
+                plaudFileId: "plaud-1",
+                filename: encryptText("Weekly"),
+                duration: 60_000,
+                startTime: new Date("2026-09-01T10:00:00Z"),
+                endTime: new Date("2026-09-01T10:01:00Z"),
+                filesize: 11,
+                fileMd5: "0".repeat(32),
+                storageType: "local",
+                storagePath: `${OWNER}/rec.mp3`,
+                plaudVersion: "1",
+            });
         });
 
         /** The owner's transcript, with Jana and Petr named on it. */

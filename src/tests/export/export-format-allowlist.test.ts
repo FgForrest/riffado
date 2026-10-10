@@ -82,9 +82,9 @@ function queueExportReads() {
         {
             id: "rec-1",
             userId: "user-1",
-            filename: "Planning Call",
+            title: "Planning Call",
             duration: 60000,
-            startTime: new Date("2026-05-06T12:00:00.000Z"),
+            occurredAt: new Date("2026-05-06T12:00:00.000Z"),
             filesize: 100,
             deletedAt: null,
         },

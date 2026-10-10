@@ -5,7 +5,13 @@ import { redirect } from "next/navigation";
 import { getExtracted } from "next-intl/server";
 import { PeopleList } from "@/components/people/people-list";
 import { db } from "@/db";
-import { recordings, transcriptions, transcriptSpeakers } from "@/db/schema";
+import { recordingItemJoin } from "@/db/items";
+import {
+    chatterItems,
+    recordings,
+    transcriptions,
+    transcriptSpeakers,
+} from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { aliasTextsVisibleTo } from "@/lib/knowledge/aliases";
 import { isLearnDeploymentAvailable } from "@/lib/knowledge/availability";
@@ -36,7 +42,7 @@ export default async function PeoplePage() {
             .select({
                 personId: transcriptSpeakers.personId,
                 recordingCount: countDistinct(recordings.id),
-                lastSeen: max(recordings.startTime),
+                lastSeen: max(chatterItems.occurredAt),
             })
             .from(transcriptSpeakers)
             .innerJoin(
@@ -47,6 +53,7 @@ export default async function PeoplePage() {
                 recordings,
                 eq(recordings.id, transcriptions.recordingId),
             )
+            .innerJoin(chatterItems, recordingItemJoin)
             .where(
                 and(
                     or(

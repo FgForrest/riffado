@@ -249,7 +249,7 @@ describeWithDatabase("MCP knowledge tools (PostgreSQL)", () => {
                 userId: scope,
                 factId,
                 transcriptionId,
-                recordingId,
+                itemId: recordingId,
                 transcriptRevision: 1,
                 startMs,
                 endMs: startMs + 1_000,

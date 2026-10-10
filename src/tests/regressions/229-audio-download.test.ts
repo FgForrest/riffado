@@ -66,9 +66,9 @@ function recordingRow(overrides: Record<string, unknown> = {}) {
         userId: "user-1",
         deviceSn: "SN-1",
         plaudFileId: "plaud-1",
-        filename: "encrypted:Planning Call",
+        title: "encrypted:Planning Call",
         duration: 120000,
-        startTime: now,
+        occurredAt: now,
         endTime: now,
         filesize: audioBytes.length,
         fileMd5: "abc",
@@ -89,12 +89,15 @@ function recordingRow(overrides: Record<string, unknown> = {}) {
 }
 
 function selectRecording(row: unknown) {
-    (db.select as Mock).mockReturnValue({
-        from: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({
-                limit: vi.fn().mockResolvedValue(row ? [row] : []),
-            }),
+    const joined = {
+        innerJoin: vi.fn(),
+        where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue(row ? [row] : []),
         }),
+    };
+    joined.innerJoin.mockReturnValue(joined);
+    (db.select as Mock).mockReturnValue({
+        from: vi.fn().mockReturnValue(joined),
     });
 }
 

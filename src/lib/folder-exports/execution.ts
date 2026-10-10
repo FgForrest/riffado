@@ -69,7 +69,7 @@ async function materializeLocked(
     const [state] = await db
         .select({
             id: folderExportMaterializations.id,
-            recordingId: folderExportMaterializations.recordingId,
+            recordingId: folderExportMaterializations.itemId,
             artifactId: folderExportMaterializations.artifactId,
             artifactType: folderExportMaterializations.artifactType,
             format: folderExportMaterializations.format,
@@ -95,7 +95,7 @@ async function materializeLocked(
         )
         .innerJoin(
             recordings,
-            eq(recordings.id, folderExportMaterializations.recordingId),
+            eq(recordings.id, folderExportMaterializations.itemId),
         )
         .where(
             and(
@@ -189,10 +189,7 @@ async function materializeLocked(
                           .where(
                               and(
                                   eq(aiEnhancements.id, state.artifactId),
-                                  eq(
-                                      aiEnhancements.recordingId,
-                                      state.recordingId,
-                                  ),
+                                  eq(aiEnhancements.itemId, state.recordingId),
                                   eq(aiEnhancements.userId, state.ownerUserId),
                               ),
                           )

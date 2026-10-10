@@ -118,7 +118,8 @@ export interface ReviewView {
     run: {
         id: string;
         status: string;
-        transcriptionId: string;
+        /** The transcript a run on a recording read; null on other kinds. */
+        transcriptionId: string | null;
         createdAt: string;
         finishedAt: string | null;
         /** Why a failed run failed (`ErrorCode`). */
@@ -189,7 +190,7 @@ async function latestRun(access: RecordingViewContext, source?: ReviewSource) {
         )
         .where(
             and(
-                eq(learnRuns.recordingId, access.recordingId),
+                eq(learnRuns.itemId, access.recordingId),
                 eq(learnRuns.view, access.view),
                 source ? eq(transcriptions.source, source) : undefined,
             ),
@@ -353,7 +354,7 @@ export async function forgetDismissals(
         .where(
             and(
                 eq(learnDismissals.userId, scopeUserId),
-                eq(learnDismissals.recordingId, access.recordingId),
+                eq(learnDismissals.itemId, access.recordingId),
             ),
         )
         .returning({ id: learnDismissals.id });
@@ -693,7 +694,9 @@ export async function finishReview(
 ): Promise<FinishedReview> {
     const orgUserId = await sharingOrgUserId();
     const latest = await latestRun(access, source);
-    if (!latest || latest.status !== "ready") throw reviewNotFound();
+    if (!latest || latest.status !== "ready" || !isRecordingRun(latest)) {
+        throw reviewNotFound();
+    }
     // Where a new record may be found already: what the run could read.
     const readScopes = readableScopes(
         {
@@ -717,8 +720,17 @@ export async function finishReview(
     return finished;
 }
 
+type LatestRun = NonNullable<Awaited<ReturnType<typeof latestRun>>>;
+
+/** A run on a recording: it read one of its transcripts. */
+type RecordingRun = LatestRun & { transcriptionId: string };
+
+function isRecordingRun(run: LatestRun): run is RecordingRun {
+    return run.transcriptionId !== null;
+}
+
 function finishInTx(
-    latest: NonNullable<Awaited<ReturnType<typeof latestRun>>>,
+    latest: RecordingRun,
     actorUserId: string,
     orgUserId: Awaited<ReturnType<typeof sharingOrgUserId>>,
     versions: Record<string, number>,
@@ -828,7 +840,7 @@ function finishInTx(
         const writer = { actorUserId, orgUserId };
         const transcript = {
             userId: run.userId,
-            transcriptionId: run.transcriptionId,
+            transcriptionId: latest.transcriptionId,
             revision,
         };
 
@@ -1044,7 +1056,7 @@ function finishInTx(
                     and(
                         eq(
                             transcriptSpeakers.transcriptionId,
-                            run.transcriptionId,
+                            latest.transcriptionId,
                         ),
                         eq(transcriptSpeakers.label, payload.label),
                         or(
@@ -1127,7 +1139,7 @@ function finishInTx(
                     and(
                         eq(
                             transcriptSpeakers.transcriptionId,
-                            run.transcriptionId,
+                            latest.transcriptionId,
                         ),
                         eq(transcriptSpeakers.label, label),
                         eq(transcriptSpeakers.status, "confirmed"),
@@ -1161,7 +1173,7 @@ function finishInTx(
             await confirmFactFromRecordingInTx(sp, {
                 ...writer,
                 ownerUserId: run.userId,
-                transcriptionId: run.transcriptionId,
+                transcriptionId: latest.transcriptionId,
                 revision,
                 subject,
                 relationKey,
@@ -1322,7 +1334,7 @@ function finishInTx(
                 .values(
                     rejected.map((item) => ({
                         userId: run.scopeUserId,
-                        recordingId: run.recordingId,
+                        itemId: run.itemId,
                         fingerprintHmac: item.fingerprintHmac,
                         // A new record the reviewer rejected is not
                         // proposed again on any recording; one merely left
@@ -1365,7 +1377,10 @@ function finishInTx(
         // Once, after every type the finish made (`createOwnTypeInTx`).
         if (typesCreated) await bumpVocabularyVersionInTx(tx);
         await bumpScopeInTx(tx, scopes);
-        const correcting = await queueCorrectionPassInTx(tx, run);
+        const correcting = await queueCorrectionPassInTx(tx, {
+            ...run,
+            transcriptionId: latest.transcriptionId,
+        });
         return {
             status: "finished",
             applied,

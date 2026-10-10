@@ -28,7 +28,6 @@ import {
     learnRuns,
     recordingFolderAssignments,
     recordingFolders,
-    recordings,
     transcriptCorrections,
     transcriptions,
     transcriptSpeakers,
@@ -218,6 +217,7 @@ import type { StorageProvider } from "@/lib/storage/types";
 import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
 import { upsertTranscription } from "@/lib/transcription/persist";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -261,23 +261,21 @@ describeWithDatabase("Learn runs (PostgreSQL)", () => {
                 { id: BOB, email: "b@example.test" },
             ]);
         orgUserId = (await ensureOrgAccount()) ?? "";
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 5_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:00:05Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/rec.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 5_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:00:05Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/rec.mp3`,
+            plaudVersion: "1",
+        });
         const [transcript] = await db()
             .insert(transcriptions)
             .values({
@@ -312,7 +310,7 @@ describeWithDatabase("Learn runs (PostgreSQL)", () => {
             .values({
                 userId: OWNER,
                 scopeUserId: view === "org" ? orgUserId : OWNER,
-                recordingId: REC,
+                itemId: REC,
                 transcriptionId: transcriptId,
                 view,
                 actorUserId: view === "org" ? orgUserId : OWNER,
@@ -368,7 +366,7 @@ describeWithDatabase("Learn runs (PostgreSQL)", () => {
         });
         await db().insert(learnDismissals).values({
             userId: orgUserId,
-            recordingId: REC,
+            itemId: REC,
             fingerprintHmac: "f",
         });
         await db().delete(transcriptions);
@@ -382,8 +380,8 @@ describeWithDatabase("Learn runs (PostgreSQL)", () => {
         await db()
             .insert(learnDismissals)
             .values([
-                { userId: OWNER, recordingId: REC, fingerprintHmac: "a" },
-                { userId: orgUserId, recordingId: REC, fingerprintHmac: "b" },
+                { userId: OWNER, itemId: REC, fingerprintHmac: "a" },
+                { userId: orgUserId, itemId: REC, fingerprintHmac: "b" },
             ]);
         const deleted = await deleteRecordingRoute(
             new Request(`http://localhost/api/recordings/${REC}`, {
@@ -925,28 +923,26 @@ describeWithDatabase("Learn runs (PostgreSQL)", () => {
             expect(prompt).toContain('\\"notFound\\":[\\"Veltrix\\"]');
 
             // Veltrix rejected on another recording of the owner's.
-            await db()
-                .insert(recordings)
-                .values({
-                    id: "rec-other",
-                    userId: OWNER,
-                    deviceSn: "SN-1",
-                    plaudFileId: "plaud-2",
-                    filename: encryptText("Other"),
-                    duration: 5_000,
-                    startTime: new Date("2026-09-02T10:00:00Z"),
-                    endTime: new Date("2026-09-02T10:00:05Z"),
-                    filesize: 11,
-                    fileMd5: "1".repeat(32),
-                    storageType: "local",
-                    storagePath: `${OWNER}/other.mp3`,
-                    plaudVersion: "1",
-                });
+            await insertRecordings(db(), {
+                id: "rec-other",
+                userId: OWNER,
+                deviceSn: "SN-1",
+                plaudFileId: "plaud-2",
+                filename: encryptText("Other"),
+                duration: 5_000,
+                startTime: new Date("2026-09-02T10:00:00Z"),
+                endTime: new Date("2026-09-02T10:00:05Z"),
+                filesize: 11,
+                fileMd5: "1".repeat(32),
+                storageType: "local",
+                storagePath: `${OWNER}/other.mp3`,
+                plaudVersion: "1",
+            });
             await db()
                 .insert(learnDismissals)
                 .values({
                     userId: OWNER,
-                    recordingId: "rec-other",
+                    itemId: "rec-other",
                     fingerprintHmac: learnFingerprintHmac(
                         newRecordFingerprint(
                             "entity",
@@ -1558,7 +1554,7 @@ describeWithDatabase("Learn runs (PostgreSQL)", () => {
                 .insert(recordingFolderAssignments)
                 .values({
                     userId: orgUserId,
-                    recordingId: REC,
+                    itemId: REC,
                     folderId: root?.id ?? "",
                 });
             await runJob(second.runId);
@@ -2180,7 +2176,7 @@ describeWithDatabase("Learn runs (PostgreSQL)", () => {
             .insert(recordingFolderAssignments)
             .values({
                 userId: orgUserId,
-                recordingId: REC,
+                itemId: REC,
                 folderId: root?.id ?? "",
             });
         expect(await reviewQueue(orgUserId, true)).toMatchObject([

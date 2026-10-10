@@ -469,7 +469,7 @@ export async function withdrawKnowledgeInTx(
         .delete(learnRuns)
         .where(
             and(
-                eq(learnRuns.recordingId, recordingId),
+                eq(learnRuns.itemId, recordingId),
                 eq(learnRuns.scopeUserId, orgUserId),
             ),
         );
@@ -477,7 +477,7 @@ export async function withdrawKnowledgeInTx(
         .delete(learnDismissals)
         .where(
             and(
-                eq(learnDismissals.recordingId, recordingId),
+                eq(learnDismissals.itemId, recordingId),
                 eq(learnDismissals.userId, orgUserId),
             ),
         );

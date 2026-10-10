@@ -14,7 +14,9 @@
 
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { recordingItemJoin } from "@/db/items";
 import {
+    chatterItems,
     knowledgeEntities,
     knowledgeFactEvidence,
     knowledgeFacts,
@@ -79,7 +81,7 @@ export interface Fact {
     subject: KnowledgeTarget;
     relationKey: string;
     object: FactObject;
-    origin: "recording" | "manual";
+    origin: "recording" | "mail" | "manual";
     /** Supported evidence, and when the latest recording of it began. */
     supportedEvidence: number;
     lastSaidAt: Date | null;
@@ -220,7 +222,7 @@ export async function confirmFactInTx(
     }: FactArgs & {
         scopeUserId: string;
         actorUserId: string;
-        origin: "recording" | "manual";
+        origin: "recording" | "mail" | "manual";
     },
 ): Promise<string> {
     const relation = await usableRelation(tx, scopeUserId, args.relationKey);
@@ -411,7 +413,7 @@ export async function confirmFactFromRecordingInTx(
             userId: args.actorUserId,
             factId,
             transcriptionId: args.transcriptionId,
-            recordingId,
+            itemId: recordingId,
             transcriptRevision: revision,
             startMs: args.startMs,
             endMs: args.endMs,
@@ -706,13 +708,11 @@ export async function listFacts(
         .select({
             factId: knowledgeFactEvidence.factId,
             count: sql<number>`count(*)::int`,
-            lastSaidAt: sql<Date | null>`max(${recordings.startTime})`,
+            lastSaidAt: sql<Date | null>`max(${chatterItems.occurredAt})`,
         })
         .from(knowledgeFactEvidence)
-        .innerJoin(
-            recordings,
-            eq(recordings.id, knowledgeFactEvidence.recordingId),
-        )
+        .innerJoin(recordings, eq(recordings.id, knowledgeFactEvidence.itemId))
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 inArray(

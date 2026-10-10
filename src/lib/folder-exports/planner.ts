@@ -2,8 +2,10 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { audioItemColumns, recordingItemJoin } from "@/db/items";
 import {
     aiEnhancements,
+    chatterItems,
     filesystemExportNodes,
     filesystemExportSettings,
     folderExportDirectories,
@@ -237,8 +239,9 @@ async function planLocked(
         configuration.folderId,
     );
     const recordingRows = await db
-        .select()
+        .select(audioItemColumns)
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 isOrg
@@ -278,7 +281,7 @@ async function planLocked(
         db
             .select({
                 id: aiEnhancements.id,
-                recordingId: aiEnhancements.recordingId,
+                recordingId: aiEnhancements.itemId,
                 source: aiEnhancements.source,
                 userId: aiEnhancements.userId,
             })
@@ -286,7 +289,7 @@ async function planLocked(
             .innerJoin(
                 recordings,
                 and(
-                    eq(recordings.id, aiEnhancements.recordingId),
+                    eq(recordings.id, aiEnhancements.itemId),
                     eq(recordings.userId, aiEnhancements.userId),
                 ),
             )
@@ -294,7 +297,7 @@ async function planLocked(
         db
             .select({
                 id: folderExportMaterializations.id,
-                recordingId: folderExportMaterializations.recordingId,
+                recordingId: folderExportMaterializations.itemId,
                 placementFolderId:
                     folderExportMaterializations.placementFolderId,
                 artifactType: folderExportMaterializations.artifactType,
@@ -382,7 +385,7 @@ async function planLocked(
     );
     const placementByKey = new Map(
         existingPlacements.map((placement) => [
-            placementKey(placement.recordingId, placement.placementFolderId),
+            placementKey(placement.itemId, placement.placementFolderId),
             placement,
         ]),
     );
@@ -629,9 +632,7 @@ async function planLocked(
                 recording,
                 placementFolderId,
                 artifacts,
-                preferredName: recordingDirectory(
-                    decryptText(recording.filename),
-                ),
+                preferredName: recordingDirectory(decryptText(recording.title)),
             });
         }
     }
@@ -643,7 +644,7 @@ async function planLocked(
         const left = existingPlacements
             .filter(
                 (placement) =>
-                    placement.recordingId === recordingId &&
+                    placement.itemId === recordingId &&
                     placement.targetPath === configuration.targetPath &&
                     !folderIds.has(placement.placementFolderId),
             )
@@ -770,7 +771,7 @@ async function planLocked(
             .values({
                 userId,
                 exportConfigurationId: exportId,
-                recordingId: placement.recording.id,
+                itemId: placement.recording.id,
                 placementFolderId: placement.placementFolderId,
                 targetPath: configuration.targetPath,
                 directoryName,
@@ -780,7 +781,7 @@ async function planLocked(
             .onConflictDoUpdate({
                 target: [
                     folderExportPlacements.exportConfigurationId,
-                    folderExportPlacements.recordingId,
+                    folderExportPlacements.itemId,
                     folderExportPlacements.placementFolderId,
                 ],
                 set: {
@@ -802,7 +803,7 @@ async function planLocked(
                 .values({
                     userId,
                     exportConfigurationId: exportId,
-                    recordingId: placement.recording.id,
+                    itemId: placement.recording.id,
                     placementFolderId: placement.placementFolderId,
                     artifactType: artifact.artifactType,
                     artifactId: artifact.artifactId,

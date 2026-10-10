@@ -5,7 +5,7 @@
  * interrupt mid-run.
  *
  * Scope (matches the rollout plan):
- *   - recordings.filename                     (text)
+ *   - chatter_items.title                     (text)
  *   - transcriptions.text                     (text)
  *   - ai_enhancements.summary                 (text)
  *   - ai_enhancements.action_items            (jsonb \u2192 envelope)
@@ -25,7 +25,7 @@ import { asc, eq, gt } from "drizzle-orm";
 import { db } from "@/db";
 import {
     aiEnhancements,
-    recordings,
+    chatterItems,
     transcriptions,
     userSettings,
 } from "@/db/schema";
@@ -92,22 +92,24 @@ async function* iterateById<R extends { id: string }>(
 }
 
 async function backfillRecordingFilenames(): Promise<TableStats> {
-    const stats = newStats("recordings.filename");
+    const stats = newStats("chatter_items.title");
     const fetchPage = (afterId: string | null) => {
         const base = db
-            .select({ id: recordings.id, filename: recordings.filename })
-            .from(recordings);
-        const filtered = afterId ? base.where(gt(recordings.id, afterId)) : base;
-        return filtered.orderBy(asc(recordings.id)).limit(BATCH_SIZE);
+            .select({ id: chatterItems.id, title: chatterItems.title })
+            .from(chatterItems);
+        const filtered = afterId
+            ? base.where(gt(chatterItems.id, afterId))
+            : base;
+        return filtered.orderBy(asc(chatterItems.id)).limit(BATCH_SIZE);
     };
 
     for await (const row of iterateById(fetchPage)) {
         stats.inspected++;
-        if (row.filename === null || row.filename === undefined) {
+        if (row.title === null || row.title === undefined) {
             stats.nullSkipped++;
             continue;
         }
-        if (isEncryptedText(row.filename)) {
+        if (isEncryptedText(row.title)) {
             stats.alreadyEncrypted++;
             continue;
         }
@@ -116,9 +118,9 @@ async function backfillRecordingFilenames(): Promise<TableStats> {
             continue;
         }
         await db
-            .update(recordings)
-            .set({ filename: encryptText(row.filename) })
-            .where(eq(recordings.id, row.id));
+            .update(chatterItems)
+            .set({ title: encryptText(row.title) })
+            .where(eq(chatterItems.id, row.id));
         stats.encrypted++;
     }
     return stats;

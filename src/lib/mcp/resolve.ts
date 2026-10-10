@@ -1,7 +1,9 @@
 import { and, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
+import { recordingItemJoin } from "@/db/items";
 import {
+    chatterItems,
     recordings,
     recordingTasks,
     transcriptions,
@@ -196,10 +198,7 @@ async function namablePeople(
         const assignees = await db
             .selectDistinct({ personId: recordingTasks.assigneePersonId })
             .from(recordingTasks)
-            .innerJoin(
-                recordings,
-                eq(recordings.id, recordingTasks.recordingId),
-            )
+            .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
             .where(
                 and(
                     isNotNull(recordingTasks.assigneePersonId),
@@ -304,8 +303,8 @@ export async function resolveRecording(
     const columns = {
         id: recordings.id,
         userId: recordings.userId,
-        filename: recordings.filename,
-        startTime: recordings.startTime,
+        filename: chatterItems.title,
+        startTime: chatterItems.occurredAt,
     };
     type Row = {
         id: string;
@@ -325,6 +324,7 @@ export async function resolveRecording(
     const [byId] = await db
         .select(columns)
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(and(eq(recordings.id, text), visible))
         .limit(1);
     if (byId) return resolved(byId, decryptText(byId.filename), "id");
@@ -338,8 +338,9 @@ export async function resolveRecording(
     const rows = await db
         .select(columns)
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(visible)
-        .orderBy(desc(recordings.startTime), desc(recordings.id))
+        .orderBy(desc(chatterItems.occurredAt), desc(recordings.id))
         .limit(TITLE_SCAN);
     const wanted = normalizeName(text);
     const words = prepareQuery(text, null);

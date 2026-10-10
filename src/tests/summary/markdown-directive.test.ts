@@ -94,6 +94,7 @@ function selectChain() {
             table = t;
             return c;
         },
+        innerJoin: () => c,
         where: () => c,
         for: () => c,
         orderBy: () => c,

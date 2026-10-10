@@ -422,7 +422,7 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
             .delete(aiEnhancements)
             .where(
                 and(
-                    eq(aiEnhancements.recordingId, id),
+                    eq(aiEnhancements.itemId, id),
                     eq(aiEnhancements.userId, ownerUserId),
                     eq(aiEnhancements.source, source),
                 ),

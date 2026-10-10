@@ -17,13 +17,7 @@ import {
     it,
     vi,
 } from "vitest";
-import {
-    people,
-    recordings,
-    transcriptions,
-    transcriptSpeakers,
-    users,
-} from "@/db/schema";
+import { people, transcriptions, transcriptSpeakers, users } from "@/db/schema";
 import {
     createMigratedTestDatabase,
     getTestDatabaseUrl,
@@ -84,6 +78,7 @@ import { createPerson } from "@/lib/knowledge/people";
 import { seedCoreVocabulary } from "@/lib/knowledge/vocabulary";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { almanacTermsFor } from "@/lib/transcription/almanac-terms";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -104,23 +99,21 @@ describeWithDatabase("Almanac terms for transcription (PostgreSQL)", () => {
         id: string,
         named: { label: string; personId: string; status?: "rejected" }[],
     ): Promise<void> {
-        await db()
-            .insert(recordings)
-            .values({
-                id,
-                userId: ALICE,
-                deviceSn: "SN-1",
-                plaudFileId: `plaud-${id}`,
-                filename: encryptText("Weekly"),
-                duration: 10_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:00:10Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${ALICE}/${id}.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id,
+            userId: ALICE,
+            deviceSn: "SN-1",
+            plaudFileId: `plaud-${id}`,
+            filename: encryptText("Weekly"),
+            duration: 10_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:00:10Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${ALICE}/${id}.mp3`,
+            plaudVersion: "1",
+        });
         const [transcript] = await db()
             .insert(transcriptions)
             .values({

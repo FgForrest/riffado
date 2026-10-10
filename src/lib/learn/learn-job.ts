@@ -159,7 +159,7 @@ export async function startLearnRun(input: {
                     view === "org" && access.orgUserId
                         ? access.orgUserId
                         : access.ownerUserId,
-                recordingId: access.recordingId,
+                itemId: access.recordingId,
                 transcriptionId: transcript.id,
                 view,
                 actorUserId,
@@ -275,5 +275,5 @@ export async function settleDeadLearnRuns(recordingId: string): Promise<void> {
             finishedAt: new Date(),
             updatedAt: new Date(),
         })
-        .where(and(eq(learnRuns.recordingId, recordingId), learnRunDead()));
+        .where(and(eq(learnRuns.itemId, recordingId), learnRunDead()));
 }

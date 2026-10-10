@@ -1,6 +1,7 @@
 import { and, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
-import { plaudDevices, recordings } from "@/db/schema";
+import { audioItemColumns, recordingItemJoin } from "@/db/items";
+import { chatterItems, plaudDevices, recordings } from "@/db/schema";
 import { env } from "@/lib/env";
 import {
     getV1RecordingDetailForUser,
@@ -87,10 +88,11 @@ async function getDeletedWebhookRecordingDetailForUser(
 ): Promise<WebhookRecordingDetail | null> {
     const [row] = await db
         .select({
-            recording: recordings,
+            recording: audioItemColumns,
             device: plaudDevices,
         })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .leftJoin(
             plaudDevices,
             and(

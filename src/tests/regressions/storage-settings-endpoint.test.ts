@@ -63,8 +63,8 @@ const mockDb = {
 vi.mock("@/db", () => ({ db: mockDb }));
 
 // Build a chainable query stub matching the two shapes the route
-// uses: totals (await on where) and largest (await on limit after
-// orderBy). `where()` returns a real Promise so awaiting it works
+// uses: totals (await on where) and largest (joined to the item for
+// its title, then await on limit after orderBy). `where()` returns a real Promise so awaiting it works
 // without thenable trickery; the same Promise also carries .orderBy
 // for the chained variant.
 function makeQueryStub(result: unknown[]) {
@@ -78,6 +78,7 @@ function makeQueryStub(result: unknown[]) {
     });
     const stub: Record<string, unknown> = {};
     stub.from = vi.fn().mockReturnValue(stub);
+    stub.innerJoin = vi.fn().mockReturnValue(stub);
     stub.where = vi.fn().mockImplementation((...args: unknown[]) => {
         whereSpy(...args);
         return wherePromise;

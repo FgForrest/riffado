@@ -7,7 +7,9 @@
 
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
+import { recordingItemJoin } from "@/db/items";
 import {
+    chatterItems,
     knowledgeEntities,
     knowledgeFactEvidence,
     knowledgeFacts,
@@ -37,7 +39,8 @@ export interface PageEvidence {
     title: string;
     /** When the recording began, ISO 8601. */
     recordedAt: string;
-    startMs: number;
+    /** Where in the recording; null for evidence in a mail. */
+    startMs: number | null;
     /** Where the viewer opens it: their own, or the Organization's view. */
     view: "private" | "org";
 }
@@ -48,7 +51,7 @@ export interface PageFact {
     direction: "subject" | "object";
     other: FactSide;
     scope: "personal" | "org";
-    origin: "recording" | "manual";
+    origin: "recording" | "mail" | "manual";
     evidence: PageEvidence[];
 }
 
@@ -109,15 +112,13 @@ export async function factsForPage(
             factId: knowledgeFactEvidence.factId,
             recordingId: recordings.id,
             recordingOwner: recordings.userId,
-            title: recordings.filename,
-            startTime: recordings.startTime,
+            title: chatterItems.title,
+            startTime: chatterItems.occurredAt,
             startMs: knowledgeFactEvidence.startMs,
         })
         .from(knowledgeFactEvidence)
-        .innerJoin(
-            recordings,
-            eq(recordings.id, knowledgeFactEvidence.recordingId),
-        )
+        .innerJoin(recordings, eq(recordings.id, knowledgeFactEvidence.itemId))
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 inArray(

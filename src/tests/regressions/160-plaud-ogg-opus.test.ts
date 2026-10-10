@@ -175,14 +175,33 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
         function stubSelects(results: unknown[][]) {
             const chain = (db.select as Mock).mockReset();
             for (const result of results) {
-                chain.mockReturnValueOnce({
-                    from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            limit: vi.fn().mockResolvedValue(result),
-                        }),
+                // The recording lookup joins its item; the other reads don't.
+                const joined = {
+                    innerJoin: vi.fn(),
+                    where: vi.fn().mockReturnValue({
+                        limit: vi.fn().mockResolvedValue(result),
                     }),
+                };
+                joined.innerJoin.mockReturnValue(joined);
+                chain.mockReturnValueOnce({
+                    from: vi.fn().mockReturnValue(joined),
                 });
             }
+        }
+
+        /** The existing-recording lookup's row: the recording beside its item's markers. */
+        function existingRow(recording: Record<string, unknown>) {
+            return { recording, contentReapedAt: null, summaryReapedAt: null };
+        }
+
+        /** A new recording is inserted beside its item, in one transaction. */
+        function stubInsertTransaction() {
+            (db.insert as Mock).mockReturnValue({
+                values: vi.fn().mockResolvedValue(undefined),
+            });
+            (db.transaction as Mock).mockImplementation(
+                async (cb: (tx: unknown) => Promise<unknown>) => cb(db),
+            );
         }
 
         it("stores a new Plaud Ogg/Opus download as audio/ogg with a .ogg key", async () => {
@@ -195,12 +214,7 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
                 [],
                 [],
             ]);
-
-            (db.insert as Mock).mockReturnValue({
-                values: vi.fn().mockReturnValue({
-                    returning: vi.fn().mockResolvedValue([{ id: "new-rec" }]),
-                }),
-            });
+            stubInsertTransaction();
             (db.update as Mock).mockReturnValue({
                 set: vi.fn().mockReturnValue({
                     where: vi.fn().mockResolvedValue(undefined),
@@ -228,6 +242,7 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
                 [{ email: "t@example.com" }],
                 [],
             ]);
+            stubInsertTransaction();
             (db.select as Mock).mockReturnValue({
                 from: vi.fn().mockReturnValue({
                     where: vi.fn().mockReturnValue({
@@ -256,18 +271,19 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
             const setPayloads: Array<{ storagePath?: string }> = [];
             (db.transaction as Mock).mockImplementation(
                 async (cb: (tx: unknown) => Promise<boolean>) => {
+                    const locked = {
+                        where: vi.fn().mockReturnValue({
+                            for: vi.fn().mockReturnValue({
+                                limit: vi
+                                    .fn()
+                                    .mockResolvedValue([{ deletedAt: null }]),
+                            }),
+                        }),
+                    };
                     const tx = {
                         select: vi.fn().mockReturnValue({
                             from: vi.fn().mockReturnValue({
-                                where: vi.fn().mockReturnValue({
-                                    for: vi.fn().mockReturnValue({
-                                        limit: vi
-                                            .fn()
-                                            .mockResolvedValue([
-                                                { deletedAt: null },
-                                            ]),
-                                    }),
-                                }),
+                                innerJoin: vi.fn().mockReturnValue(locked),
                             }),
                         }),
                         update: vi.fn().mockReturnValue({
@@ -305,13 +321,13 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
                 [{ id: "settings-1" }],
                 [{ email: "t@example.com" }],
                 [
-                    {
+                    existingRow({
                         id: "local-rec-160",
                         plaudFileId: "plaud-160",
                         plaudVersion: "1",
                         storagePath: oldPath,
                         deletedAt: null,
-                    },
+                    }),
                 ],
                 [],
             ]);
@@ -339,13 +355,13 @@ describe("issue #160 — Plaud .mp3 that is actually Ogg/Opus", () => {
                 [{ id: "settings-1" }],
                 [{ email: "t@example.com" }],
                 [
-                    {
+                    existingRow({
                         id: "local-rec-160",
                         plaudFileId: "plaud-160",
                         plaudVersion: "1",
                         storagePath: sharedPath,
                         deletedAt: null,
-                    },
+                    }),
                 ],
                 [{ id: "other-rec" }],
                 [],

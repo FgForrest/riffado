@@ -142,17 +142,19 @@ describe("issue #122 — OpenRouter transcription uses chat-completions", () => 
             // recording lookup
             .mockReturnValueOnce({
                 from: vi.fn().mockReturnValue({
-                    where: vi.fn().mockReturnValue({
-                        limit: vi.fn().mockResolvedValue([
-                            {
-                                id: recordingId,
-                                userId,
-                                plaudFileId: "plaud-1",
-                                filename: "Some Recording",
-                                storagePath: "rec-122.mp3",
-                                deletedAt: null,
-                            },
-                        ]),
+                    innerJoin: vi.fn().mockReturnValue({
+                        where: vi.fn().mockReturnValue({
+                            limit: vi.fn().mockResolvedValue([
+                                {
+                                    id: recordingId,
+                                    userId,
+                                    plaudFileId: "plaud-1",
+                                    title: "Some Recording",
+                                    storagePath: "rec-122.mp3",
+                                    deletedAt: null,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -200,11 +202,15 @@ describe("issue #122 — OpenRouter transcription uses chat-completions", () => 
                 .fn()
                 .mockReturnValueOnce({
                     from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            for: vi.fn().mockReturnValue({
-                                limit: vi
-                                    .fn()
-                                    .mockResolvedValue([{ deletedAt: null }]),
+                        innerJoin: vi.fn().mockReturnValue({
+                            where: vi.fn().mockReturnValue({
+                                for: vi.fn().mockReturnValue({
+                                    limit: vi
+                                        .fn()
+                                        .mockResolvedValue([
+                                            { deletedAt: null },
+                                        ]),
+                                }),
                             }),
                         }),
                     }),
@@ -270,17 +276,19 @@ describe("issue #122 — OpenRouter transcription uses chat-completions", () => 
         (db.select as Mock)
             .mockReturnValueOnce({
                 from: vi.fn().mockReturnValue({
-                    where: vi.fn().mockReturnValue({
-                        limit: vi.fn().mockResolvedValue([
-                            {
-                                id: recordingId,
-                                userId,
-                                plaudFileId: "plaud-1",
-                                filename: "2026-05-19 18-06-54.mp3",
-                                storagePath: "rec-122.mp3",
-                                deletedAt: null,
-                            },
-                        ]),
+                    innerJoin: vi.fn().mockReturnValue({
+                        where: vi.fn().mockReturnValue({
+                            limit: vi.fn().mockResolvedValue([
+                                {
+                                    id: recordingId,
+                                    userId,
+                                    plaudFileId: "plaud-1",
+                                    title: "2026-05-19 18-06-54.mp3",
+                                    storagePath: "rec-122.mp3",
+                                    deletedAt: null,
+                                },
+                            ]),
+                        }),
                     }),
                 }),
             })
@@ -325,11 +333,15 @@ describe("issue #122 — OpenRouter transcription uses chat-completions", () => 
                 .fn()
                 .mockReturnValueOnce({
                     from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            for: vi.fn().mockReturnValue({
-                                limit: vi
-                                    .fn()
-                                    .mockResolvedValue([{ deletedAt: null }]),
+                        innerJoin: vi.fn().mockReturnValue({
+                            where: vi.fn().mockReturnValue({
+                                for: vi.fn().mockReturnValue({
+                                    limit: vi
+                                        .fn()
+                                        .mockResolvedValue([
+                                            { deletedAt: null },
+                                        ]),
+                                }),
                             }),
                         }),
                     }),

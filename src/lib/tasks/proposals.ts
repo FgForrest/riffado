@@ -52,7 +52,7 @@ export interface TasksPromptContext {
 interface RecordingRow {
     id: string;
     userId: string;
-    startTime: Date;
+    occurredAt: Date;
     timezone: number | null;
     zonemins: number | null;
 }
@@ -106,7 +106,7 @@ export async function loadTasksPromptContext({
         .from(recordingTasks)
         .where(
             and(
-                eq(recordingTasks.recordingId, recording.id),
+                eq(recordingTasks.itemId, recording.id),
                 eq(recordingTasks.userId, recording.userId),
                 ne(recordingTasks.status, "proposed"),
             ),
@@ -136,17 +136,14 @@ export async function loadTasksPromptContext({
                 dueDate: recordingTasks.dueDate,
             })
             .from(recordingTasks)
-            .innerJoin(
-                recordings,
-                eq(recordings.id, recordingTasks.recordingId),
-            )
+            .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
             .where(
                 and(
                     eq(recordingTasks.status, "open"),
                     inArray(recordingTasks.assigneePersonId, [
                         ...labelOf.keys(),
                     ]),
-                    ne(recordingTasks.recordingId, recording.id),
+                    ne(recordingTasks.itemId, recording.id),
                     isNull(recordings.deletedAt),
                     taskClosable(reviewer),
                 ),
@@ -169,7 +166,7 @@ export async function loadTasksPromptContext({
 
     return {
         text: buildTasksContext({
-            recordedAt: recording.startTime,
+            recordedAt: recording.occurredAt,
             offsetMinutes: recordingOffsetMinutes(
                 recording.timezone,
                 recording.zonemins,

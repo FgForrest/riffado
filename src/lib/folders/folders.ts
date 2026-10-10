@@ -353,7 +353,7 @@ async function listTreeOrganization(
         listTreeFolders(db, ownerId),
         db
             .select({
-                recordingId: recordingFolderAssignments.recordingId,
+                recordingId: recordingFolderAssignments.itemId,
                 folderId: recordingFolderAssignments.folderId,
             })
             .from(recordingFolderAssignments)
@@ -363,7 +363,7 @@ async function listTreeOrganization(
             )
             .innerJoin(
                 recordings,
-                eq(recordings.id, recordingFolderAssignments.recordingId),
+                eq(recordings.id, recordingFolderAssignments.itemId),
             )
             .where(
                 and(
@@ -700,7 +700,7 @@ export async function deleteFolder(
                 const displaced = await tx
                     .select({
                         userId: recordingFolderAssignments.userId,
-                        recordingId: recordingFolderAssignments.recordingId,
+                        recordingId: recordingFolderAssignments.itemId,
                     })
                     .from(recordingFolderAssignments)
                     .where(
@@ -714,13 +714,13 @@ export async function deleteFolder(
                         ? await tx
                               .select({
                                   recordingId:
-                                      recordingFolderAssignments.recordingId,
+                                      recordingFolderAssignments.itemId,
                               })
                               .from(recordingFolderAssignments)
                               .where(
                                   and(
                                       inArray(
-                                          recordingFolderAssignments.recordingId,
+                                          recordingFolderAssignments.itemId,
                                           displaced.map(
                                               (row) => row.recordingId,
                                           ),
@@ -745,7 +745,7 @@ export async function deleteFolder(
                         .values(
                             [...toRoot].map(([recordingId, ownerId]) => ({
                                 userId: ownerId,
-                                recordingId,
+                                itemId: recordingId,
                                 folderId: root.id,
                             })),
                         )
@@ -820,7 +820,7 @@ async function pruneRedundantAssignments(
             .where(
                 and(
                     eq(recordingFolders.userId, treeOwnerId),
-                    eq(recordingFolderAssignments.recordingId, recordingId),
+                    eq(recordingFolderAssignments.itemId, recordingId),
                 ),
             ),
     ]);
@@ -841,7 +841,7 @@ async function pruneRedundantAssignments(
             .delete(recordingFolderAssignments)
             .where(
                 and(
-                    eq(recordingFolderAssignments.recordingId, recordingId),
+                    eq(recordingFolderAssignments.itemId, recordingId),
                     inArray(recordingFolderAssignments.folderId, [
                         ...redundant,
                     ]),
@@ -912,7 +912,7 @@ export async function addRecordingToFolder(input: {
                 .insert(recordingFolderAssignments)
                 .values({
                     userId: input.userId,
-                    recordingId: input.recordingId,
+                    itemId: input.recordingId,
                     folderId: target.folder.id,
                 })
                 .onConflictDoNothing();
@@ -999,10 +999,7 @@ export async function removeRecordingFromFolder(input: {
             .where(
                 and(
                     eq(recordingFolderAssignments.userId, input.userId),
-                    eq(
-                        recordingFolderAssignments.recordingId,
-                        input.recordingId,
-                    ),
+                    eq(recordingFolderAssignments.itemId, input.recordingId),
                     eq(recordingFolderAssignments.folderId, input.folderId),
                 ),
             );
@@ -1024,10 +1021,7 @@ export async function removeRecordingFromFolder(input: {
             .delete(recordingFolderAssignments)
             .where(
                 and(
-                    eq(
-                        recordingFolderAssignments.recordingId,
-                        input.recordingId,
-                    ),
+                    eq(recordingFolderAssignments.itemId, input.recordingId),
                     eq(recordingFolderAssignments.folderId, input.folderId),
                 ),
             );
@@ -1114,7 +1108,7 @@ export async function withdrawRecordingInTx(
             .delete(recordingFolderAssignments)
             .where(
                 and(
-                    eq(recordingFolderAssignments.recordingId, recordingId),
+                    eq(recordingFolderAssignments.itemId, recordingId),
                     inArray(recordingFolderAssignments.folderId, orgFolderIds),
                 ),
             );
@@ -1215,7 +1209,7 @@ async function endSharingIfUnfiled(
         )
         .where(
             and(
-                eq(recordingFolderAssignments.recordingId, recordingId),
+                eq(recordingFolderAssignments.itemId, recordingId),
                 eq(recordingFolders.userId, orgUserId),
             ),
         )
@@ -1301,10 +1295,7 @@ export async function moveRecordingBetweenFolders(input: {
             .from(recordingFolderAssignments)
             .where(
                 and(
-                    eq(
-                        recordingFolderAssignments.recordingId,
-                        input.recordingId,
-                    ),
+                    eq(recordingFolderAssignments.itemId, input.recordingId),
                     eq(recordingFolderAssignments.folderId, from.folder.id),
                 ),
             )
@@ -1320,7 +1311,7 @@ export async function moveRecordingBetweenFolders(input: {
             .insert(recordingFolderAssignments)
             .values({
                 userId: existing.userId,
-                recordingId: input.recordingId,
+                itemId: input.recordingId,
                 folderId: to.folder.id,
             })
             .onConflictDoNothing();
@@ -1328,10 +1319,7 @@ export async function moveRecordingBetweenFolders(input: {
             .delete(recordingFolderAssignments)
             .where(
                 and(
-                    eq(
-                        recordingFolderAssignments.recordingId,
-                        input.recordingId,
-                    ),
+                    eq(recordingFolderAssignments.itemId, input.recordingId),
                     eq(recordingFolderAssignments.folderId, from.folder.id),
                 ),
             );
@@ -1369,7 +1357,7 @@ export async function retireLegacyPublicRoots(tx: Tx): Promise<number> {
         const subtree = [...subtreeIds(folders, root.id)];
         const [child] = folders.filter((folder) => folder.parentId === root.id);
         const [assignment] = await tx
-            .select({ recordingId: recordingFolderAssignments.recordingId })
+            .select({ recordingId: recordingFolderAssignments.itemId })
             .from(recordingFolderAssignments)
             .where(inArray(recordingFolderAssignments.folderId, subtree))
             .limit(1);

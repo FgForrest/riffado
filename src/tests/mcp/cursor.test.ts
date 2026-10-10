@@ -1,6 +1,6 @@
 import { PgDialect } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
-import { recordings } from "@/db/schema";
+import { chatterItems, recordings } from "@/db/schema";
 import { keysetBefore, keysetOrder } from "@/lib/db/keyset";
 import {
     decodeKeyset,
@@ -65,21 +65,21 @@ describe("keyset cursors", () => {
 
     it("walks newest first, to the millisecond", () => {
         const dialect = new PgDialect();
-        const order = keysetOrder(recordings.startTime, recordings.id).map(
+        const order = keysetOrder(chatterItems.occurredAt, recordings.id).map(
             (part) => dialect.sqlToQuery(part).sql,
         );
         expect(order).toEqual([
-            `date_trunc('milliseconds', "recordings"."start_time") desc`,
+            `date_trunc('milliseconds', "chatter_items"."occurred_at") desc`,
             `"recordings"."id" desc`,
         ]);
         const before = dialect.sqlToQuery(
-            keysetBefore(recordings.startTime, recordings.id, {
+            keysetBefore(chatterItems.occurredAt, recordings.id, {
                 at: AT,
                 id: "rec-1",
             }),
         );
         expect(before.sql).toBe(
-            `(date_trunc('milliseconds', "recordings"."start_time"), "recordings"."id") < ($1::timestamp, $2)`,
+            `(date_trunc('milliseconds', "chatter_items"."occurred_at"), "recordings"."id") < ($1::timestamp, $2)`,
         );
         expect(before.params).toEqual(["2026-09-01T10:00:00.123Z", "rec-1"]);
     });

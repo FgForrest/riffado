@@ -1,8 +1,10 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { recordingItemJoin, touchRecording } from "@/db/items";
 import {
     aiEnhancements,
     asyncJobs,
+    chatterItems,
     recordings,
     transcriptions,
 } from "@/db/schema";
@@ -202,9 +204,10 @@ export async function upsertTranscription(
             const [stillActive] = await tx
                 .select({
                     deletedAt: recordings.deletedAt,
-                    transcriptReapedAt: recordings.transcriptReapedAt,
+                    transcriptReapedAt: chatterItems.contentReapedAt,
                 })
                 .from(recordings)
+                .innerJoin(chatterItems, recordingItemJoin)
                 .where(
                     and(
                         eq(recordings.id, recordingId),
@@ -295,7 +298,7 @@ export async function upsertTranscription(
                         .delete(aiEnhancements)
                         .where(
                             and(
-                                eq(aiEnhancements.recordingId, recordingId),
+                                eq(aiEnhancements.itemId, recordingId),
                                 eq(aiEnhancements.userId, userId),
                                 eq(
                                     aiEnhancements.source,
@@ -328,16 +331,15 @@ export async function upsertTranscription(
                 });
             }
 
+            const now = new Date();
+            await touchRecording(tx, recordingId, userId, now);
             await tx
-                .update(recordings)
-                .set({
-                    updatedAt: new Date(),
-                    transcriptReapedAt: null,
-                })
+                .update(chatterItems)
+                .set({ updatedAt: now, contentReapedAt: null })
                 .where(
                     and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
+                        eq(chatterItems.id, recordingId),
+                        eq(chatterItems.userId, userId),
                     ),
                 );
         });
@@ -384,9 +386,10 @@ export async function upsertEnhancement(
             const [stillActive] = await tx
                 .select({
                     deletedAt: recordings.deletedAt,
-                    summaryReapedAt: recordings.summaryReapedAt,
+                    summaryReapedAt: chatterItems.summaryReapedAt,
                 })
                 .from(recordings)
+                .innerJoin(chatterItems, recordingItemJoin)
                 .where(
                     and(
                         eq(recordings.id, recordingId),
@@ -419,7 +422,7 @@ export async function upsertEnhancement(
                 .from(aiEnhancements)
                 .where(
                     and(
-                        eq(aiEnhancements.recordingId, recordingId),
+                        eq(aiEnhancements.itemId, recordingId),
                         eq(aiEnhancements.userId, userId),
                         eq(aiEnhancements.source, source),
                     ),
@@ -460,7 +463,7 @@ export async function upsertEnhancement(
                     );
             } else {
                 await tx.insert(aiEnhancements).values({
-                    recordingId,
+                    itemId: recordingId,
                     userId,
                     transcriptionId,
                     summary: encryptedSummary,
@@ -482,16 +485,15 @@ export async function upsertEnhancement(
                 });
             }
 
+            const now = new Date();
+            await touchRecording(tx, recordingId, userId, now);
             await tx
-                .update(recordings)
-                .set({
-                    updatedAt: new Date(),
-                    summaryReapedAt: null,
-                })
+                .update(chatterItems)
+                .set({ updatedAt: now, summaryReapedAt: null })
                 .where(
                     and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
+                        eq(chatterItems.id, recordingId),
+                        eq(chatterItems.userId, userId),
                     ),
                 );
         });

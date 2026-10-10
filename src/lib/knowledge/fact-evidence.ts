@@ -45,7 +45,7 @@ export async function knowledgeOnRecordingInTx(
             userId: knowledgeFactEvidence.userId,
         })
         .from(knowledgeFactEvidence)
-        .where(eq(knowledgeFactEvidence.recordingId, recordingId));
+        .where(eq(knowledgeFactEvidence.itemId, recordingId));
     const corrections = await tx
         .selectDistinct({ userId: transcriptCorrections.userId })
         .from(transcriptCorrections)
@@ -184,7 +184,11 @@ export async function recheckEvidenceInTx(
             ? mapping.carried.get(row.speakerLabel)
             : undefined;
         let status = row.status;
-        if (status === "supported") {
+        if (
+            status === "supported" &&
+            row.startMs !== null &&
+            row.endMs !== null
+        ) {
             const cut = quoteFromTurns(next.turns, row.startMs, row.endMs);
             const quote = decryptText(row.quote);
             if (

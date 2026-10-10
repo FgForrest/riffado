@@ -2,8 +2,10 @@ import type { SQL } from "drizzle-orm";
 import { and, desc, eq, exists, gte, isNull, not, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
+import { audioItemColumns, recordingItemJoin } from "@/db/items";
 import {
     aiEnhancements,
+    chatterItems,
     plaudDevices,
     recordings,
     transcriptions,
@@ -132,7 +134,7 @@ export const GET = apiHandler(async (request: Request) => {
             .from(aiEnhancements)
             .where(
                 and(
-                    eq(aiEnhancements.recordingId, recordings.id),
+                    eq(aiEnhancements.itemId, recordings.id),
                     eq(aiEnhancements.userId, authn.user.id),
                 ),
             ),
@@ -147,13 +149,14 @@ export const GET = apiHandler(async (request: Request) => {
 
     const rows = await db
         .select({
-            recording: recordings,
+            recording: audioItemColumns,
             device: plaudDevices,
             hasTranscript: transcriptExists,
             hasSummary: enhancementExists,
             cursorUpdatedAt: recordingCursorUpdatedAt(),
         })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .leftJoin(
             plaudDevices,
             and(

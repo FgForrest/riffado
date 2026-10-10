@@ -15,7 +15,9 @@ import {
     sql,
 } from "drizzle-orm";
 import { db } from "@/db";
+import { recordingItemJoin } from "@/db/items";
 import {
+    chatterItems,
     people,
     recordings,
     recordingTaskRejections,
@@ -155,7 +157,7 @@ function iso(value: Date | null): string | null {
 
 const taskColumns = {
     id: recordingTasks.id,
-    recordingId: recordingTasks.recordingId,
+    recordingId: recordingTasks.itemId,
     status: recordingTasks.status,
     text: recordingTasks.text,
     assigneePersonId: recordingTasks.assigneePersonId,
@@ -249,11 +251,11 @@ export async function listRecordingTasks(
             canClose: sql<boolean>`${taskClosable(viewer)}`,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
         .leftJoin(people, assigneeJoin())
         .where(
             and(
-                eq(recordingTasks.recordingId, recordingId),
+                eq(recordingTasks.itemId, recordingId),
                 // Again here: the recording may be withdrawn meanwhile.
                 taskVisible(viewer),
                 recording.canEdit
@@ -266,7 +268,7 @@ export async function listRecordingTasks(
     const [rejection] = await db
         .select({ id: recordingTaskRejections.id })
         .from(recordingTaskRejections)
-        .where(eq(recordingTaskRejections.recordingId, recordingId))
+        .where(eq(recordingTaskRejections.itemId, recordingId))
         .limit(1);
 
     return {
@@ -302,11 +304,11 @@ async function listUpdateProposals(
             ticked: taskUpdateProposals.ticked,
             version: taskUpdateProposals.version,
             taskId: recordingTasks.id,
-            taskRecordingId: recordingTasks.recordingId,
+            taskRecordingId: recordingTasks.itemId,
             taskText: recordingTasks.text,
             taskDueDate: recordingTasks.dueDate,
             taskStatus: recordingTasks.status,
-            recordingTitle: recordings.filename,
+            recordingTitle: chatterItems.title,
             assigneeName: people.displayName,
         })
         .from(taskUpdateProposals)
@@ -314,11 +316,12 @@ async function listUpdateProposals(
             recordingTasks,
             eq(recordingTasks.id, taskUpdateProposals.taskId),
         )
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
+        .innerJoin(chatterItems, recordingItemJoin)
         .leftJoin(people, assigneeJoin())
         .where(
             and(
-                eq(taskUpdateProposals.recordingId, recordingId),
+                eq(taskUpdateProposals.itemId, recordingId),
                 isNull(recordings.deletedAt),
                 taskVisible(viewer),
             ),
@@ -371,7 +374,7 @@ async function lockTask(
     const [row] = await tx
         .select({
             id: recordingTasks.id,
-            recordingId: recordingTasks.recordingId,
+            recordingId: recordingTasks.itemId,
             ownerUserId: recordings.userId,
             status: recordingTasks.status,
             text: recordingTasks.text,
@@ -382,7 +385,7 @@ async function lockTask(
             shared: sql<boolean>`${taskRecordingShared(viewer)}`,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
         .where(and(eq(recordingTasks.id, taskId), isNull(recordings.deletedAt)))
         .for("update", { of: recordings })
         .limit(1);
@@ -524,13 +527,13 @@ export async function addTask(
                 position: sql<number | null>`max(${recordingTasks.position})`,
             })
             .from(recordingTasks)
-            .where(eq(recordingTasks.recordingId, recordingId));
+            .where(eq(recordingTasks.itemId, recordingId));
         const now = new Date();
         const open = input.status === "open";
         const [row] = await tx
             .insert(recordingTasks)
             .values({
-                recordingId,
+                itemId: recordingId,
                 userId: recording.ownerUserId,
                 status: input.status,
                 text: encryptText(text),
@@ -665,7 +668,7 @@ async function rejectInTx(
         .values(
             texts.map((text) => ({
                 userId: ownerUserId,
-                recordingId,
+                itemId: recordingId,
                 fingerprintHmac: taskFingerprint(text),
             })),
         )
@@ -699,7 +702,7 @@ export async function mergeProposals(
             .from(recordingTasks)
             .where(
                 and(
-                    eq(recordingTasks.recordingId, recordingId),
+                    eq(recordingTasks.itemId, recordingId),
                     eq(recordingTasks.status, "proposed"),
                     inArray(recordingTasks.id, ids),
                 ),
@@ -767,7 +770,7 @@ export async function tickUpdateProposal(
             .where(
                 and(
                     eq(taskUpdateProposals.id, updateId),
-                    eq(taskUpdateProposals.recordingId, recordingId),
+                    eq(taskUpdateProposals.itemId, recordingId),
                     eq(taskUpdateProposals.version, version),
                 ),
             )
@@ -808,7 +811,7 @@ export async function acceptReview(
             .from(recordingTasks)
             .where(
                 and(
-                    eq(recordingTasks.recordingId, recordingId),
+                    eq(recordingTasks.itemId, recordingId),
                     eq(recordingTasks.status, "proposed"),
                 ),
             );
@@ -823,7 +826,7 @@ export async function acceptReview(
             .from(taskUpdateProposals)
             .where(
                 and(
-                    eq(taskUpdateProposals.recordingId, recordingId),
+                    eq(taskUpdateProposals.itemId, recordingId),
                     liveFollowUpCondition(),
                 ),
             );
@@ -903,7 +906,7 @@ export async function acceptReview(
                     inArray(
                         recordings.id,
                         tx
-                            .select({ id: recordingTasks.recordingId })
+                            .select({ id: recordingTasks.itemId })
                             .from(recordingTasks)
                             .where(
                                 inArray(
@@ -920,16 +923,13 @@ export async function acceptReview(
             const [target] = await tx
                 .select({
                     status: recordingTasks.status,
-                    recordingId: recordingTasks.recordingId,
+                    recordingId: recordingTasks.itemId,
                     ownerUserId: recordings.userId,
                     canEdit: sql<boolean>`${taskEditable(viewer)}`,
                     canClose: sql<boolean>`${taskClosable(viewer)}`,
                 })
                 .from(recordingTasks)
-                .innerJoin(
-                    recordings,
-                    eq(recordings.id, recordingTasks.recordingId),
-                )
+                .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
                 .where(
                     and(
                         eq(recordingTasks.id, update.taskId),
@@ -970,7 +970,7 @@ export async function acceptReview(
         }
         await tx
             .delete(taskUpdateProposals)
-            .where(eq(taskUpdateProposals.recordingId, recordingId));
+            .where(eq(taskUpdateProposals.itemId, recordingId));
         return {
             accepted: accepted.length,
             rejected: rejected.length,
@@ -1008,7 +1008,7 @@ async function requireTaskView(
             canClose: sql<boolean>`${taskClosable(viewer)}`,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
         .leftJoin(people, assigneeJoin())
         .where(and(eq(recordingTasks.id, taskId), taskVisible(viewer)))
         .limit(1);
@@ -1025,7 +1025,7 @@ export async function recordingsAwaitingTaskReview(
 ): Promise<{ recordingId: string; title: string; proposals: number }[]> {
     const proposals = db
         .select({
-            recordingId: recordingTasks.recordingId,
+            recordingId: recordingTasks.itemId,
             waiting: sql<number>`count(*)`.as("waiting"),
         })
         .from(recordingTasks)
@@ -1037,10 +1037,10 @@ export async function recordingsAwaitingTaskReview(
                     : eq(recordingTasks.userId, viewer.userId),
             ),
         )
-        .groupBy(recordingTasks.recordingId);
+        .groupBy(recordingTasks.itemId);
     const followUps = db
         .select({
-            recordingId: taskUpdateProposals.recordingId,
+            recordingId: taskUpdateProposals.itemId,
             waiting: sql<number>`count(*)`.as("waiting"),
         })
         .from(taskUpdateProposals)
@@ -1052,19 +1052,20 @@ export async function recordingsAwaitingTaskReview(
                     : eq(taskUpdateProposals.userId, viewer.userId),
             ),
         )
-        .groupBy(taskUpdateProposals.recordingId);
+        .groupBy(taskUpdateProposals.itemId);
     const waiting = proposals.unionAll(followUps).as("waiting");
     const rows = await db
         .select({
             recordingId: recordings.id,
-            title: recordings.filename,
+            title: chatterItems.title,
             proposals: sql<number>`sum(${waiting.waiting})::int`,
         })
         .from(waiting)
         .innerJoin(recordings, eq(recordings.id, waiting.recordingId))
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(and(isNull(recordings.deletedAt), taskEditable(viewer)))
-        .groupBy(recordings.id)
-        .orderBy(desc(recordings.startTime));
+        .groupBy(recordings.id, chatterItems.id)
+        .orderBy(desc(chatterItems.occurredAt));
     return rows.map((row) => ({
         recordingId: row.recordingId,
         title: decryptText(row.title),
@@ -1207,7 +1208,7 @@ export async function listCallerTasks(
         );
     }
     if (query.recordingId) {
-        conditions.push(eq(recordingTasks.recordingId, query.recordingId));
+        conditions.push(eq(recordingTasks.itemId, query.recordingId));
     }
     if (query.dueBefore) {
         conditions.push(lt(recordingTasks.dueDate, query.dueBefore));
@@ -1256,11 +1257,12 @@ async function loadTaskListItems(
             canEdit: sql<boolean>`${taskEditable(viewer)}`,
             canClose: sql<boolean>`${taskClosable(viewer)}`,
             recordingOwner: recordings.userId,
-            recordingTitle: recordings.filename,
-            recordingStart: recordings.startTime,
+            recordingTitle: chatterItems.title,
+            recordingStart: chatterItems.occurredAt,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
+        .innerJoin(chatterItems, recordingItemJoin)
         .leftJoin(people, assigneeJoin())
         .where(and(...conditions))
         .orderBy(...order)
@@ -1288,7 +1290,7 @@ export async function countNewTasks(viewer: TaskViewer): Promise<number> {
     const [row] = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
         .where(
             and(
                 eq(recordingTasks.status, "open"),

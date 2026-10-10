@@ -10,8 +10,10 @@ import {
     sql,
 } from "drizzle-orm";
 import { db } from "@/db";
+import { recordingItemJoin, touchRecording } from "@/db/items";
 import {
     aiEnhancements,
+    chatterItems,
     recordingFolderAssignments,
     recordingFolders,
     recordings,
@@ -238,12 +240,13 @@ export async function dueOnWithdrawal(
     if (!policy) return [];
     const [recording] = await db
         .select({
-            startTime: recordings.startTime,
+            startTime: chatterItems.occurredAt,
             audioReapedAt: recordings.audioReapedAt,
-            transcriptReapedAt: recordings.transcriptReapedAt,
-            summaryReapedAt: recordings.summaryReapedAt,
+            transcriptReapedAt: chatterItems.contentReapedAt,
+            summaryReapedAt: chatterItems.summaryReapedAt,
         })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 eq(recordings.id, recordingId),
@@ -281,7 +284,7 @@ export async function dueOnWithdrawal(
             .from(aiEnhancements)
             .where(
                 and(
-                    eq(aiEnhancements.recordingId, recordingId),
+                    eq(aiEnhancements.itemId, recordingId),
                     eq(aiEnhancements.userId, ownerUserId),
                 ),
             )
@@ -297,7 +300,7 @@ function sharedWithOrgCondition(orgUserId: string) {
         from ${recordingFolderAssignments}
         inner join ${recordingFolders}
             on ${recordingFolders.id} = ${recordingFolderAssignments.folderId}
-        where ${recordingFolderAssignments.recordingId} = ${recordings.id}
+        where ${recordingFolderAssignments.itemId} = ${recordings.id}
             and ${recordingFolders.userId} = ${orgUserId}
     )`;
 }
@@ -338,7 +341,7 @@ function reapCandidateWhere(
         ungoverned.push(
             and(
                 lt(
-                    recordings.startTime,
+                    chatterItems.occurredAt,
                     retentionCutoff(policy.remoteOriginalDays, now),
                 ),
                 ne(recordings.deviceSn, "local"),
@@ -351,7 +354,7 @@ function reapCandidateWhere(
         governedKinds.push(
             and(
                 lt(
-                    recordings.startTime,
+                    chatterItems.occurredAt,
                     retentionCutoff(policy.audioDays, now),
                 ),
                 isNull(recordings.audioReapedAt),
@@ -362,10 +365,10 @@ function reapCandidateWhere(
         governedKinds.push(
             and(
                 lt(
-                    recordings.startTime,
+                    chatterItems.occurredAt,
                     retentionCutoff(policy.transcriptDays, now),
                 ),
-                isNull(recordings.transcriptReapedAt),
+                isNull(chatterItems.contentReapedAt),
                 exists(
                     db
                         .select({ id: transcriptions.id })
@@ -384,10 +387,10 @@ function reapCandidateWhere(
         governedKinds.push(
             and(
                 lt(
-                    recordings.startTime,
+                    chatterItems.occurredAt,
                     retentionCutoff(policy.summaryDays, now),
                 ),
-                isNull(recordings.summaryReapedAt),
+                isNull(chatterItems.summaryReapedAt),
                 or(
                     exists(
                         db
@@ -395,10 +398,7 @@ function reapCandidateWhere(
                             .from(aiEnhancements)
                             .where(
                                 and(
-                                    eq(
-                                        aiEnhancements.recordingId,
-                                        recordings.id,
-                                    ),
+                                    eq(aiEnhancements.itemId, recordings.id),
                                     eq(
                                         aiEnhancements.userId,
                                         recordings.userId,
@@ -412,9 +412,7 @@ function reapCandidateWhere(
                         db
                             .select({ id: recordingTasks.id })
                             .from(recordingTasks)
-                            .where(
-                                eq(recordingTasks.recordingId, recordings.id),
-                            ),
+                            .where(eq(recordingTasks.itemId, recordings.id)),
                     ),
                 ),
             ),
@@ -437,7 +435,7 @@ function reapCandidateWhere(
     return and(
         policy.isOrg ? undefined : eq(recordings.userId, policy.userId),
         isNull(recordings.deletedAt),
-        lt(recordings.startTime, retentionCutoff(Math.min(...periods), now)),
+        lt(chatterItems.occurredAt, retentionCutoff(Math.min(...periods), now)),
         or(
             ...ungoverned,
             governedKinds.length > 0
@@ -465,17 +463,18 @@ export async function listReapCandidates(
             id: recordings.id,
             userId: recordings.userId,
             storagePath: recordings.storagePath,
-            startTime: recordings.startTime,
+            startTime: chatterItems.occurredAt,
             deviceSn: recordings.deviceSn,
             downloadedAt: recordings.downloadedAt,
             isTrash: recordings.isTrash,
             audioReapedAt: recordings.audioReapedAt,
-            transcriptReapedAt: recordings.transcriptReapedAt,
-            summaryReapedAt: recordings.summaryReapedAt,
+            transcriptReapedAt: chatterItems.contentReapedAt,
+            summaryReapedAt: chatterItems.summaryReapedAt,
         })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(where)
-        .orderBy(recordings.startTime)
+        .orderBy(chatterItems.occurredAt)
         .limit(limit);
 }
 
@@ -568,15 +567,10 @@ export async function deleteTranscriptsForRecording(
         // Stamping a recording that had no transcript would be a lie, and
         // would suppress auto-transcription of it for good.
         if (rows.length > 0) {
-            await tx
-                .update(recordings)
-                .set({ transcriptReapedAt: at, updatedAt: at })
-                .where(
-                    and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, ownerUserId),
-                    ),
-                );
+            await markItemReapedInTx(tx, recordingId, ownerUserId, {
+                contentReapedAt: at,
+            });
+            await touchRecording(tx, recordingId, ownerUserId, at);
         }
         await bumpScopeInTx(tx, knowledge.scopes);
         return rows.length;
@@ -599,22 +593,17 @@ export async function deleteSummaryForRecording(
             .delete(aiEnhancements)
             .where(
                 and(
-                    eq(aiEnhancements.recordingId, recordingId),
+                    eq(aiEnhancements.itemId, recordingId),
                     eq(aiEnhancements.userId, ownerUserId),
                 ),
             )
             .returning({ id: aiEnhancements.id });
         await dropTasksWithoutSummaryInTx(tx, { recordingId, ownerUserId });
         if (rows.length > 0) {
-            await tx
-                .update(recordings)
-                .set({ summaryReapedAt: at, updatedAt: at })
-                .where(
-                    and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, ownerUserId),
-                    ),
-                );
+            await markItemReapedInTx(tx, recordingId, ownerUserId, {
+                summaryReapedAt: at,
+            });
+            await touchRecording(tx, recordingId, ownerUserId, at);
         }
         return rows.length;
     });
@@ -634,17 +623,50 @@ export async function clearReapedMarkers(
 ): Promise<void> {
     if (kinds.length === 0) return;
 
-    await db
-        .update(recordings)
-        .set({
-            ...(kinds.includes("audio") ? { audioReapedAt: null } : {}),
-            ...(kinds.includes("transcript")
-                ? { transcriptReapedAt: null }
-                : {}),
-            ...(kinds.includes("summary") ? { summaryReapedAt: null } : {}),
-        })
+    if (kinds.includes("audio")) {
+        await db
+            .update(recordings)
+            .set({ audioReapedAt: null })
+            .where(
+                and(
+                    eq(recordings.id, recordingId),
+                    eq(recordings.userId, userId),
+                ),
+            );
+    }
+    if (kinds.includes("transcript") || kinds.includes("summary")) {
+        await db
+            .update(chatterItems)
+            .set({
+                ...(kinds.includes("transcript")
+                    ? { contentReapedAt: null }
+                    : {}),
+                ...(kinds.includes("summary") ? { summaryReapedAt: null } : {}),
+            })
+            .where(
+                and(
+                    eq(chatterItems.id, recordingId),
+                    eq(chatterItems.userId, userId),
+                ),
+            );
+    }
+}
+
+async function markItemReapedInTx(
+    tx: Tx,
+    itemId: string,
+    ownerUserId: string,
+    markers: { contentReapedAt?: Date; summaryReapedAt?: Date },
+): Promise<void> {
+    const at = markers.contentReapedAt ?? markers.summaryReapedAt;
+    await tx
+        .update(chatterItems)
+        .set({ ...markers, updatedAt: at })
         .where(
-            and(eq(recordings.id, recordingId), eq(recordings.userId, userId)),
+            and(
+                eq(chatterItems.id, itemId),
+                eq(chatterItems.userId, ownerUserId),
+            ),
         );
 }
 
@@ -715,6 +737,7 @@ export async function countReapCandidates(
     const [row] = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(where);
 
     return row?.count ?? 0;

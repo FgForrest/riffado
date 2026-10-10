@@ -126,7 +126,7 @@ export async function publishTaskAssigneesInTx(
         .innerJoin(people, eq(people.id, recordingTasks.assigneePersonId))
         .where(
             and(
-                eq(recordingTasks.recordingId, recordingId),
+                eq(recordingTasks.itemId, recordingId),
                 sql`not ${orgOwnedCondition(people.userId)}`,
             ),
         );
@@ -136,7 +136,7 @@ export async function publishTaskAssigneesInTx(
         .set({ assignedAt: new Date() })
         .where(
             and(
-                eq(recordingTasks.recordingId, recordingId),
+                eq(recordingTasks.itemId, recordingId),
                 eq(recordingTasks.status, "open"),
                 sql`${recordingTasks.assigneePersonId} is not null`,
             ),

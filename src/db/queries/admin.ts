@@ -12,17 +12,19 @@ import {
     sum,
 } from "drizzle-orm";
 import { db } from "@/db";
+import { recordingItemJoin } from "@/db/items";
 import {
     adminAuditLog,
     aiEnhancements,
     apiCredentials,
+    chatterItems,
     plaudConnections,
     recordings,
     transcriptions,
     users,
 } from "@/db/schema";
 
-// MUST NOT select: recordings.filename, transcriptions.text,
+// MUST NOT select: chatterItems.title, transcriptions.text,
 // aiEnhancements.summary/actionItems/keyPoints, plaudConnections.bearerToken,
 // apiCredentials.apiKey. Aggregates and metadata only.
 
@@ -593,7 +595,7 @@ export async function getUserDetail(
             .select({
                 id: recordings.id,
                 createdAt: recordings.createdAt,
-                startTime: recordings.startTime,
+                startTime: chatterItems.occurredAt,
                 durationMs: recordings.duration,
                 filesize: recordings.filesize,
                 deviceSn: recordings.deviceSn,
@@ -601,8 +603,9 @@ export async function getUserDetail(
                 deletedAt: recordings.deletedAt,
             })
             .from(recordings)
+            .innerJoin(chatterItems, recordingItemJoin)
             .where(eq(recordings.userId, userId))
-            .orderBy(desc(recordings.startTime))
+            .orderBy(desc(chatterItems.occurredAt))
             .limit(50),
     ]);
     const txTotalServer = txByType.find((r) => r.type === "server")?.n ?? 0;

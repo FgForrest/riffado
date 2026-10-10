@@ -1,8 +1,10 @@
 import { and, eq, isNull, ne, not, notInArray, or } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { db } from "@/db";
+import { insertAudioItem, recordingItemJoin } from "@/db/items";
 import {
     aiEnhancements,
+    chatterItems,
     plaudConnections,
     recordings,
     transcriptions,
@@ -187,7 +189,7 @@ function buildImportCandidate(
     recordingId: string,
     plaudRecording: PlaudRecording,
     suppression?: {
-        transcriptReapedAt: Date | null;
+        contentReapedAt: Date | null;
         summaryReapedAt: Date | null;
     },
 ): ImportCandidate | undefined {
@@ -201,7 +203,7 @@ function buildImportCandidate(
         isTrans: plaudRecording.is_trans,
         isSummary: plaudRecording.is_summary,
         durationMs: plaudRecording.duration,
-        transcriptSuppressed: suppression?.transcriptReapedAt != null,
+        transcriptSuppressed: suppression?.contentReapedAt != null,
         summarySuppressed: suppression?.summaryReapedAt != null,
         audioMd5: plaudRecording.file_md5 ?? null,
     };
@@ -246,7 +248,7 @@ async function loadPlaudContentGaps(
             .from(aiEnhancements)
             .where(
                 and(
-                    eq(aiEnhancements.recordingId, recordingId),
+                    eq(aiEnhancements.itemId, recordingId),
                     eq(aiEnhancements.userId, userId),
                     eq(aiEnhancements.source, "plaud"),
                 ),
@@ -287,9 +289,12 @@ async function hasUnseenPlaudContentGaps(
         or(
             and(
                 isNull(transcriptions.id),
-                isNull(recordings.transcriptReapedAt),
+                isNull(chatterItems.contentReapedAt),
             ),
-            and(isNull(aiEnhancements.id), isNull(recordings.summaryReapedAt)),
+            and(
+                isNull(aiEnhancements.id),
+                isNull(chatterItems.summaryReapedAt),
+            ),
         ),
     ];
     // Shared: no gap this sync may fill.
@@ -301,6 +306,7 @@ async function hasUnseenPlaudContentGaps(
     const [row] = await db
         .select({ id: recordings.id })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .leftJoin(
             transcriptions,
             and(
@@ -312,7 +318,7 @@ async function hasUnseenPlaudContentGaps(
         .leftJoin(
             aiEnhancements,
             and(
-                eq(aiEnhancements.recordingId, recordings.id),
+                eq(aiEnhancements.itemId, recordings.id),
                 eq(aiEnhancements.userId, userId),
                 eq(aiEnhancements.source, "plaud"),
             ),
@@ -349,9 +355,14 @@ async function processRecording(
     capExceeded?: boolean;
 }> {
     try {
-        const [existingRecording] = await db
-            .select()
+        const [existing] = await db
+            .select({
+                recording: recordings,
+                contentReapedAt: chatterItems.contentReapedAt,
+                summaryReapedAt: chatterItems.summaryReapedAt,
+            })
             .from(recordings)
+            .innerJoin(chatterItems, recordingItemJoin)
             .where(
                 and(
                     eq(recordings.plaudFileId, plaudRecording.id),
@@ -359,6 +370,7 @@ async function processRecording(
                 ),
             )
             .limit(1);
+        const existingRecording = existing?.recording;
 
         if (existingRecording) seenRecordingIds.add(existingRecording.id);
         const recordingId = existingRecording?.id ?? nanoid();
@@ -373,7 +385,7 @@ async function processRecording(
                 const importCandidate = buildImportCandidate(
                     existingRecording.id,
                     plaudRecording,
-                    existingRecording,
+                    existing,
                 );
                 if (importCandidate) {
                     const gaps = await loadPlaudContentGaps(
@@ -408,7 +420,7 @@ async function processRecording(
                 const importCandidate = buildImportCandidate(
                     existingRecording.id,
                     plaudRecording,
-                    existingRecording,
+                    existing,
                 );
                 if (importCandidate) {
                     const gaps = await loadPlaudContentGaps(
@@ -501,9 +513,7 @@ async function processRecording(
             userId: context.userId,
             deviceSn: plaudRecording.serial_number,
             plaudFileId: plaudRecording.id,
-            filename: encryptText(plaudRecording.filename),
             duration: plaudRecording.duration,
-            startTime: new Date(plaudRecording.start_time),
             endTime: new Date(plaudRecording.end_time),
             filesize: plaudRecording.filesize,
             fileMd5: plaudRecording.file_md5,
@@ -523,6 +533,8 @@ async function processRecording(
             // retention sweep has reaped.
             audioReapedAt: null,
         };
+        const title = encryptText(plaudRecording.filename);
+        const occurredAt = new Date(plaudRecording.start_time);
 
         if (existingRecording) {
             // Re-check under FOR UPDATE: a concurrent DELETE may have
@@ -531,11 +543,11 @@ async function processRecording(
                 const [locked] = await tx
                     .select({
                         deletedAt: recordings.deletedAt,
-                        titleEditedAt: recordings.titleEditedAt,
-                        filename: recordings.filename,
+                        titleEditedAt: chatterItems.titleEditedAt,
                         fileMd5: recordings.fileMd5,
                     })
                     .from(recordings)
+                    .innerJoin(chatterItems, recordingItemJoin)
                     .where(
                         and(
                             eq(recordings.id, existingRecording.id),
@@ -568,19 +580,27 @@ async function processRecording(
                 // A title a person set is kept over Plaud's filename. Read
                 // under the lock, so a rename committed during the download
                 // above still wins.
+                const now = new Date();
                 await tx
                     .update(recordings)
-                    .set({
-                        ...recordingData,
-                        filename: locked.titleEditedAt
-                            ? locked.filename
-                            : recordingData.filename,
-                        updatedAt: new Date(),
-                    })
+                    .set({ ...recordingData, updatedAt: now })
                     .where(
                         and(
                             eq(recordings.id, existingRecording.id),
                             eq(recordings.userId, context.userId),
+                        ),
+                    );
+                await tx
+                    .update(chatterItems)
+                    .set({
+                        ...(locked.titleEditedAt ? {} : { title }),
+                        occurredAt,
+                        updatedAt: now,
+                    })
+                    .where(
+                        and(
+                            eq(chatterItems.id, existingRecording.id),
+                            eq(chatterItems.userId, context.userId),
                         ),
                     );
                 // The transcripts it keeps were made from the old audio.
@@ -637,15 +657,17 @@ async function processRecording(
                 importCandidate: buildImportCandidate(
                     existingRecording.id,
                     plaudRecording,
-                    existingRecording,
+                    existing,
                 ),
             };
         }
 
-        const [newRecording] = await db
-            .insert(recordings)
-            .values({ id: recordingId, ...recordingData })
-            .returning({ id: recordings.id });
+        const newRecording = await insertAudioItem(db, {
+            id: recordingId,
+            ...recordingData,
+            title,
+            occurredAt,
+        });
 
         seenRecordingIds.add(newRecording.id);
 

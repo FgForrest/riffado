@@ -20,7 +20,6 @@ import {
 import {
     aiEnhancements,
     recordingFolders,
-    recordings,
     transcriptions,
     users,
 } from "@/db/schema";
@@ -88,6 +87,7 @@ import { addRecordingToFolder } from "@/lib/folders/folders";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { upsertTranscription } from "@/lib/transcription/persist";
 import { storeBrowserTranscription } from "@/lib/transcription/transcribe-recording";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -119,23 +119,21 @@ describeWithDatabase("transcript revision (PostgreSQL)", () => {
     beforeEach(async () => {
         await db().delete(users);
         await db().insert(users).values({ id: ALICE, email: "a@x.test" });
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: ALICE,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 60_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:01:00Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${ALICE}/rec.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: ALICE,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 60_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:01:00Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${ALICE}/rec.mp3`,
+            plaudVersion: "1",
+        });
     });
 
     function write(text: string) {
@@ -235,7 +233,7 @@ describeWithDatabase("transcript revision (PostgreSQL)", () => {
         await db()
             .insert(aiEnhancements)
             .values({
-                recordingId: REC,
+                itemId: REC,
                 userId: ALICE,
                 transcriptionId: transcript?.id,
                 summary: encryptText("about the first text"),
@@ -260,7 +258,7 @@ describeWithDatabase("transcript revision (PostgreSQL)", () => {
             await db()
                 .select()
                 .from(aiEnhancements)
-                .where(eq(aiEnhancements.recordingId, REC)),
+                .where(eq(aiEnhancements.itemId, REC)),
         ).toEqual([]);
     });
 });

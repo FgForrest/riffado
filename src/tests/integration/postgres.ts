@@ -86,9 +86,23 @@ function makeDatabaseName(label: string): string {
     return `riffado_test_${safeLabel}_${process.pid}_${suffix}`;
 }
 
+/** Applies the migrations in `migrationsFolder` not yet applied to `db`. */
+export async function migrateTestDatabase(
+    adminUrl: string,
+    db: TestDatabase,
+    migrationsFolder = "./src/db/migrations",
+): Promise<void> {
+    await withMigrationSlot(adminUrl, () => migrate(db, { migrationsFolder }));
+}
+
+/**
+ * A scratch database migrated with `migrationsFolder` (the full chain by
+ * default), disposed by the caller.
+ */
 export async function createMigratedTestDatabase(
     adminUrl: string,
     label: string,
+    migrationsFolder = "./src/db/migrations",
 ): Promise<TestPostgresDatabase> {
     assertSafeAdminUrl(adminUrl);
 
@@ -118,9 +132,7 @@ export async function createMigratedTestDatabase(
     };
 
     try {
-        await withMigrationSlot(adminUrl, () =>
-            migrate(db, { migrationsFolder: "./src/db/migrations" }),
-        );
+        await migrateTestDatabase(adminUrl, db, migrationsFolder);
     } catch (error) {
         await dispose();
         throw error;

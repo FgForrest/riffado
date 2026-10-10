@@ -24,7 +24,6 @@ import {
     knowledgeRelationTypes,
     knowledgeVocabularyProposals,
     people,
-    recordings,
     transcriptions,
     users,
 } from "@/db/schema";
@@ -117,6 +116,7 @@ import {
     vocabularyVisibleTo,
 } from "@/lib/knowledge/vocabulary";
 import { ensureOrgAccount } from "@/lib/org/account";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -260,23 +260,21 @@ describeWithDatabase("private knowledge stays private (PostgreSQL)", () => {
 
         /** A recording of `userId`'s with one timed transcript, and a person. */
         async function seed(userId: string) {
-            await db()
-                .insert(recordings)
-                .values({
-                    id: `rec-${userId}`,
-                    userId,
-                    deviceSn: "SN-1",
-                    plaudFileId: `plaud-${userId}`,
-                    filename: encryptText("Weekly"),
-                    duration: 4_000,
-                    startTime: new Date("2026-09-01T10:00:00Z"),
-                    endTime: new Date("2026-09-01T10:00:04Z"),
-                    filesize: 11,
-                    fileMd5: "0".repeat(32),
-                    storageType: "local",
-                    storagePath: `${userId}/rec.mp3`,
-                    plaudVersion: "1",
-                });
+            await insertRecordings(db(), {
+                id: `rec-${userId}`,
+                userId,
+                deviceSn: "SN-1",
+                plaudFileId: `plaud-${userId}`,
+                filename: encryptText("Weekly"),
+                duration: 4_000,
+                startTime: new Date("2026-09-01T10:00:00Z"),
+                endTime: new Date("2026-09-01T10:00:04Z"),
+                filesize: 11,
+                fileMd5: "0".repeat(32),
+                storageType: "local",
+                storagePath: `${userId}/rec.mp3`,
+                plaudVersion: "1",
+            });
             const [transcript] = await db()
                 .insert(transcriptions)
                 .values({

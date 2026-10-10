@@ -21,7 +21,7 @@ export function hasSummaryCondition(): SQL {
             .from(aiEnhancements)
             .where(
                 and(
-                    eq(aiEnhancements.recordingId, recordings.id),
+                    eq(aiEnhancements.itemId, recordings.id),
                     eq(aiEnhancements.userId, recordings.userId),
                 ),
             ),
@@ -49,11 +49,11 @@ export async function summariesForSearch(
             .innerJoin(
                 recordings,
                 and(
-                    eq(recordings.id, aiEnhancements.recordingId),
+                    eq(recordings.id, aiEnhancements.itemId),
                     eq(recordings.userId, aiEnhancements.userId),
                 ),
             )
-            .where(and(inArray(aiEnhancements.recordingId, ids), visible)),
+            .where(and(inArray(aiEnhancements.itemId, ids), visible)),
         db
             .select({
                 recordingId: transcriptions.recordingId,
@@ -91,11 +91,11 @@ export async function summariesForSearch(
     }
 
     for (const { enhancement } of enhancements) {
-        const held = found.get(enhancement.recordingId);
+        const held = found.get(enhancement.itemId);
         if (held && held.enhancement.source === "riffado") continue;
-        found.set(enhancement.recordingId, {
+        found.set(enhancement.itemId, {
             enhancement,
-            language: languages.get(enhancement.recordingId) ?? null,
+            language: languages.get(enhancement.itemId) ?? null,
         });
     }
     return found;

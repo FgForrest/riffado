@@ -3,7 +3,7 @@ import type { StorageProvider } from "@/lib/storage/types";
 
 vi.mock("nanoid", () => ({ nanoid: () => "recording-1" }));
 vi.mock("@/db", () => ({
-    db: { insert: vi.fn() },
+    db: { insert: vi.fn(), transaction: vi.fn() },
 }));
 vi.mock("@/lib/audio/ingest-waveform", () => ({
     generateIngestWaveform: vi.fn(),
@@ -33,6 +33,7 @@ vi.mock("@/lib/uploads/audio-duration", () => ({
 }));
 
 import { db } from "@/db";
+import { chatterItems, recordings } from "@/db/schema";
 import { generateIngestWaveform } from "@/lib/audio/ingest-waveform";
 import { saveUploadedAudio } from "@/lib/uploads/save-uploaded-audio";
 
@@ -54,10 +55,11 @@ describe("saveUploadedAudio", () => {
         uploadFile.mockResolvedValue("stored");
         deleteFile.mockResolvedValue(undefined);
         (generateIngestWaveform as Mock).mockResolvedValue(waveformPeaks);
-        values.mockReturnValue({
-            returning: vi.fn().mockResolvedValue([{ id: "recording-1" }]),
-        });
+        values.mockResolvedValue(undefined);
         (db.insert as Mock).mockReturnValue({ values });
+        (db.transaction as Mock).mockImplementation(
+            (fn: (tx: typeof db) => Promise<unknown>) => fn(db),
+        );
     });
 
     it("stores waveform peaks generated from the incoming audio", async () => {
@@ -80,8 +82,19 @@ describe("saveUploadedAudio", () => {
             buffer,
             "audio/mpeg",
         );
-        expect(values).toHaveBeenCalledWith(
-            expect.objectContaining({ waveformPeaks }),
+        expect(db.transaction).toHaveBeenCalledOnce();
+        const insertedTables = (db.insert as Mock).mock.calls.map(
+            ([table]) => table,
+        );
+        expect(insertedTables).toEqual([chatterItems, recordings]);
+        expect(values.mock.calls[0]?.[0]).toEqual(
+            expect.objectContaining({
+                id: "recording-1",
+                title: "encrypted:Interview",
+            }),
+        );
+        expect(values.mock.calls[1]?.[0]).toEqual(
+            expect.objectContaining({ id: "recording-1", waveformPeaks }),
         );
     });
 });

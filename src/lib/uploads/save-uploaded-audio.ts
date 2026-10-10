@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { nanoid } from "nanoid";
 import { db } from "@/db";
-import { recordings } from "@/db/schema";
+import { insertAudioItem } from "@/db/items";
 import { generateIngestWaveform } from "@/lib/audio/ingest-waveform";
 import { encryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
@@ -62,34 +62,24 @@ export async function saveUploadedAudio(
     ]);
 
     try {
-        const [recording] = await db
-            .insert(recordings)
-            .values({
-                id: recordingId,
-                userId: input.userId,
-                deviceSn: "local",
-                plaudFileId: input.fileId,
-                filename: encryptText(input.basename),
-                duration: durationMs,
-                startTime: now,
-                endTime: new Date(now.getTime() + durationMs),
-                filesize: input.buffer.length,
-                fileMd5: md5,
-                storageType: env.DEFAULT_STORAGE_TYPE,
-                storagePath: storageKey,
-                waveformPeaks,
-                downloadedAt: now,
-                plaudVersion: "1",
-                isTrash: false,
-            })
-            .returning({ id: recordings.id });
-
-        if (!recording) {
-            throw new Error("Recording insert did not return a row");
-        }
-        if (recording.id !== recordingId) {
-            throw new Error("Recording insert returned an unexpected id");
-        }
+        await insertAudioItem(db, {
+            id: recordingId,
+            userId: input.userId,
+            deviceSn: "local",
+            plaudFileId: input.fileId,
+            title: encryptText(input.basename),
+            duration: durationMs,
+            occurredAt: now,
+            endTime: new Date(now.getTime() + durationMs),
+            filesize: input.buffer.length,
+            fileMd5: md5,
+            storageType: env.DEFAULT_STORAGE_TYPE,
+            storagePath: storageKey,
+            waveformPeaks,
+            downloadedAt: now,
+            plaudVersion: "1",
+            isTrash: false,
+        });
     } catch (dbError) {
         try {
             await input.storage.deleteFile(storageKey);

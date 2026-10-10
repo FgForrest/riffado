@@ -5,6 +5,7 @@ import {
     boolean,
     check,
     date,
+    foreignKey,
     index,
     integer,
     jsonb,
@@ -367,6 +368,75 @@ export const plaudDevices = pgTable(
     }),
 );
 
+/** What an item of the Chatter pile is: a recording, or a mail message. */
+export type ChatterItemKind = "audio" | "mail";
+
+// The Chatter pile: one row per item of any kind, sharing its id with the
+// row of its kind (`recordings`, `mail_messages`). Everything that is not
+// about one kind (folders, summaries, tasks, Learn, exports) points here.
+export const chatterItems = pgTable(
+    "chatter_items",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        kind: varchar("kind", { length: 16 })
+            .$type<ChatterItemKind>()
+            .notNull(),
+        // Encrypted: a recording's title, a mail's subject.
+        title: text("title").notNull(),
+        // When a person last set the title; see the former
+        // `recordings.title_edited_at`.
+        titleEditedAt: timestamp("title_edited_at"),
+        // When it happened: a recording's start, a mail's date.
+        occurredAt: timestamp("occurred_at").notNull(),
+        // Soft-delete tombstone; the kind's row carries it too.
+        deletedAt: timestamp("deleted_at"),
+        // Automatic Learn holds the title, summary and topics back until its
+        // review is done, and at most until this time; null when nothing is
+        // held.
+        summaryDueAt: timestamp("summary_due_at"),
+        // Retention markers: set when the sweep removed the content (a
+        // transcript, a mail's text) or the summary, cleared when it comes
+        // back. See `recordings.audio_reaped_at` for why they matter.
+        contentReapedAt: timestamp("content_reaped_at"),
+        summaryReapedAt: timestamp("summary_reaped_at"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        // Targets of the kinds' composite foreign keys, so a kind's row can
+        // belong only to an item of the same owner and kind.
+        idUserUnique: unique("chatter_items_id_user_id_unique").on(
+            table.id,
+            table.userId,
+        ),
+        idKindUnique: unique("chatter_items_id_kind_unique").on(
+            table.id,
+            table.kind,
+        ),
+        // A user's live pile, newest first.
+        userOccurredLiveIdx: index("chatter_items_user_id_occurred_at_live_idx")
+            .on(
+                table.userId,
+                table.occurredAt.desc().nullsFirst(),
+                table.id.desc().nullsFirst(),
+            )
+            .where(sql`${table.deletedAt} is null`),
+        // The automatic Learn sweep reads only the few held items.
+        summaryDueIdx: index("chatter_items_summary_due_at_idx")
+            .on(table.summaryDueAt)
+            .where(sql`${table.summaryDueAt} is not null`),
+        kindCheck: check(
+            "chatter_items_kind_check",
+            sql`${table.kind} in ('audio', 'mail')`,
+        ),
+    }),
+);
+
 // Recordings
 export const recordings = pgTable(
     "recordings",
@@ -377,12 +447,21 @@ export const recordings = pgTable(
         userId: text("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
+        // Always `audio`: with `userId`, the composite foreign key to the
+        // recording's `chatter_items` row.
+        kind: varchar("kind", { length: 16 })
+            .$type<"audio">()
+            .notNull()
+            .default("audio"),
         deviceSn: varchar("device_sn", { length: 255 }).notNull(),
         // Unique ID from Plaud API, scoped per Riffado user.
         plaudFileId: varchar("plaud_file_id", { length: 255 }).notNull(),
-        filename: text("filename").notNull(),
+        // Deprecated (now `chatter_items.title`), see
+        // src/db/deprecated-columns.ts.
+        deprecatedFilename: text("filename"),
         duration: integer("duration").notNull(), // milliseconds
-        startTime: timestamp("start_time").notNull(),
+        // Deprecated (now `chatter_items.occurred_at`).
+        deprecatedStartTime: timestamp("start_time"),
         endTime: timestamp("end_time").notNull(),
         filesize: integer("filesize").notNull(), // bytes
         fileMd5: varchar("file_md5", { length: 32 }).notNull(),
@@ -413,11 +492,10 @@ export const recordings = pgTable(
         // from storage at delete time; this row is retained only as a marker
         // keyed by plaudFileId. See issue #56.
         deletedAt: timestamp("deleted_at"),
-        // Automatic Learn holds the title, summary and topics back until its
-        // review is done, and at most until this time (Task 5.5); null when
-        // nothing is held.
-        summaryDueAt: timestamp("summary_due_at"),
-        // Retention markers. Set by the retention sweep
+        // Deprecated (now `chatter_items.summary_due_at`).
+        deprecatedSummaryDueAt: timestamp("summary_due_at"),
+        // Retention marker of the audio (the transcript's and summary's are
+        // on `chatter_items`). Set by the retention sweep
         // (src/lib/retention/worker.ts) when it removes one kind of data
         // from a recording that has aged past the user's retention period.
         // The recording row itself always survives -- only the payload of
@@ -431,38 +509,38 @@ export const recordings = pgTable(
         // legitimately comes back -- a Plaud version bump re-downloads the
         // audio, a manual re-run rewrites the transcript or summary.
         audioReapedAt: timestamp("audio_reaped_at"),
-        transcriptReapedAt: timestamp("transcript_reaped_at"),
-        summaryReapedAt: timestamp("summary_reaped_at"),
+        // Deprecated (now `chatter_items.content_reaped_at` and
+        // `summary_reaped_at`).
+        deprecatedTranscriptReapedAt: timestamp("transcript_reaped_at"),
+        deprecatedSummaryReapedAt: timestamp("summary_reaped_at"),
         // DB-backed claim for the external remote-trash operation. The
         // retention worker runs in every app process, so this prevents two
         // processes from moving the same remote original concurrently.
         remoteRetentionClaimedAt: timestamp("remote_retention_claimed_at"),
-        // Deprecated and no longer read or written: the grace period it
-        // timed is gone (a shared recording's retention is the
-        // Organization's, and its owner's applies at once after a
-        // withdrawal). Kept so the release before still runs against this
-        // schema; drop it in a later release.
-        unsharedAt: timestamp("unshared_at"),
-        // When a person last set the title. Null means the title is still a
-        // machine's (a Plaud filename, an upload's name, a generated one)
-        // and may be replaced by a generated title or Plaud's filename; set,
-        // it is never overwritten. Every title that existed before this
-        // column is treated as set by a person (migration 0060).
-        titleEditedAt: timestamp("title_edited_at"),
+        // Deprecated, see src/db/deprecated-columns.ts.
+        deprecatedUnsharedAt: timestamp("unshared_at"),
+        // Deprecated (now `chatter_items.title_edited_at`).
+        deprecatedTitleEditedAt: timestamp("title_edited_at"),
         createdAt: timestamp("created_at").notNull().defaultNow(),
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
     (table) => ({
-        // The automatic Learn sweep reads only the few held recordings.
-        summaryDueIdx: index("recordings_summary_due_at_idx")
-            .on(table.summaryDueAt)
-            .where(sql`${table.summaryDueAt} is not null`),
-        // A user's recordings by start time (dashboard); also every lookup
-        // by user alone.
+        // Every lookup by user alone; goes with the deprecated start time.
         userStartTimeIdx: index("recordings_user_id_start_time_idx").on(
             table.userId,
-            table.startTime,
+            table.deprecatedStartTime,
         ),
+        // The recording belongs to an `audio` item of the same owner.
+        itemUserFk: foreignKey({
+            name: "recordings_item_user_fk",
+            columns: [table.id, table.userId],
+            foreignColumns: [chatterItems.id, chatterItems.userId],
+        }).onDelete("cascade"),
+        itemKindFk: foreignKey({
+            name: "recordings_item_kind_fk",
+            columns: [table.id, table.kind],
+            foreignColumns: [chatterItems.id, chatterItems.kind],
+        }).onDelete("cascade"),
         // The v1 list: a user's live recordings, newest change first.
         userUpdatedLiveIdx: index("recordings_user_id_updated_at_live_idx")
             .on(
@@ -474,6 +552,7 @@ export const recordings = pgTable(
         userPlaudFileUnique: unique(
             "recordings_user_id_plaud_file_id_unique",
         ).on(table.userId, table.plaudFileId),
+        kindCheck: check("recordings_kind_check", sql`${table.kind} = 'audio'`),
         userStorageFilenameStemUnique: uniqueIndex(
             "recordings_user_id_storage_filename_stem_unique",
         )
@@ -541,16 +620,16 @@ export const recordingFolderAssignments = pgTable(
         userId: text("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
-        recordingId: text("recording_id")
+        itemId: text("recording_id")
             .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
         folderId: text("folder_id")
             .notNull()
             .references(() => recordingFolders.id, { onDelete: "cascade" }),
         createdAt: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => ({
-        pk: primaryKey({ columns: [table.recordingId, table.folderId] }),
+        pk: primaryKey({ columns: [table.itemId, table.folderId] }),
         userIdIdx: index("recording_folder_assignments_user_id_idx").on(
             table.userId,
         ),
@@ -780,9 +859,9 @@ export const folderExportPlacements = pgTable(
             .references(() => folderExportConfigurations.id, {
                 onDelete: "cascade",
             }),
-        recordingId: text("recording_id")
+        itemId: text("recording_id")
             .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
         placementFolderId: text("placement_folder_id")
             .notNull()
             .references(() => recordingFolders.id, { onDelete: "cascade" }),
@@ -796,7 +875,7 @@ export const folderExportPlacements = pgTable(
     (table) => ({
         placementUnique: unique("folder_export_placements_placement_unique").on(
             table.exportConfigurationId,
-            table.recordingId,
+            table.itemId,
             table.placementFolderId,
         ),
         expectedPathUnique: uniqueIndex(
@@ -808,7 +887,7 @@ export const folderExportPlacements = pgTable(
             table.userId,
         ),
         recordingIdIdx: index("folder_export_placements_recording_id_idx").on(
-            table.recordingId,
+            table.itemId,
         ),
         placementFolderIdIdx: index(
             "folder_export_placements_placement_folder_id_idx",
@@ -830,9 +909,9 @@ export const folderExportMaterializations = pgTable(
             .references(() => folderExportConfigurations.id, {
                 onDelete: "cascade",
             }),
-        recordingId: text("recording_id")
+        itemId: text("recording_id")
             .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
         placementFolderId: text("placement_folder_id")
             .notNull()
             .references(() => recordingFolders.id, { onDelete: "cascade" }),
@@ -874,7 +953,7 @@ export const folderExportMaterializations = pgTable(
         ),
         recordingIdIdx: index(
             "folder_export_materializations_recording_id_idx",
-        ).on(table.recordingId),
+        ).on(table.itemId),
         placementFolderIdIdx: index(
             "folder_export_materializations_placement_folder_id_idx",
         ).on(table.placementFolderId),
@@ -1633,8 +1712,9 @@ export const knowledgeFacts = pgTable(
         // `domainLookupHash("fact-literal", literal)`.
         subjectKey: varchar("subject_key", { length: 80 }).notNull(),
         objectKey: varchar("object_key", { length: 80 }).notNull(),
+        // Where it was learned: a recording, a mail, or by hand.
         origin: varchar("origin", { length: 16 })
-            .$type<"recording" | "manual">()
+            .$type<"recording" | "mail" | "manual">()
             .notNull(),
         // On a single-valued relation, the fact that took this one's place.
         replacedByFactId: text("replaced_by_fact_id").references(
@@ -1679,7 +1759,7 @@ export const knowledgeFacts = pgTable(
         ),
         originCheck: check(
             "knowledge_facts_origin_check",
-            sql`${table.origin} in ('recording', 'manual')`,
+            sql`${table.origin} in ('recording', 'mail', 'manual')`,
         ),
         createdByIdx: index("knowledge_facts_created_by_user_id_idx").on(
             table.createdByUserId,
@@ -1714,15 +1794,24 @@ export const knowledgeFactEvidence = pgTable(
         factId: text("fact_id")
             .notNull()
             .references(() => knowledgeFacts.id, { onDelete: "cascade" }),
-        transcriptionId: text("transcription_id")
+        // The transcript of a time anchor; null on a text anchor.
+        transcriptionId: text("transcription_id").references(
+            () => transcriptions.id,
+            { onDelete: "cascade" },
+        ),
+        itemId: text("recording_id")
             .notNull()
-            .references(() => transcriptions.id, { onDelete: "cascade" }),
-        recordingId: text("recording_id")
-            .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
+        // The revision of the content (a transcript, a mail's parse) the
+        // anchor was confirmed on.
         transcriptRevision: integer("transcript_revision").notNull(),
-        startMs: integer("start_ms").notNull(),
-        endMs: integer("end_ms").notNull(),
+        // Where it was said: a stretch of audio time, or a range of one
+        // segment's text (UTF-16 offsets). Exactly one form is set.
+        startMs: integer("start_ms"),
+        endMs: integer("end_ms"),
+        segmentIndex: integer("segment_index"),
+        charStart: integer("char_start"),
+        charEnd: integer("char_end"),
         // The label whose speaker the fact is about, when it is (`Speaker 1
         // said "I lead Orion"`): renaming that speaker puts it to review.
         speakerLabel: varchar("speaker_label", { length: 64 }),
@@ -1741,17 +1830,28 @@ export const knowledgeFactEvidence = pgTable(
         confirmedAt: timestamp("confirmed_at").notNull().defaultNow(),
     },
     (table) => ({
+        // A time anchor is one per fact and stretch of a transcript; NULLs
+        // are distinct, so a text anchor never collides here.
         evidenceUnique: unique("knowledge_fact_evidence_unique").on(
             table.factId,
             table.transcriptionId,
             table.startMs,
             table.endMs,
         ),
+        textEvidenceUnique: uniqueIndex("knowledge_fact_evidence_text_unique")
+            .on(
+                table.factId,
+                table.itemId,
+                table.segmentIndex,
+                table.charStart,
+                table.charEnd,
+            )
+            .where(sql`${table.segmentIndex} is not null`),
         transcriptIdx: index("knowledge_fact_evidence_transcription_id_idx").on(
             table.transcriptionId,
         ),
         recordingIdx: index("knowledge_fact_evidence_recording_id_idx").on(
-            table.recordingId,
+            table.itemId,
         ),
         userIdIdx: index("knowledge_fact_evidence_user_id_idx").on(
             table.userId,
@@ -1763,6 +1863,10 @@ export const knowledgeFactEvidence = pgTable(
         rangeCheck: check(
             "knowledge_fact_evidence_range_check",
             sql`${table.startMs} >= 0 and ${table.startMs} <= ${table.endMs}`,
+        ),
+        anchorCheck: check(
+            "knowledge_fact_evidence_anchor_check",
+            sql`(${table.transcriptionId} is not null and ${table.startMs} is not null and ${table.endMs} is not null and ${table.segmentIndex} is null and ${table.charStart} is null and ${table.charEnd} is null) or (${table.startMs} is null and ${table.endMs} is null and ${table.segmentIndex} >= 0 and ${table.charStart} >= 0 and ${table.charStart} < ${table.charEnd})`,
         ),
         confirmedByIdx: index(
             "knowledge_fact_evidence_confirmed_by_user_id_idx",
@@ -1868,12 +1972,14 @@ export const learnRuns = pgTable(
         scopeUserId: text("scope_user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
-        recordingId: text("recording_id")
+        itemId: text("recording_id")
             .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
-        transcriptionId: text("transcription_id")
-            .notNull()
-            .references(() => transcriptions.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
+        // The transcript a run on a recording read; null on other kinds.
+        transcriptionId: text("transcription_id").references(
+            () => transcriptions.id,
+            { onDelete: "cascade" },
+        ),
         view: varchar("view", { length: 16 })
             .$type<"private" | "org">()
             .notNull(),
@@ -1884,6 +1990,7 @@ export const learnRuns = pgTable(
         trigger: varchar("trigger", { length: 16 })
             .$type<"manual" | "auto">()
             .notNull(),
+        // The revision of the content it read.
         transcriptRevision: integer("transcript_revision").notNull(),
         vocabularyVersion: integer("vocabulary_version").notNull(),
         status: varchar("status", { length: 16 })
@@ -1912,9 +2019,7 @@ export const learnRuns = pgTable(
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
     (table) => ({
-        recordingIdx: index("learn_runs_recording_id_idx").on(
-            table.recordingId,
-        ),
+        recordingIdx: index("learn_runs_recording_id_idx").on(table.itemId),
         transcriptionIdx: index("learn_runs_transcription_id_idx").on(
             table.transcriptionId,
         ),
@@ -1923,7 +2028,7 @@ export const learnRuns = pgTable(
         actorIdx: index("learn_runs_actor_user_id_idx").on(table.actorUserId),
         // The review badge: recordings with a run waiting for review.
         readyIdx: index("learn_runs_ready_idx")
-            .on(table.view, table.userId, table.recordingId)
+            .on(table.view, table.userId, table.itemId)
             .where(sql`${table.status} = 'ready'`),
         statusCheck: check(
             "learn_runs_status_check",
@@ -2100,9 +2205,9 @@ export const learnDismissals = pgTable(
         userId: text("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
-        recordingId: text("recording_id")
+        itemId: text("recording_id")
             .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
         fingerprintHmac: varchar("fingerprint_hmac", { length: 64 }).notNull(),
         scopeWide: boolean("scope_wide").notNull().default(false),
         createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -2110,11 +2215,11 @@ export const learnDismissals = pgTable(
     (table) => ({
         unique: unique("learn_dismissals_unique").on(
             table.userId,
-            table.recordingId,
+            table.itemId,
             table.fingerprintHmac,
         ),
         recordingIdx: index("learn_dismissals_recording_id_idx").on(
-            table.recordingId,
+            table.itemId,
         ),
         scopeWideIdx: index("learn_dismissals_scope_wide_idx")
             .on(table.userId)
@@ -2129,9 +2234,9 @@ export const aiEnhancements = pgTable(
         id: text("id")
             .primaryKey()
             .$defaultFn(() => nanoid()),
-        recordingId: text("recording_id")
+        itemId: text("recording_id")
             .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
         userId: text("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
@@ -2173,7 +2278,7 @@ export const aiEnhancements = pgTable(
     (table) => ({
         userRecordingSourceUnique: unique(
             "ai_enhancements_recording_user_source_unique",
-        ).on(table.recordingId, table.userId, table.source),
+        ).on(table.itemId, table.userId, table.source),
         transcriptionIdIdx: index("ai_enhancements_transcription_id_idx").on(
             table.transcriptionId,
         ),
@@ -2196,9 +2301,9 @@ export const recordingTasks = pgTable(
         id: text("id")
             .primaryKey()
             .$defaultFn(() => nanoid()),
-        recordingId: text("recording_id")
+        itemId: text("recording_id")
             .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
         // The recording's owner.
         userId: text("user_id")
             .notNull()
@@ -2221,9 +2326,19 @@ export const recordingTasks = pgTable(
         dueDate: date("due_date", { mode: "string" }),
         // Encrypted: the deadline as it was said ("by next Friday").
         duePhrase: text("due_phrase"),
-        // Encrypted: a few words of the transcript it was heard in.
+        // Encrypted: a few words of the content it was heard or read in.
         quote: text("quote"),
+        // Where: a moment of a recording, or a range of a mail segment.
         evidenceStartMs: integer("evidence_start_ms"),
+        evidenceSegmentIndex: integer("evidence_segment_index"),
+        evidenceCharStart: integer("evidence_char_start"),
+        evidenceCharEnd: integer("evidence_char_end"),
+        // Where its evidence is a quoted part of a mail, or text from a
+        // sender nothing verified: shown with the proposal, which then
+        // starts unticked.
+        evidenceProvenance: varchar("evidence_provenance", {
+            length: 16,
+        }).$type<"quoted" | "unverified">(),
         source: varchar("source", { length: 16 })
             .$type<"riffado" | "plaud" | "manual">()
             .notNull(),
@@ -2257,7 +2372,7 @@ export const recordingTasks = pgTable(
     },
     (table) => ({
         recordingStatusIdx: index("recording_tasks_recording_status_idx").on(
-            table.recordingId,
+            table.itemId,
             table.status,
         ),
         assigneeIdx: index("recording_tasks_assignee_person_id_idx").on(
@@ -2287,6 +2402,10 @@ export const recordingTasks = pgTable(
             "recording_tasks_source_check",
             sql`${table.source} in ('riffado', 'plaud', 'manual')`,
         ),
+        evidenceCheck: check(
+            "recording_tasks_evidence_check",
+            sql`(${table.evidenceSegmentIndex} is null and ${table.evidenceCharStart} is null and ${table.evidenceCharEnd} is null) or (${table.evidenceStartMs} is null and ${table.evidenceSegmentIndex} >= 0 and ${table.evidenceCharStart} >= 0 and ${table.evidenceCharStart} < ${table.evidenceCharEnd})`,
+        ),
     }),
 );
 
@@ -2302,15 +2421,15 @@ export const recordingTaskRejections = pgTable(
         userId: text("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
-        recordingId: text("recording_id")
+        itemId: text("recording_id")
             .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
         fingerprintHmac: varchar("fingerprint_hmac", { length: 64 }).notNull(),
         createdAt: timestamp("created_at").notNull().defaultNow(),
     },
     (table) => ({
         unique: unique("recording_task_rejections_unique").on(
-            table.recordingId,
+            table.itemId,
             table.fingerprintHmac,
         ),
         userIdIdx: index("recording_task_rejections_user_id_idx").on(
@@ -2331,9 +2450,9 @@ export const taskUpdateProposals = pgTable(
             .notNull()
             .references(() => recordingTasks.id, { onDelete: "cascade" }),
         // Where it was heard, and that recording's owner.
-        recordingId: text("recording_id")
+        itemId: text("recording_id")
             .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
         userId: text("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
@@ -2343,6 +2462,9 @@ export const taskUpdateProposals = pgTable(
         duePhrase: text("due_phrase"),
         quote: text("quote"),
         evidenceStartMs: integer("evidence_start_ms"),
+        evidenceSegmentIndex: integer("evidence_segment_index"),
+        evidenceCharStart: integer("evidence_char_start"),
+        evidenceCharEnd: integer("evidence_char_end"),
         ticked: boolean("ticked").notNull().default(false),
         version: integer("version").notNull().default(0),
         createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -2351,11 +2473,11 @@ export const taskUpdateProposals = pgTable(
     (table) => ({
         unique: unique("task_update_proposals_unique").on(
             table.taskId,
-            table.recordingId,
+            table.itemId,
             table.kind,
         ),
         recordingIdx: index("task_update_proposals_recording_id_idx").on(
-            table.recordingId,
+            table.itemId,
         ),
         userIdIdx: index("task_update_proposals_user_id_idx").on(table.userId),
         kindCheck: check(
@@ -2366,6 +2488,10 @@ export const taskUpdateProposals = pgTable(
             "task_update_proposals_due_check",
             sql`${table.kind} = 'done' or ${table.dueDate} is not null`,
         ),
+        evidenceCheck: check(
+            "task_update_proposals_evidence_check",
+            sql`(${table.evidenceSegmentIndex} is null and ${table.evidenceCharStart} is null and ${table.evidenceCharEnd} is null) or (${table.evidenceStartMs} is null and ${table.evidenceSegmentIndex} >= 0 and ${table.evidenceCharStart} >= 0 and ${table.evidenceCharStart} < ${table.evidenceCharEnd})`,
+        ),
     }),
 );
 
@@ -2375,9 +2501,9 @@ export const aiUsageEvents = pgTable(
         id: text("id")
             .primaryKey()
             .$defaultFn(() => nanoid()),
-        recordingId: text("recording_id")
+        itemId: text("recording_id")
             .notNull()
-            .references(() => recordings.id, { onDelete: "cascade" }),
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
         userId: text("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),
@@ -2396,7 +2522,7 @@ export const aiUsageEvents = pgTable(
     },
     (table) => ({
         recordingPayerIdx: index("ai_usage_events_recording_payer_idx").on(
-            table.recordingId,
+            table.itemId,
             table.payerUserId,
         ),
         userIdx: index("ai_usage_events_user_id_idx").on(table.userId),

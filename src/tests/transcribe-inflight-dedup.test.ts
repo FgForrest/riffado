@@ -116,7 +116,7 @@ function installSelectStub(opts: { existingText?: string } = {}) {
         id: "row-1",
         userId: USER_ID,
         plaudFileId: "plaud-1",
-        filename: "Some Recording",
+        title: "Some Recording",
         storagePath: "rec.mp3",
         deletedAt: null,
         text: opts.existingText,
@@ -131,23 +131,29 @@ function installSelectStub(opts: { existingText?: string } = {}) {
         defaultTranscriptionLanguage: null,
     };
 
+    // A recording is read joined to its item; everything else from one
+    // table.
+    const where = vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue([row]),
+    });
     (db.select as Mock).mockReturnValue({
         from: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({
-                limit: vi.fn().mockResolvedValue([row]),
-            }),
+            innerJoin: vi.fn().mockReturnValue({ where }),
+            where,
         }),
     });
 
+    const txWhere = vi.fn().mockReturnValue({
+        for: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([{ deletedAt: null }]),
+        }),
+        limit: vi.fn().mockResolvedValue([]),
+    });
     const tx = {
         select: vi.fn().mockReturnValue({
             from: vi.fn().mockReturnValue({
-                where: vi.fn().mockReturnValue({
-                    for: vi.fn().mockReturnValue({
-                        limit: vi.fn().mockResolvedValue([{ deletedAt: null }]),
-                    }),
-                    limit: vi.fn().mockResolvedValue([]),
-                }),
+                innerJoin: vi.fn().mockReturnValue({ where: txWhere }),
+                where: txWhere,
             }),
         }),
         insert: vi.fn().mockReturnValue({

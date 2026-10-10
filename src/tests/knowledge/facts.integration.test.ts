@@ -110,6 +110,7 @@ import {
 import { ensureOrgAccount } from "@/lib/org/account";
 import { upsertTranscription } from "@/lib/transcription/persist";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -172,23 +173,21 @@ describeWithDatabase("facts and evidence (PostgreSQL)", () => {
     }, 30_000);
 
     async function recording(id: string, startTime: string) {
-        await db()
-            .insert(recordings)
-            .values({
-                id,
-                userId: ALICE,
-                deviceSn: "SN-1",
-                plaudFileId: `plaud-${id}`,
-                filename: encryptText("Weekly"),
-                duration: 25_000,
-                startTime: new Date(startTime),
-                endTime: new Date(startTime),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${ALICE}/${id}.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id,
+            userId: ALICE,
+            deviceSn: "SN-1",
+            plaudFileId: `plaud-${id}`,
+            filename: encryptText("Weekly"),
+            duration: 25_000,
+            startTime: new Date(startTime),
+            endTime: new Date(startTime),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${ALICE}/${id}.mp3`,
+            plaudVersion: "1",
+        });
         await write(id, TURNS);
         await db()
             .insert(transcriptSpeakers)

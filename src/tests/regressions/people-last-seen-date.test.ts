@@ -1,10 +1,10 @@
 import { max } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
-import { recordings } from "@/db/schema";
+import { chatterItems } from "@/db/schema";
 
 describe("People last-seen aggregate", () => {
     it("uses the timestamp column decoder before Server Component serialization", () => {
-        const expression = max(recordings.startTime);
+        const expression = max(chatterItems.occurredAt);
         const { decoder } = expression as unknown as {
             decoder: { mapFromDriverValue: (value: unknown) => unknown };
         };

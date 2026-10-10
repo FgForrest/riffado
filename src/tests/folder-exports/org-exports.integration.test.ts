@@ -28,7 +28,6 @@ import {
 import {
     folderExportMaterializations,
     recordingFolders,
-    recordings,
     transcriptions,
     users,
 } from "@/db/schema";
@@ -97,6 +96,7 @@ import { materializeFolderExport } from "@/lib/folder-exports/execution";
 import { planFolderExport } from "@/lib/folder-exports/planner";
 import { addRecordingToFolder } from "@/lib/folders/folders";
 import { ensureOrgAccount } from "@/lib/org/account";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -155,24 +155,22 @@ describeWithDatabase("Organization exports (PostgreSQL)", () => {
             .where(eq(recordingFolders.userId, orgUserId));
         orgRootId = root?.id ?? "";
         for (const id of ["rec-shared", "rec-private"]) {
-            await db()
-                .insert(recordings)
-                .values({
-                    id,
-                    userId: OWNER,
-                    deviceSn: "SN-1",
-                    plaudFileId: `plaud-${id}`,
-                    filename: encryptText(`Meeting ${id}`),
-                    duration: 60_000,
-                    startTime: new Date("2026-09-01T10:00:00Z"),
-                    endTime: new Date("2026-09-01T10:01:00Z"),
-                    filesize: 18,
-                    fileMd5: "0".repeat(32),
-                    storageType: "local",
-                    storagePath: `${OWNER}/${id}.mp3`,
-                    storageFilename: `${id}.mp3`,
-                    plaudVersion: "1",
-                });
+            await insertRecordings(db(), {
+                id,
+                userId: OWNER,
+                deviceSn: "SN-1",
+                plaudFileId: `plaud-${id}`,
+                filename: encryptText(`Meeting ${id}`),
+                duration: 60_000,
+                startTime: new Date("2026-09-01T10:00:00Z"),
+                endTime: new Date("2026-09-01T10:01:00Z"),
+                filesize: 18,
+                fileMd5: "0".repeat(32),
+                storageType: "local",
+                storagePath: `${OWNER}/${id}.mp3`,
+                storageFilename: `${id}.mp3`,
+                plaudVersion: "1",
+            });
             await db()
                 .insert(transcriptions)
                 .values({
@@ -212,7 +210,7 @@ describeWithDatabase("Organization exports (PostgreSQL)", () => {
         );
         await planFolderExport(orgUserId, configuration.id);
         const states = await db().select().from(folderExportMaterializations);
-        expect(new Set(states.map((state) => state.recordingId))).toEqual(
+        expect(new Set(states.map((state) => state.itemId))).toEqual(
             new Set(["rec-shared"]),
         );
         for (const state of states) {

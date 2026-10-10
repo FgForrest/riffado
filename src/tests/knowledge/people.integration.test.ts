@@ -25,7 +25,6 @@ import {
 import {
     people,
     recordingFolders,
-    recordings,
     transcriptions,
     transcriptSpeakers,
     users,
@@ -151,6 +150,7 @@ import {
 } from "@/lib/knowledge/people";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { upsertTranscription } from "@/lib/transcription/persist";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -259,23 +259,21 @@ describeWithDatabase("knowledge base (PostgreSQL)", () => {
     }
 
     async function meeting(ownerId = ALICE): Promise<string> {
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: ownerId,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 60_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:01:00Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${ownerId}/rec.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: ownerId,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 60_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:01:00Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${ownerId}/rec.mp3`,
+            plaudVersion: "1",
+        });
         const [row] = await db()
             .insert(transcriptions)
             .values({

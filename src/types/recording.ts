@@ -1,11 +1,17 @@
-import type { InferSelectModel } from "drizzle-orm";
-import type { recordings } from "@/db/schema";
 import type { RecordingView } from "@/lib/sharing/view";
 
-export type RecordingQueryResult = Pick<
-    InferSelectModel<typeof recordings>,
-    "id" | "filename" | "duration" | "startTime" | "filesize" | "deviceSn"
->;
+/**
+ * A recording as lists show it: its item's title (`filename`, encrypted
+ * until the caller decrypts it) and start (`startTime`), and its audio.
+ */
+export interface RecordingQueryResult {
+    id: string;
+    filename: string;
+    duration: number;
+    startTime: Date;
+    filesize: number;
+    deviceSn: string;
+}
 
 export type Recording = Omit<RecordingQueryResult, "startTime"> & {
     startTime: string;

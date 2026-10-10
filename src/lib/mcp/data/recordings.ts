@@ -15,7 +15,9 @@ import {
 } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
+import { recordingItemJoin } from "@/db/items";
 import {
+    chatterItems,
     knowledgeFactEvidence,
     knowledgeFacts,
     recordings,
@@ -306,7 +308,7 @@ function mentions(caller: McpCaller, entityId: string): SQL {
             )
             .where(
                 and(
-                    eq(knowledgeFactEvidence.recordingId, recordings.id),
+                    eq(knowledgeFactEvidence.itemId, recordings.id),
                     eq(knowledgeFactEvidence.status, "supported"),
                     inArray(
                         knowledgeFacts.userId,
@@ -337,13 +339,13 @@ export async function recordingFilterConditions(
 ): Promise<SQL> {
     const conditions: (SQL | undefined)[] = [mcpRecordingCondition(caller)];
     if (filters.from) {
-        conditions.push(gte(recordings.startTime, filters.from));
+        conditions.push(gte(chatterItems.occurredAt, filters.from));
     }
     if (filters.to) {
         conditions.push(
             filters.to.inclusive
-                ? lte(recordings.startTime, filters.to.at)
-                : lt(recordings.startTime, filters.to.at),
+                ? lte(chatterItems.occurredAt, filters.to.at)
+                : lt(chatterItems.occurredAt, filters.to.at),
         );
     }
     if (filters.folderId) {
@@ -385,20 +387,25 @@ export function loadFilteredRecordings(
         .select({
             id: recordings.id,
             userId: recordings.userId,
-            filename: recordings.filename,
-            startTime: recordings.startTime,
+            filename: chatterItems.title,
+            startTime: chatterItems.occurredAt,
             duration: recordings.duration,
         })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 where,
                 before
-                    ? keysetBefore(recordings.startTime, recordings.id, before)
+                    ? keysetBefore(
+                          chatterItems.occurredAt,
+                          recordings.id,
+                          before,
+                      )
                     : undefined,
             ),
         )
-        .orderBy(...keysetOrder(recordings.startTime, recordings.id))
+        .orderBy(...keysetOrder(chatterItems.occurredAt, recordings.id))
         .limit(limit);
 }
 

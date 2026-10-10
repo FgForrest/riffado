@@ -308,10 +308,10 @@ export function KnownFacts({
                                                         className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                                                     >
                                                         <Play className="size-3" />
-                                                        {evidence.title}{" "}
-                                                        {timestamp(
-                                                            evidence.startMs,
-                                                        )}
+                                                        {evidence.title}
+                                                        {evidence.startMs !==
+                                                            null &&
+                                                            ` ${timestamp(evidence.startMs)}`}
                                                     </Link>
                                                 </li>
                                             ))}

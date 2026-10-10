@@ -232,6 +232,9 @@ function mockSelects(opts: {
                 table = next;
                 return chain;
             },
+            // Every recording read joins its item; only the content-gap
+            // probe left-joins the transcripts and summaries.
+            innerJoin: () => chain,
             leftJoin: () => {
                 joined = true;
                 return chain;
@@ -287,11 +290,15 @@ function mockSelects(opts: {
                     if (!f) return Promise.resolve([]);
                     return Promise.resolve([
                         {
-                            id: `local-${f.rec.id}`,
-                            plaudFileId: f.rec.id,
-                            plaudVersion: "1000",
-                            storagePath: `${USER_ID}/${f.rec.id}.mp3`,
-                            deletedAt: f.deletedAt ?? null,
+                            recording: {
+                                id: `local-${f.rec.id}`,
+                                plaudFileId: f.rec.id,
+                                plaudVersion: "1000",
+                                storagePath: `${USER_ID}/${f.rec.id}.mp3`,
+                                deletedAt: f.deletedAt ?? null,
+                            },
+                            contentReapedAt: null,
+                            summaryReapedAt: null,
                         },
                     ]);
                 }
@@ -426,11 +433,10 @@ describe("sync of a shared recording", () => {
         const storage = await createUserStorageProvider(USER_ID);
         const lock = {
             from: () => lock,
+            innerJoin: () => lock,
             where: () => lock,
             for: () => lock,
-            limit: async () => [
-                { deletedAt: null, titleEditedAt: null, filename: "x" },
-            ],
+            limit: async () => [{ deletedAt: null, titleEditedAt: null }],
         };
         const txUpdate = vi.fn();
         (db.transaction as Mock).mockImplementation(

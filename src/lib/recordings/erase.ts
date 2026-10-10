@@ -1,8 +1,10 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
+import { recordingItemJoin, touchRecording } from "@/db/items";
 import {
     aiEnhancements,
     asyncJobs,
+    chatterItems,
     plaudConnections,
     recordings,
     transcriptions,
@@ -293,18 +295,19 @@ export async function eraseLocalArtifact(
                     ),
                 );
             await pruneUnsupportedFactsInTx(tx, knowledge.factIds);
+            await touchRecording(tx, recordingId, userId, now);
             await tx
-                .update(recordings)
+                .update(chatterItems)
                 // No transcript left for what waited for Learn.
                 .set({
-                    transcriptReapedAt: now,
+                    contentReapedAt: now,
                     updatedAt: now,
                     summaryDueAt: null,
                 })
                 .where(
                     and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
+                        eq(chatterItems.id, recordingId),
+                        eq(chatterItems.userId, userId),
                     ),
                 );
             for (const scope of knowledge.scopes) scopes.add(scope);
@@ -314,7 +317,7 @@ export async function eraseLocalArtifact(
                 .delete(aiEnhancements)
                 .where(
                     and(
-                        eq(aiEnhancements.recordingId, recordingId),
+                        eq(aiEnhancements.itemId, recordingId),
                         eq(aiEnhancements.userId, userId),
                     ),
                 );
@@ -322,13 +325,14 @@ export async function eraseLocalArtifact(
                 recordingId,
                 ownerUserId: userId,
             });
+            await touchRecording(tx, recordingId, userId, now);
             await tx
-                .update(recordings)
+                .update(chatterItems)
                 .set({ summaryReapedAt: now, updatedAt: now })
                 .where(
                     and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
+                        eq(chatterItems.id, recordingId),
+                        eq(chatterItems.userId, userId),
                     ),
                 );
         }
@@ -365,11 +369,12 @@ export async function allowManualArtifactGeneration(
 ): Promise<boolean> {
     const marker =
         kind === "transcript"
-            ? recordings.transcriptReapedAt
-            : recordings.summaryReapedAt;
+            ? chatterItems.contentReapedAt
+            : chatterItems.summaryReapedAt;
     const [recording] = await db
         .select({ marker, deletedAt: recordings.deletedAt })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(eq(recordings.id, recordingId), eq(recordings.userId, userId)),
         )

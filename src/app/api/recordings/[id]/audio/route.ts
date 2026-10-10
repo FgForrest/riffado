@@ -1,7 +1,8 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { recordings } from "@/db/schema";
+import { audioItemColumns, recordingItemJoin } from "@/db/items";
+import { chatterItems, recordings } from "@/db/schema";
 import { requireApiSession } from "@/lib/auth-server";
 import { decryptText } from "@/lib/encryption/fields";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
@@ -23,8 +24,9 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
     const { ownerUserId } = await requireRecordingAccess(session.user.id, id);
 
     const [recording] = await db
-        .select()
+        .select(audioItemColumns)
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 eq(recordings.id, id),
@@ -65,7 +67,7 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
               "Content-Disposition": contentDispositionAttachment(
                   recording.storageFilename ??
                       buildDownloadFilename(
-                          decryptText(recording.filename),
+                          decryptText(recording.title),
                           recording.storagePath,
                       ),
               ),

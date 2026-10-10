@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
-import { knowledgeFactEvidence, recordings } from "@/db/schema";
+import { recordingItemJoin } from "@/db/items";
+import { chatterItems, knowledgeFactEvidence, recordings } from "@/db/schema";
 import { decryptText } from "@/lib/encryption/fields";
 import { readableScopes } from "@/lib/knowledge/scope";
 import type { McpCaller } from "@/lib/mcp/caller";
@@ -16,7 +17,8 @@ export interface FactEvidence {
     recordingId: string;
     /** The view the caller opens the recording in. */
     view: RecordingView;
-    startMs: number;
+    /** Where in the recording; null for text-anchored evidence. */
+    startMs: number | null;
     quote: string;
 }
 
@@ -43,16 +45,14 @@ export async function supportedEvidence(
     const rows = await db
         .select({
             factId: knowledgeFactEvidence.factId,
-            recordingId: knowledgeFactEvidence.recordingId,
+            recordingId: knowledgeFactEvidence.itemId,
             ownerUserId: recordings.userId,
             startMs: knowledgeFactEvidence.startMs,
             quote: knowledgeFactEvidence.quote,
         })
         .from(knowledgeFactEvidence)
-        .innerJoin(
-            recordings,
-            eq(recordings.id, knowledgeFactEvidence.recordingId),
-        )
+        .innerJoin(recordings, eq(recordings.id, knowledgeFactEvidence.itemId))
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 inArray(knowledgeFactEvidence.factId, ids),
@@ -62,7 +62,7 @@ export async function supportedEvidence(
             ),
         )
         .orderBy(
-            desc(recordings.startTime),
+            desc(chatterItems.occurredAt),
             desc(recordings.id),
             knowledgeFactEvidence.startMs,
         );

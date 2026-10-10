@@ -25,7 +25,7 @@ export function folderRecordingCondition(
             .from(recordingFolderAssignments)
             .where(
                 and(
-                    eq(recordingFolderAssignments.recordingId, recordings.id),
+                    eq(recordingFolderAssignments.itemId, recordings.id),
                     inArray(recordingFolderAssignments.folderId, ids),
                 ),
             ),

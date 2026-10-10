@@ -666,6 +666,34 @@
       "when": 1791397833756,
       "tag": "0094_condemned_vermin",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1791654285565,
+      "tag": "0095_chatter_items",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1791654293418,
+      "tag": "0096_chatter_items_backfill",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1791654344890,
+      "tag": "0097_chatter_items_keys",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1791655934505,
+      "tag": "0098_content_anchors",
+      "breakpoints": true
     }
   ]
 }

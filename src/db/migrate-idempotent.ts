@@ -3,7 +3,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
 const ADVISORY_LOCK_ID = 0x4f504c41;
-const LOCK_TIMEOUT_MS = 60_000;
+const LOCK_TIMEOUT_MS = 10 * 60_000;
 const LOCK_POLL_MS = 1_000;
 const CONNECT_DELAYS = [1000, 2000, 4000, 8000, 16000];
 

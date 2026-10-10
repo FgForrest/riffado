@@ -162,7 +162,7 @@ export async function recordAiUsage(
         const { inputTokens, outputTokens, audioSeconds, cost, source } =
             estimateAiUsage(context, usage, await cardRate(context));
         await db.insert(aiUsageEvents).values({
-            recordingId: context.recordingId,
+            itemId: context.recordingId,
             userId: context.ownerUserId,
             payerUserId: context.payerUserId,
             operation: context.operation,
@@ -209,7 +209,7 @@ export async function recordingAiCost(
         .from(aiUsageEvents)
         .where(
             and(
-                eq(aiUsageEvents.recordingId, recordingId),
+                eq(aiUsageEvents.itemId, recordingId),
                 eq(aiUsageEvents.payerUserId, payerUserId),
             ),
         );

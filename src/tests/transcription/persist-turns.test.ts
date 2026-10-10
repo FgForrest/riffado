@@ -39,6 +39,7 @@ vi.mock("@/lib/sharing/shared", () => ({
 }));
 
 import { db } from "@/db";
+import { chatterItems } from "@/db/schema";
 import { transcriptRewrittenInTx } from "@/lib/knowledge/transcript-rewrite";
 import { isRecordingShared } from "@/lib/sharing/shared";
 import { upsertTranscription } from "@/lib/transcription/persist";
@@ -51,6 +52,7 @@ const TURNS: TranscriptTurn[] = [
 interface Harness {
     inserted: Record<string, unknown>[];
     updated: Record<string, unknown>[];
+    updatedTables: unknown[];
 }
 
 function stubTransaction(
@@ -60,7 +62,7 @@ function stubTransaction(
         transcriptReapedAt?: Date | null;
     } = { deletedAt: null },
 ): Harness {
-    const harness: Harness = { inserted: [], updated: [] };
+    const harness: Harness = { inserted: [], updated: [], updatedTables: [] };
     const answers: unknown[][] = [[recordingState], existing ? [existing] : []];
     let call = 0;
 
@@ -69,6 +71,7 @@ function stubTransaction(
             const rows = answers[call++] ?? [];
             const chain: Record<string, unknown> = {};
             chain.from = () => chain;
+            chain.innerJoin = () => chain;
             chain.where = () => chain;
             chain.for = () => chain;
             chain.limit = () => Promise.resolve(rows);
@@ -79,10 +82,11 @@ function stubTransaction(
                 harness.inserted.push(row);
             },
         })),
-        update: vi.fn(() => ({
+        update: vi.fn((table: unknown) => ({
             set: (row: Record<string, unknown>) => ({
                 where: async () => {
                     harness.updated.push(row);
+                    harness.updatedTables.push(table);
                 },
             }),
         })),
@@ -194,6 +198,7 @@ describe("upsertTranscription and turns", () => {
                     select: () => {
                         const chain: Record<string, unknown> = {};
                         chain.from = () => chain;
+                        chain.innerJoin = () => chain;
                         chain.where = () => chain;
                         chain.for = () => chain;
                         chain.limit = () =>
@@ -262,8 +267,9 @@ describe("upsertTranscription and turns", () => {
 
         expect(await upsert(TURNS, true)).toEqual({ committed: true });
         expect(harness.inserted).toHaveLength(1);
+        expect(harness.updatedTables.at(-1)).toBe(chatterItems);
         expect(harness.updated.at(-1)).toMatchObject({
-            transcriptReapedAt: null,
+            contentReapedAt: null,
         });
     });
 });

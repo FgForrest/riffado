@@ -74,6 +74,7 @@ vi.mock("@/lib/v1/rate-limit", () => ({
 
 import { GET } from "@/app/api/v1/recordings/route";
 import { encryptText } from "@/lib/encryption/fields";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -158,9 +159,10 @@ describeWithDatabase("v1 cursor keeps microseconds (PostgreSQL)", () => {
             { length: 10 },
             (_, index) => `rec-${String(index).padStart(2, "0")}`,
         );
-        await db()
-            .insert(recordings)
-            .values(ids.map((id) => recording(id)));
+        await insertRecordings(
+            db(),
+            ids.map((id) => recording(id)),
+        );
         const [stamp] = await db()
             .select({
                 distinct: sql<number>`count(distinct ${recordings.updatedAt})::int`,
@@ -186,14 +188,12 @@ describeWithDatabase("v1 cursor keeps microseconds (PostgreSQL)", () => {
 
     it("still pages from a millisecond cursor issued before", async () => {
         const tie = new Date("2026-10-07T12:00:00.123Z");
-        await db()
-            .insert(recordings)
-            .values([
-                recording("rec-a", tie),
-                recording("rec-b", tie),
-                recording("rec-c", tie),
-                recording("rec-old", new Date("2026-10-06T12:00:00Z")),
-            ]);
+        await insertRecordings(db(), [
+            recording("rec-a", tie),
+            recording("rec-b", tie),
+            recording("rec-c", tie),
+            recording("rec-old", new Date("2026-10-06T12:00:00Z")),
+        ]);
         const result = await page(cursorOf(tie.toISOString(), "rec-c"));
         expect(result.data.map((row) => row.id)).toEqual([
             "rec-b",

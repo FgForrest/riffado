@@ -153,15 +153,26 @@ describe("Issue #56 — delete recording tombstone", () => {
     const buildSelectChain = (results: unknown[][]) => {
         const chain = (db.select as Mock).mockReset();
         for (const result of results) {
-            chain.mockReturnValueOnce({
-                from: vi.fn().mockReturnValue({
-                    where: vi.fn().mockReturnValue({
-                        limit: vi.fn().mockResolvedValue(result),
-                    }),
+            // The recording lookup joins its item; the other reads don't.
+            const joined = {
+                innerJoin: vi.fn(),
+                where: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockResolvedValue(result),
                 }),
+            };
+            joined.innerJoin.mockReturnValue(joined);
+            chain.mockReturnValueOnce({
+                from: vi.fn().mockReturnValue(joined),
             });
         }
     };
+
+    /** The existing-recording lookup's row: the recording beside its item's markers. */
+    const existingRow = (recording: Record<string, unknown>) => ({
+        recording,
+        contentReapedAt: null,
+        summaryReapedAt: null,
+    });
 
     let storageMock: {
         uploadFile: Mock;
@@ -216,7 +227,7 @@ describe("Issue #56 — delete recording tombstone", () => {
             [mockConnection], // load Plaud connection
             [{ id: "settings-1" }], // user settings
             [{ email: "test@example.com" }], // user email lookup
-            [tombstoned], // existingRecording lookup in processRecording
+            [existingRow(tombstoned)], // existingRecording lookup in processRecording
         ]);
 
         const result = await syncRecordingsForUser(mockUserId);
@@ -246,7 +257,7 @@ describe("Issue #56 — delete recording tombstone", () => {
             [mockConnection],
             [{ id: "settings-1" }],
             [{ email: "test@example.com" }],
-            [existing],
+            [existingRow(existing)],
         ]);
 
         // Sync now performs the update inside a tombstone-rechecking
@@ -255,18 +266,19 @@ describe("Issue #56 — delete recording tombstone", () => {
         // true so emitEvent and the updated counter both fire.
         (db.transaction as Mock).mockImplementation(
             async (cb: (tx: unknown) => Promise<boolean>) => {
+                const locked = {
+                    where: vi.fn().mockReturnValue({
+                        for: vi.fn().mockReturnValue({
+                            limit: vi
+                                .fn()
+                                .mockResolvedValue([{ deletedAt: null }]),
+                        }),
+                    }),
+                };
                 const tx = {
                     select: vi.fn().mockReturnValue({
                         from: vi.fn().mockReturnValue({
-                            where: vi.fn().mockReturnValue({
-                                for: vi.fn().mockReturnValue({
-                                    limit: vi
-                                        .fn()
-                                        .mockResolvedValue([
-                                            { deletedAt: null },
-                                        ]),
-                                }),
-                            }),
+                            innerJoin: vi.fn().mockReturnValue(locked),
                         }),
                     }),
                     update: vi.fn().mockReturnValue({
@@ -296,6 +308,7 @@ import { DELETE as deleteRecording } from "@/app/api/recordings/[id]/route";
 import {
     aiEnhancements,
     asyncJobs,
+    chatterItems,
     learnDismissals,
     recordings as recordingsTable,
     recordingTaskRejections,
@@ -353,7 +366,9 @@ describe("DELETE /api/recordings/[id]", () => {
                               ? "recording_task_rejections"
                               : t === taskUpdateProposals
                                 ? "task_update_proposals"
-                                : "unknown";
+                                : t === chatterItems
+                                  ? "chatter_items"
+                                  : "unknown";
 
         (db.transaction as Mock).mockImplementation(
             async (cb: (tx: unknown) => Promise<unknown>) => {
@@ -526,9 +541,9 @@ describe("DELETE /api/recordings/[id]", () => {
             (db.transaction as Mock).mock.invocationCallOrder[0],
         );
         // All writes ran in the same transaction…
-        expect(txCalls).toHaveLength(9);
+        expect(txCalls).toHaveLength(10);
         // …in this order: queued jobs → transcriptions → ai_enhancements →
-        // Learn dismissals → webhook redaction → recordings.
+        // Learn dismissals → webhook redaction → recording → its item.
         expect(txCalls.map((c) => `${c.op}:${c.table}`)).toEqual([
             "update:async_jobs",
             "delete:transcriptions",
@@ -539,6 +554,7 @@ describe("DELETE /api/recordings/[id]", () => {
             "delete:learn_dismissals",
             "update:webhook_deliveries",
             "update:recordings",
+            "update:chatter_items",
         ]);
         const webhookUpdate = txSets.find(
             (entry) => entry.table === "webhook_deliveries",
@@ -546,6 +562,14 @@ describe("DELETE /api/recordings/[id]", () => {
         expect(webhookUpdate?.values.payload).toMatchObject({
             recording_id: recordingId,
             redacted: true,
+        });
+        // The item is tombstoned too, and nothing waits for Learn on it.
+        const itemUpdate = txSets.find(
+            (entry) => entry.table === "chatter_items",
+        );
+        expect(itemUpdate?.values).toMatchObject({
+            deletedAt: expect.any(Date),
+            summaryDueAt: null,
         });
         expect(emitEvent).toHaveBeenCalledWith(
             "recording.deleted",
@@ -605,6 +629,7 @@ describe("DELETE /api/recordings/[id]", () => {
             "delete:learn_dismissals",
             "update:webhook_deliveries",
             "update:recordings",
+            "update:chatter_items",
         ]);
         expect(emitEvent).toHaveBeenCalledWith(
             "recording.deleted",

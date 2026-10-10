@@ -92,7 +92,7 @@ export async function writeTaskProposalsInTx(
         .delete(recordingTasks)
         .where(
             and(
-                eq(recordingTasks.recordingId, recordingId),
+                eq(recordingTasks.itemId, recordingId),
                 eq(recordingTasks.userId, ownerUserId),
                 eq(recordingTasks.status, "proposed"),
                 eq(recordingTasks.source, proposals.source),
@@ -105,7 +105,7 @@ export async function writeTaskProposalsInTx(
         .delete(taskUpdateProposals)
         .where(
             and(
-                eq(taskUpdateProposals.recordingId, recordingId),
+                eq(taskUpdateProposals.itemId, recordingId),
                 eq(taskUpdateProposals.userId, ownerUserId),
                 sql`(${taskUpdateProposals.version} = 0 or not ${liveFollowUpCondition()})`,
             ),
@@ -120,7 +120,7 @@ export async function writeTaskProposalsInTx(
                 .from(recordingTaskRejections)
                 .where(
                     and(
-                        eq(recordingTaskRejections.recordingId, recordingId),
+                        eq(recordingTaskRejections.itemId, recordingId),
                         eq(recordingTaskRejections.userId, ownerUserId),
                     ),
                 )
@@ -134,7 +134,7 @@ export async function writeTaskProposalsInTx(
         .from(recordingTasks)
         .where(
             and(
-                eq(recordingTasks.recordingId, recordingId),
+                eq(recordingTasks.itemId, recordingId),
                 eq(recordingTasks.userId, ownerUserId),
             ),
         );
@@ -191,7 +191,7 @@ export async function writeTaskProposalsInTx(
         known.add(fingerprint);
         position += 1;
         rows.push({
-            recordingId,
+            itemId: recordingId,
             userId: ownerUserId,
             status: "proposed" as const,
             text: encryptText(task.text),
@@ -222,7 +222,7 @@ export async function writeTaskProposalsInTx(
             .values(
                 updates.map((update) => ({
                     taskId: update.taskId,
-                    recordingId,
+                    itemId: recordingId,
                     userId: ownerUserId,
                     kind: update.kind,
                     dueDate: update.dueDate,
@@ -245,13 +245,13 @@ export async function deleteRecordingTasksInTx(
 ): Promise<void> {
     await tx
         .delete(taskUpdateProposals)
-        .where(eq(taskUpdateProposals.recordingId, recordingId));
+        .where(eq(taskUpdateProposals.itemId, recordingId));
     await tx
         .delete(recordingTasks)
-        .where(eq(recordingTasks.recordingId, recordingId));
+        .where(eq(recordingTasks.itemId, recordingId));
     await tx
         .delete(recordingTaskRejections)
-        .where(eq(recordingTaskRejections.recordingId, recordingId));
+        .where(eq(recordingTaskRejections.itemId, recordingId));
 }
 
 /**
@@ -268,7 +268,7 @@ export async function dropTasksWithoutSummaryInTx(
         .from(aiEnhancements)
         .where(
             and(
-                eq(aiEnhancements.recordingId, recordingId),
+                eq(aiEnhancements.itemId, recordingId),
                 eq(aiEnhancements.userId, ownerUserId),
             ),
         )

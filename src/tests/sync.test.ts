@@ -71,6 +71,7 @@ vi.mock("@/lib/posthog-server", () => ({
 }));
 
 import { db } from "@/db";
+import { chatterItems } from "@/db/schema";
 import { generateIngestWaveform } from "@/lib/audio/ingest-waveform";
 import { decryptText } from "@/lib/encryption/fields";
 import { createPlaudClient } from "@/lib/plaud/client-factory";
@@ -79,6 +80,22 @@ import { resetAutoTranscribeStateForTests } from "@/lib/sync/auto-transcribe-sta
 import { syncRecordingsForUser } from "@/lib/sync/sync-recordings";
 import { listUntranscribedRecordingIds } from "@/lib/sync/untranscribed";
 import { enqueueTranscriptionJob } from "@/lib/transcription/transcription-job";
+
+/** The existing-recording lookup: the recording, joined to its item's markers. */
+function existingRecordingLookup(recording: Record<string, unknown>) {
+    const joined = {
+        innerJoin: vi.fn(),
+        where: vi.fn().mockReturnValue({
+            limit: vi
+                .fn()
+                .mockResolvedValue([
+                    { recording, contentReapedAt: null, summaryReapedAt: null },
+                ]),
+        }),
+    };
+    joined.innerJoin.mockReturnValue(joined);
+    return { from: vi.fn().mockReturnValue(joined) };
+}
 
 describe("Sync", () => {
     const mockUserId = "user-123";
@@ -174,15 +191,9 @@ describe("Sync", () => {
                         }),
                     }),
                 })
-                .mockReturnValueOnce({
-                    from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            limit: vi
-                                .fn()
-                                .mockResolvedValue([mockExistingRecording]),
-                        }),
-                    }),
-                });
+                .mockReturnValueOnce(
+                    existingRecordingLookup(mockExistingRecording),
+                );
 
             const result = await syncRecordingsForUser(mockUserId);
 
@@ -263,15 +274,9 @@ describe("Sync", () => {
                         }),
                     }),
                 })
-                .mockReturnValueOnce({
-                    from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            limit: vi
-                                .fn()
-                                .mockResolvedValue([mockExistingRecording]),
-                        }),
-                    }),
-                });
+                .mockReturnValueOnce(
+                    existingRecordingLookup(mockExistingRecording),
+                );
 
             await syncRecordingsForUser(mockUserId);
 
@@ -430,15 +435,9 @@ describe("Sync", () => {
                         }),
                     }),
                 })
-                .mockReturnValueOnce({
-                    from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            limit: vi
-                                .fn()
-                                .mockResolvedValue([mockExistingRecording]),
-                        }),
-                    }),
-                });
+                .mockReturnValueOnce(
+                    existingRecordingLookup(mockExistingRecording),
+                );
 
             (db.update as Mock).mockReturnValue({
                 set: vi.fn().mockReturnValue({
@@ -451,25 +450,33 @@ describe("Sync", () => {
             // Stub the tx so the inner select returns a non-tombstoned row
             // and the inner update resolves; cb returns true so the caller
             // proceeds to emit `recording.updated`.
-            const set = vi.fn().mockReturnValue({
-                where: vi.fn().mockResolvedValue(undefined),
+            const writes: {
+                table: unknown;
+                values: Record<string, unknown>;
+            }[] = [];
+            let table: unknown;
+            const set = vi.fn((values: Record<string, unknown>) => {
+                writes.push({ table, values });
+                return { where: vi.fn().mockResolvedValue(undefined) };
             });
             (db.transaction as Mock).mockImplementation(
                 async (cb: (tx: unknown) => Promise<boolean>) => {
+                    const lockedRead = {
+                        where: vi.fn().mockReturnValue({
+                            for: vi.fn().mockReturnValue({
+                                limit: vi.fn().mockResolvedValue([locked]),
+                            }),
+                        }),
+                    };
                     const tx = {
                         select: vi.fn().mockReturnValue({
                             from: vi.fn().mockReturnValue({
-                                where: vi.fn().mockReturnValue({
-                                    for: vi.fn().mockReturnValue({
-                                        limit: vi
-                                            .fn()
-                                            .mockResolvedValue([locked]),
-                                    }),
-                                }),
+                                innerJoin: vi.fn().mockReturnValue(lockedRead),
                             }),
                         }),
-                        update: vi.fn().mockReturnValue({
-                            set,
+                        update: vi.fn((target: unknown) => {
+                            table = target;
+                            return { set };
                         }),
                     };
                     return cb(tx);
@@ -477,11 +484,16 @@ describe("Sync", () => {
             );
 
             const result = await syncRecordingsForUser(mockUserId);
-            return { result, set };
+            const itemWrite = writes.find(
+                (write) => write.table === chatterItems,
+            );
+            return { result, set, itemWrite };
         }
 
         it("should update recordings with newer version", async () => {
-            const { result, set } = await syncNewerVersion({ deletedAt: null });
+            const { result, set, itemWrite } = await syncNewerVersion({
+                deletedAt: null,
+            });
 
             expect(result.newRecordings).toBe(0);
             expect(result.updatedRecordings).toBe(1);
@@ -492,25 +504,24 @@ describe("Sync", () => {
                 expect.objectContaining({ waveformPeaks: [0.25, 1] }),
             );
             // A machine's title follows Plaud's filename.
-            expect(decryptText(set.mock.calls[0]?.[0].filename)).toBe(
+            expect(decryptText(itemWrite?.values.title as string)).toBe(
                 "Recording 1.mp3",
             );
         });
 
         it("keeps a title a person set over Plaud's filename", async () => {
-            const { result, set } = await syncNewerVersion({
+            const { result, set, itemWrite } = await syncNewerVersion({
                 deletedAt: null,
                 titleEditedAt: new Date("2026-09-01T10:00:00Z"),
-                filename: "stored:Renamed by a person",
             });
 
             expect(result.updatedRecordings).toBe(1);
             expect(set).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    filename: "stored:Renamed by a person",
-                    waveformPeaks: [0.25, 1],
-                }),
+                expect.objectContaining({ waveformPeaks: [0.25, 1] }),
             );
+            // The item is still updated, but its title is left as it is.
+            expect(itemWrite).toBeDefined();
+            expect(itemWrite?.values).not.toHaveProperty("title");
         });
 
         it("should return error when sync fails", async () => {
@@ -635,15 +646,9 @@ describe("Sync", () => {
                         }),
                     }),
                 })
-                .mockReturnValueOnce({
-                    from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            limit: vi
-                                .fn()
-                                .mockResolvedValue([mockExistingRecording]),
-                        }),
-                    }),
-                });
+                .mockReturnValueOnce(
+                    existingRecordingLookup(mockExistingRecording),
+                );
 
             const result = await syncRecordingsForUser(mockUserId);
 

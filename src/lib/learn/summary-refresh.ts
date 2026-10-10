@@ -35,7 +35,7 @@ export async function isSummaryStale(
         .from(aiEnhancements)
         .where(
             and(
-                eq(aiEnhancements.recordingId, recordingId),
+                eq(aiEnhancements.itemId, recordingId),
                 eq(aiEnhancements.userId, ownerUserId),
                 eq(aiEnhancements.source, "riffado"),
             ),

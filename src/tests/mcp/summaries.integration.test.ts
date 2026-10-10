@@ -15,7 +15,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { aiEnhancements, recordings, users } from "@/db/schema";
+import { aiEnhancements, chatterItems, users } from "@/db/schema";
 import {
     createMigratedTestDatabase,
     getTestDatabaseUrl,
@@ -81,6 +81,7 @@ import { buildMcpServer, type McpToolDef } from "@/lib/mcp/registry";
 import type { McpRole } from "@/lib/mcp/roles";
 import { SUMMARY_TOOLS } from "@/lib/mcp/tools/summaries";
 import { ensureOrgAccount } from "@/lib/org/account";
+import { insertRecordings } from "@/tests/integration/items";
 import {
     insertRecording,
     insertTranscript,
@@ -140,7 +141,7 @@ async function insertSummary(
     },
 ): Promise<void> {
     await db.insert(aiEnhancements).values({
-        recordingId,
+        itemId: recordingId,
         userId,
         summary: encryptText(summary),
         keyPoints: encryptJsonField(keyPoints),
@@ -328,9 +329,9 @@ describeWithDatabase("MCP summary tools (PostgreSQL)", () => {
             startTime: new Date("2026-08-28T10:00:00Z"),
         });
         await db()
-            .update(recordings)
+            .update(chatterItems)
             .set({ summaryDueAt: new Date(Date.now() + 3_600_000) })
-            .where(inArray(recordings.id, ["held-summarized", "held-empty"]));
+            .where(inArray(chatterItems.id, ["held-summarized", "held-empty"]));
 
         await insertRecording(db(), {
             id: "deleted",
@@ -385,12 +386,12 @@ describeWithDatabase("MCP summary tools (PostgreSQL)", () => {
                 plaudVersion: "1",
             };
         });
-        await db().insert(recordings).values(quiet);
+        await insertRecordings(db(), quiet);
         await db()
             .insert(aiEnhancements)
             .values(
                 quiet.map((row) => ({
-                    recordingId: row.id,
+                    itemId: row.id,
                     userId: ALICE,
                     summary: encryptText("Nothing of note was said."),
                     keyPoints: encryptJsonField([]),

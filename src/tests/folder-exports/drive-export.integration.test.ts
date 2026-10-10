@@ -20,6 +20,7 @@ import {
 } from "vitest";
 import {
     aiEnhancements,
+    chatterItems,
     driveExportNodes,
     folderExportMaterializations,
     folderExportPlacements,
@@ -132,6 +133,7 @@ import {
     saveGoogleConnection,
 } from "@/lib/integrations/google/connection";
 import { GoogleConnectionUnavailableError } from "@/lib/integrations/google/errors";
+import { insertRecordings } from "@/tests/integration/items";
 import { FakeDrive } from "@/tests/integrations/google/fake-drive";
 
 const testDatabaseUrl = getTestDatabaseUrl();
@@ -248,24 +250,22 @@ describeWithDatabase("Google Drive folder export (PostgreSQL)", () => {
             name: "Team",
         });
         teamFolderId = team.id;
-        await db()
-            .insert(recordings)
-            .values({
-                id: RECORDING,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: `plaud-${RECORDING}`,
-                filename: encryptText("Weekly sync"),
-                duration: 60_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:01:00Z"),
-                filesize: 12,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/${RECORDING}.mp3`,
-                storageFilename: `${RECORDING}.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: RECORDING,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: `plaud-${RECORDING}`,
+            filename: encryptText("Weekly sync"),
+            duration: 60_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:01:00Z"),
+            filesize: 12,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/${RECORDING}.mp3`,
+            storageFilename: `${RECORDING}.mp3`,
+            plaudVersion: "1",
+        });
         await db()
             .insert(transcriptions)
             .values({
@@ -279,7 +279,7 @@ describeWithDatabase("Google Drive folder export (PostgreSQL)", () => {
         await db()
             .insert(aiEnhancements)
             .values({
-                recordingId: RECORDING,
+                itemId: RECORDING,
                 userId: OWNER,
                 summary: encryptText("A short summary."),
                 provider: "openai",
@@ -336,9 +336,9 @@ describeWithDatabase("Google Drive folder export (PostgreSQL)", () => {
         const audioId = drive.idAt(ROOT, "Weekly sync/audio.mp3");
         drive.calls.length = 0;
         await db()
-            .update(recordings)
-            .set({ filename: encryptText("Weekly review") })
-            .where(eq(recordings.id, RECORDING));
+            .update(chatterItems)
+            .set({ title: encryptText("Weekly review") })
+            .where(eq(chatterItems.id, RECORDING));
         await planFolderExport(OWNER, configuration.id);
         await materializeAll();
 
@@ -411,7 +411,7 @@ describeWithDatabase("Google Drive folder export (PostgreSQL)", () => {
             .values({
                 userId: OWNER,
                 exportConfigurationId: configuration.id,
-                recordingId: RECORDING,
+                itemId: RECORDING,
                 placementFolderId: sub.id,
                 targetPath: ROOT,
                 directoryName: "Weekly sync",

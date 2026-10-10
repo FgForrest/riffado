@@ -312,7 +312,7 @@ const getEntity = defineTool({
 const evidenceSchema = z.object({
     recording_id: z.string(),
     url: z.string(),
-    start_ms: z.number().int(),
+    start_ms: z.number().int().nullable(),
     quote: z.string(),
 });
 

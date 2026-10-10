@@ -12,10 +12,12 @@ import {
     sql,
 } from "drizzle-orm";
 import { db } from "@/db";
+import { audioItemColumns, recordingItemJoin } from "@/db/items";
 import {
     aiEnhancements,
     aiUsageEvents,
     apiCredentials,
+    chatterItems,
     knowledgeAliases,
     knowledgeEntities,
     knowledgeEntityNotes,
@@ -94,8 +96,8 @@ function audioExtension(storagePath: string): string {
 }
 
 /** Filesystem-safe, stable folder name per recording inside the archive. */
-function folderName(recording: { id: string; startTime: Date }): string {
-    const iso = recording.startTime.toISOString().replace(/[:.]/g, "-");
+function folderName(recording: { id: string; occurredAt: Date }): string {
+    const iso = recording.occurredAt.toISOString().replace(/[:.]/g, "-");
     return `${iso}_${recording.id}`;
 }
 
@@ -150,11 +152,12 @@ export async function buildAndUploadExportArchive(input: {
     const userId = scopeUserId(scope);
     const userRecordings = await db
         .select({
-            ...getTableColumns(recordings),
+            ...audioItemColumns,
             ownerName: users.name,
             ownerEmail: users.email,
         })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .innerJoin(users, eq(users.id, recordings.userId))
         .where(archivedRecordingCondition(scope));
 
@@ -168,16 +171,16 @@ export async function buildAndUploadExportArchive(input: {
                   .from(aiUsageEvents)
                   .where(
                       and(
-                          inArray(aiUsageEvents.recordingId, recordingIds),
+                          inArray(aiUsageEvents.itemId, recordingIds),
                           eq(aiUsageEvents.payerUserId, userId),
                       ),
                   )
             : [];
     const usageMap = new Map<string, typeof userUsage>();
     for (const usage of userUsage) {
-        const group = usageMap.get(usage.recordingId) ?? [];
+        const group = usageMap.get(usage.itemId) ?? [];
         group.push(usage);
-        usageMap.set(usage.recordingId, group);
+        usageMap.set(usage.itemId, group);
     }
 
     // The rows the recordings' owners hold.
@@ -214,7 +217,7 @@ export async function buildAndUploadExportArchive(input: {
                   .innerJoin(
                       recordings,
                       and(
-                          eq(recordings.id, aiEnhancements.recordingId),
+                          eq(recordings.id, aiEnhancements.itemId),
                           eq(recordings.userId, aiEnhancements.userId),
                       ),
                   )
@@ -234,7 +237,7 @@ export async function buildAndUploadExportArchive(input: {
         >
     >();
     for (const enhancement of userEnhancements) {
-        const group = enhancementMap.get(enhancement.recordingId) ?? [];
+        const group = enhancementMap.get(enhancement.itemId) ?? [];
         group.push({
             ...enhancement,
             summary: decryptText(enhancement.summary) ?? "",
@@ -242,7 +245,7 @@ export async function buildAndUploadExportArchive(input: {
                 decryptJsonField<string[]>(enhancement.actionItems) ?? [],
             keyPoints: decryptJsonField<string[]>(enhancement.keyPoints) ?? [],
         });
-        enhancementMap.set(enhancement.recordingId, group);
+        enhancementMap.set(enhancement.itemId, group);
     }
 
     // Proposals and the follow-ups heard come along: a review half done is
@@ -375,8 +378,8 @@ export async function buildAndUploadExportArchive(input: {
                       },
                   }
                 : {}),
-            filename: decryptText(recording.filename),
-            startTime: recording.startTime.toISOString(),
+            filename: decryptText(recording.title),
+            startTime: recording.occurredAt.toISOString(),
             endTime: recording.endTime.toISOString(),
             duration: recording.duration,
             filesize: recording.filesize,
@@ -546,7 +549,7 @@ export async function buildAndUploadExportArchive(input: {
                     JSON.stringify(
                         recordingEnhancements.map((item) => ({
                             id: item.id,
-                            recordingId: item.recordingId,
+                            recordingId: item.itemId,
                             transcriptionId: item.transcriptionId,
                             source: item.source,
                             summary: item.summary,
@@ -857,7 +860,7 @@ async function collectFolderOrganization(
             .where(eq(recordingFolders.userId, userId)),
         db
             .select({
-                recordingId: recordingFolderAssignments.recordingId,
+                recordingId: recordingFolderAssignments.itemId,
                 folderId: recordingFolderAssignments.folderId,
             })
             .from(recordingFolderAssignments)
@@ -1432,7 +1435,7 @@ interface ArchivedLearn {
     runs: {
         id: string;
         recordingId: string;
-        transcriptionId: string;
+        transcriptionId: string | null;
         view: string;
         trigger: string;
         status: string;
@@ -1461,7 +1464,7 @@ async function collectLearn(userId: string): Promise<ArchivedLearn> {
     const runs = await db
         .select({
             id: learnRuns.id,
-            recordingId: learnRuns.recordingId,
+            recordingId: learnRuns.itemId,
             transcriptionId: learnRuns.transcriptionId,
             view: learnRuns.view,
             trigger: learnRuns.trigger,
@@ -1523,11 +1526,14 @@ interface ArchivedFacts {
     }[];
     evidence: {
         factId: string;
-        transcriptionId: string;
+        transcriptionId: string | null;
         recordingId: string;
         transcriptRevision: number;
-        startMs: number;
-        endMs: number;
+        startMs: number | null;
+        endMs: number | null;
+        segmentIndex: number | null;
+        charStart: number | null;
+        charEnd: number | null;
         speakerLabel: string | null;
         dependsOnSpeaker: boolean;
         quote: string;
@@ -1568,10 +1574,13 @@ async function collectFacts(
             .select({
                 factId: knowledgeFactEvidence.factId,
                 transcriptionId: knowledgeFactEvidence.transcriptionId,
-                recordingId: knowledgeFactEvidence.recordingId,
+                recordingId: knowledgeFactEvidence.itemId,
                 transcriptRevision: knowledgeFactEvidence.transcriptRevision,
                 startMs: knowledgeFactEvidence.startMs,
                 endMs: knowledgeFactEvidence.endMs,
+                segmentIndex: knowledgeFactEvidence.segmentIndex,
+                charStart: knowledgeFactEvidence.charStart,
+                charEnd: knowledgeFactEvidence.charEnd,
                 speakerLabel: knowledgeFactEvidence.speakerLabel,
                 dependsOnSpeaker: knowledgeFactEvidence.dependsOnSpeaker,
                 quote: knowledgeFactEvidence.quote,

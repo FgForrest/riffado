@@ -2,8 +2,10 @@ import { and, eq, isNull } from "drizzle-orm";
 import { OpenAI } from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { db } from "@/db";
+import { audioItemColumns, recordingItemJoin } from "@/db/items";
 import {
     apiCredentials,
+    chatterItems,
     recordings,
     transcriptions,
     userSettings,
@@ -209,8 +211,9 @@ export async function generateSummaryForRecording(
     if (refusal) throw writerRefusalError(refusal);
 
     const [recording] = await db
-        .select()
+        .select(audioItemColumns)
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 eq(recordings.id, recordingId),
