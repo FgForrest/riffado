@@ -965,6 +965,7 @@ export async function addRecordingToFolder(input: {
                     ownerUserId: input.userId,
                     itemId: input.recordingId,
                     folderId: target.folder.id,
+                    orgUserId: target.ownerId,
                 });
                 await pruneRedundantAssignments(
                     tx,

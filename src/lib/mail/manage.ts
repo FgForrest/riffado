@@ -9,6 +9,7 @@ import {
 } from "@/db/schema";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { lockOrgTree, orgTreeChanged } from "@/lib/folders/folders";
+import { lockOrgPeople } from "@/lib/knowledge/org-people";
 import { deleteRawMail } from "@/lib/mail/raw-storage";
 import { shareMailInTx } from "@/lib/mail/share-gate";
 import { getOrgUserId } from "@/lib/org/config";
@@ -134,6 +135,9 @@ export async function shareMail(input: {
     if (!orgUserId) throw mailNotFound();
     await db.transaction(async (tx) => {
         await lockOrgTree(tx);
+        // Before the item: sharing promotes people, and a promotion may
+        // merge them, which locks items.
+        await lockOrgPeople(tx);
         await lockMailInTx(tx, input.ownerUserId, input.itemId);
         const [pending] = await tx
             .select({ folderId: mailPendingShares.folderId })
@@ -152,7 +156,7 @@ export async function shareMail(input: {
             )
             .limit(1);
         if (!pending) throw mailNotFound();
-        await shareMailInTx(tx, input);
+        await shareMailInTx(tx, { ...input, orgUserId });
     });
     await orgTreeChanged();
 }

@@ -863,6 +863,53 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         ).toBe(true);
     });
 
+    it("gates only the first Organization folder of a mail", async () => {
+        const raw = await signMessage(
+            rawMessage(
+                headers("jan@company.example", "jan@klepna.example"),
+                "Shared twice.",
+            ),
+            company,
+        );
+        await deliver(raw, ["jan@klepna.example"]);
+        const [message] = await db()
+            .select({ id: mailMessages.id })
+            .from(mailMessages)
+            .where(eq(mailMessages.sizeBytes, raw.length));
+        const itemId = message?.id ?? "";
+        await addRecordingToFolder({
+            userId: "u-jan",
+            recordingId: itemId,
+            folderId: orgWeeklyFolderId,
+        });
+        await db()
+            .insert(recordingTasks)
+            .values({
+                itemId,
+                userId: "u-jan",
+                status: "proposed",
+                source: "riffado",
+                text: encryptText("Decide later"),
+            });
+        const other = await createFolder({
+            userId: "u-eva",
+            parentId: await rootOf(orgUserId),
+            name: "Archive",
+        });
+        await addRecordingToFolder({
+            userId: "u-jan",
+            recordingId: itemId,
+            folderId: other.id,
+        });
+        const assigned = await db()
+            .select({ folderId: recordingFolderAssignments.folderId })
+            .from(recordingFolderAssignments)
+            .where(eq(recordingFolderAssignments.itemId, itemId));
+        expect(assigned.map((row) => row.folderId).sort()).toEqual(
+            [orgWeeklyFolderId, other.id].sort(),
+        );
+    });
+
     describe("the receiver's endpoints", () => {
         const secret = `Bearer ${"i".repeat(40)}`;
 
