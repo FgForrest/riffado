@@ -8,6 +8,7 @@
  * create scratch databases on.
  */
 
+import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -91,6 +92,8 @@ vi.mock("@/lib/folder-exports/jobs", () => ({
     enqueueExportPlansForUser: vi.fn().mockResolvedValue(undefined),
 }));
 
+import { POST as ingestRoute } from "@/app/api/internal/mail/ingest/route";
+import { POST as precheckRoute } from "@/app/api/internal/mail/precheck/route";
 import { decryptBuffer } from "@/lib/encryption";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { createFolder, ensureRootFolders } from "@/lib/folders/folders";
@@ -450,5 +453,134 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         expect(
             files.filter((name) => String(name).endsWith(".eml.enc")),
         ).toHaveLength(3);
+    });
+
+    describe("the receiver's endpoints", () => {
+        const secret = `Bearer ${"i".repeat(40)}`;
+
+        function ingestRequest(
+            raw: Buffer,
+            headers: Record<string, string> = {},
+        ): Request {
+            return new Request("http://app/api/internal/mail/ingest", {
+                method: "POST",
+                body: new Uint8Array(raw),
+                headers: {
+                    authorization: secret,
+                    "content-length": String(raw.length),
+                    "x-mail-sha256": createHash("sha256")
+                        .update(raw)
+                        .digest("hex"),
+                    "x-mail-recipients": Buffer.from(
+                        JSON.stringify(["jan@klepna.example"]),
+                    ).toString("base64"),
+                    ...headers,
+                },
+            });
+        }
+
+        it("refuse a wrong secret, then rate-limit it", async () => {
+            const statuses = new Set<number>();
+            for (let i = 0; i < 22; i++) {
+                const response = await precheckRoute(
+                    new Request("http://app/api/internal/mail/precheck", {
+                        method: "POST",
+                        headers: { authorization: "Bearer wrong" },
+                        body: "{}",
+                    }),
+                );
+                statuses.add(response.status);
+            }
+            expect([...statuses].sort()).toEqual([401, 429]);
+        });
+
+        it("answers a precheck with the recipients that would pass", async () => {
+            const response = await precheckRoute(
+                new Request("http://app/api/internal/mail/precheck", {
+                    method: "POST",
+                    headers: { authorization: secret },
+                    body: JSON.stringify({
+                        recipients: ["jan@klepna.example"],
+                        facts: {
+                            fromHeaders: 1,
+                            fromAddresses: ["jan@company.example"],
+                            dkim: [
+                                {
+                                    domain: "company.example",
+                                    result: "pass",
+                                    signedRecipients: [],
+                                    signedAt: new Date().toISOString(),
+                                },
+                            ],
+                        },
+                    }),
+                }),
+            );
+            expect(response.status).toBe(200);
+            await expect(response.json()).resolves.toEqual({
+                accepted: ["jan@klepna.example"],
+            });
+        });
+
+        it("refuse a body whose length or hash does not match", async () => {
+            const raw = Buffer.from(
+                rawMessage(
+                    headers("jan@company.example", "jan@klepna.example"),
+                    "x",
+                ),
+            );
+            const wrongHash = await ingestRoute(
+                ingestRequest(raw, { "x-mail-sha256": "0".repeat(64) }),
+            );
+            expect(wrongHash.status).toBe(422);
+            const missing = await ingestRoute(
+                ingestRequest(raw, { "x-mail-recipients": "" }),
+            );
+            expect(missing.status).toBe(400);
+        });
+
+        it("refuse a message over the size limit before reading it", async () => {
+            mockEnv.MAIL_MAX_MESSAGE_MB = 1;
+            try {
+                const raw = Buffer.alloc(1024 * 1024 + 1, 0x61);
+                const response = await ingestRoute(ingestRequest(raw));
+                expect(response.status).toBe(413);
+            } finally {
+                mockEnv.MAIL_MAX_MESSAGE_MB = 36;
+            }
+        });
+
+        it("ingest an unverifiable message as refused, with 200", async () => {
+            // No resolver here: the key lookup fails, so DKIM does not pass.
+            const raw = await signMessage(
+                rawMessage(
+                    headers("jan@company.example", "jan@klepna.example"),
+                    "Via the route",
+                ),
+                company,
+            );
+            const response = await ingestRoute(ingestRequest(raw));
+            expect(response.status).toBe(200);
+            const body = (await response.json()) as {
+                outcomes: { outcome: string }[];
+            };
+            expect(body.outcomes[0]?.outcome).toBe("refused");
+        });
+
+        it("are not there while mail is off", async () => {
+            mockEnv.MAIL_DOMAIN = "";
+            try {
+                const response = await precheckRoute(
+                    new Request("http://app/api/internal/mail/precheck", {
+                        method: "POST",
+                        headers: { authorization: secret },
+                        body: "{}",
+                    }),
+                );
+                expect(response.status).toBe(404);
+            } finally {
+                mockEnv.MAIL_DOMAIN = "klepna.example";
+            }
+        });
     });
 });
