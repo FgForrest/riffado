@@ -11,15 +11,20 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
     accounts,
     apiCredentials,
+    knowledgeFactEvidence,
+    knowledgeFacts,
     learnReviewItems,
     learnRuns,
     mailLearnedParts,
     mailMessages,
+    mailParticipants,
+    people,
+    recordingFolders,
     users,
 } from "@/db/schema";
 import {
@@ -102,13 +107,19 @@ vi.mock("openai", async (importOriginal) => {
 
 import { ALL_ITEM_KINDS } from "@/lib/content/item-kinds";
 import { encrypt } from "@/lib/encryption";
-import { decryptJsonField } from "@/lib/encryption/fields";
-import { ensureRootFolders } from "@/lib/folders/folders";
+import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
+import {
+    addRecordingToFolder,
+    createFolder,
+    ensureRootFolders,
+    removeRecordingFromFolder,
+} from "@/lib/folders/folders";
 import { createEntity } from "@/lib/knowledge/entities";
 import { knowledgeStore } from "@/lib/knowledge/knowledge-loader";
 import { seedCoreVocabulary } from "@/lib/knowledge/vocabulary";
 import { startLearnRun } from "@/lib/learn/learn-job";
 import { learnJobHandler } from "@/lib/learn/learn-job-handler";
+import { decideReviewItem, finishReview, loadReview } from "@/lib/learn/review";
 import { ensureMailbox } from "@/lib/mail/addresses";
 import { authenticateMessage } from "@/lib/mail/dkim";
 import { ingestMail, precheckMail } from "@/lib/mail/ingest";
@@ -149,6 +160,8 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
     let database: TestPostgresDatabase | null = null;
     let storageDir = "";
     let acmeId = "";
+    let firstMail = "";
+    let orgUserId = "";
 
     function db() {
         if (!database) throw new Error("test database was not initialized");
@@ -184,7 +197,10 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
         const [message] = await db()
             .select({ id: mailMessages.id })
             .from(mailMessages)
-            .where(eq(mailMessages.sizeBytes, raw.length));
+            .where(eq(mailMessages.sizeBytes, raw.length))
+            // The newest of that size: two messages may share one.
+            .orderBy(desc(mailMessages.createdAt))
+            .limit(1);
         if (!message) throw new Error("mail not stored");
         return message.id;
     }
@@ -219,7 +235,7 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
             "mail_learn",
         );
         dbRef.current = database.db as unknown as Record<PropertyKey, unknown>;
-        await ensureOrgAccount();
+        orgUserId = (await ensureOrgAccount()) ?? "";
         await db().insert(users).values({
             id: "u-jan",
             email: "jan@company.example",
@@ -320,6 +336,7 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
                 }),
             );
 
+        firstMail = itemId;
         const { runId, result } = await learn(itemId);
         expect(result).toMatchObject({ status: "ready" });
 
@@ -372,6 +389,134 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
             .select({ itemId: mailLearnedParts.itemId })
             .from(mailLearnedParts);
         expect(learned.map((row) => row.itemId)).toContain(itemId);
+        // Eva has a name and an address: the headers propose her.
+        const eva = items.find(
+            (item) =>
+                item.kind === "new_record" &&
+                item.payload?.name === "Eva Buyer",
+        );
+        expect(eva?.payload).toMatchObject({
+            speakerLabel: "p2",
+            address: "eva@client.example",
+            evidence: [],
+        });
+    });
+
+    it("applies a mail's review: facts with their words, people with their address", async () => {
+        const access = await requireRecordingView(
+            "u-jan",
+            firstMail,
+            "private",
+            { kinds: ALL_ITEM_KINDS },
+        );
+        const review = await loadReview(access);
+        expect(review.run?.status).toBe("ready");
+        const versions: Record<string, number> = {};
+        for (const item of review.items) {
+            const payload = item.payload as unknown as Record<string, unknown>;
+            // Everything ticked: the new people and things, both facts.
+            const version =
+                item.kind === "relation_phrase"
+                    ? item.version
+                    : (
+                          await decideReviewItem(access, item.id, {
+                              decision: "accepted",
+                              version: item.version,
+                          })
+                      ).version;
+            versions[item.id] = version;
+            expect(payload).not.toHaveProperty("startMs");
+        }
+        const finished = await finishReview(access, "u-jan", { versions });
+        expect(finished).toMatchObject({ status: "finished" });
+
+        const [evaPerson] = await db()
+            .select({ id: people.id, email: people.primaryEmail })
+            .from(people)
+            .where(eq(people.userId, "u-jan"))
+            .then((rows) =>
+                rows.filter(
+                    (row) =>
+                        row.email &&
+                        decryptText(row.email) === "eva@client.example",
+                ),
+            );
+        expect(evaPerson).toBeDefined();
+        const linked = await db()
+            .select({
+                ref: mailParticipants.ref,
+                personId: mailParticipants.personId,
+            })
+            .from(mailParticipants)
+            .where(eq(mailParticipants.itemId, firstMail));
+        expect(linked.find((row) => row.ref === "p2")?.personId).toBe(
+            evaPerson?.id,
+        );
+
+        const facts = await db()
+            .select({
+                id: knowledgeFacts.id,
+                origin: knowledgeFacts.origin,
+                relationKey: knowledgeFacts.relationKey,
+            })
+            .from(knowledgeFacts)
+            .where(eq(knowledgeFacts.userId, "u-jan"));
+        expect(facts.map((fact) => fact.origin)).toEqual(
+            expect.arrayContaining(["mail", "mail"]),
+        );
+        expect(facts).toHaveLength(2);
+        const evidence = await db()
+            .select()
+            .from(knowledgeFactEvidence)
+            .where(eq(knowledgeFactEvidence.itemId, firstMail));
+        expect(evidence).toHaveLength(2);
+        for (const row of evidence) {
+            expect(row.transcriptionId).toBeNull();
+            expect(row.startMs).toBeNull();
+            expect(row.segmentIndex).not.toBeNull();
+        }
+        expect(evidence.map((row) => decryptText(row.quote)).sort()).toEqual(
+            [
+                "I work for Globex now.",
+                "Petra Mala leads the pilot at Acme.",
+            ].sort(),
+        );
+    });
+
+    it("shares a mail's facts into the Organization, and takes them back with it", async () => {
+        const [root] = await db()
+            .select({ id: recordingFolders.id })
+            .from(recordingFolders)
+            .where(eq(recordingFolders.userId, orgUserId));
+        const folder = await createFolder({
+            userId: "u-jan",
+            parentId: root?.id ?? "",
+            name: "Pilots",
+        });
+        await addRecordingToFolder({
+            userId: "u-jan",
+            recordingId: firstMail,
+            folderId: folder.id,
+        });
+        const orgEvidence = async () =>
+            db()
+                .select({ factId: knowledgeFactEvidence.factId })
+                .from(knowledgeFactEvidence)
+                .where(eq(knowledgeFactEvidence.userId, orgUserId));
+        expect(await orgEvidence()).toHaveLength(2);
+        const orgFacts = await db()
+            .select({ origin: knowledgeFacts.origin })
+            .from(knowledgeFacts)
+            .where(eq(knowledgeFacts.userId, orgUserId));
+        expect(orgFacts.every((fact) => fact.origin === "mail")).toBe(true);
+
+        await removeRecordingFromFolder({
+            userId: "u-jan",
+            recordingId: firstMail,
+            folderId: folder.id,
+            withdraw: true,
+        });
+        expect(await orgEvidence()).toHaveLength(0);
     });
 
     it("does not read a signature it has read in another mail", async () => {

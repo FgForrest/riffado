@@ -12,7 +12,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
     accounts,
@@ -180,7 +180,10 @@ describeWithDatabase("summaries of mail (PostgreSQL)", () => {
         const [message] = await db()
             .select({ id: mailMessages.id })
             .from(mailMessages)
-            .where(eq(mailMessages.sizeBytes, raw.length));
+            .where(eq(mailMessages.sizeBytes, raw.length))
+            // The newest of that size: two messages may share one.
+            .orderBy(desc(mailMessages.createdAt))
+            .limit(1);
         if (!message) throw new Error("mail not stored");
         return message.id;
     }

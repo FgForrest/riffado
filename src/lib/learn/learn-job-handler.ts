@@ -59,6 +59,7 @@ import {
 import {
     type MailReviewCandidate,
     mailCandidates,
+    participantProposals,
 } from "@/lib/learn/mail-candidates";
 import { mailLearnParts } from "@/lib/learn/mail-parts";
 import type { LearnObject } from "@/lib/learn/output";
@@ -1089,11 +1090,34 @@ async function runMailLearnJob(
             const validated = pass
                 ? validateLearnOutput(pass.output, frame)
                 : { superseded: false, items: [], dropped: {} };
-            const candidates = mailCandidates(
+            const fromRun = mailCandidates(
                 validated.items,
                 parts,
                 content.participants,
-            ).map((item) =>
+            );
+            const knownNames = new Set(
+                [...frame.people.values()].map((person) =>
+                    person.name.trim().toLowerCase(),
+                ),
+            );
+            const candidates = [
+                ...fromRun,
+                ...participantProposals(
+                    content.participants,
+                    fromRun,
+                    knownNames,
+                    (address) =>
+                        JSON.stringify([
+                            "participant",
+                            domainLookupHash("mail-participant", address),
+                        ]),
+                ).filter(
+                    (proposal) =>
+                        !frame.dismissed.has(
+                            learnFingerprintHmac(proposal.fingerprint),
+                        ),
+                ),
+            ].map((item) =>
                 lastAttempt
                     ? ({ ...item, preTicked: false } as MailReviewCandidate)
                     : item,

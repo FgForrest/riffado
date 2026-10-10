@@ -8,6 +8,7 @@ import {
 } from "@/db/schema";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { bumpScopeInTx } from "@/lib/knowledge/scope-generation";
+import { publishKnowledgeInTx } from "@/lib/knowledge/share-knowledge";
 import { learnRunOpen } from "@/lib/learn/learn-open";
 import type { ShareGateProblem } from "@/lib/sharing/share-gate";
 import { publishTaskAssigneesInTx } from "@/lib/sharing/share-names";
@@ -99,11 +100,14 @@ export async function shareMailInTx(
             ),
         );
     if (wasShared) return;
-    await bumpScopeInTx(
-        tx,
-        await publishTaskAssigneesInTx(tx, {
-            recordingId: input.itemId,
-            orgUserId: input.orgUserId,
-        }),
-    );
+    const knowledge = await publishKnowledgeInTx(tx, {
+        recordingId: input.itemId,
+        ownerUserId: input.ownerUserId,
+        orgUserId: input.orgUserId,
+    });
+    const assignees = await publishTaskAssigneesInTx(tx, {
+        recordingId: input.itemId,
+        orgUserId: input.orgUserId,
+    });
+    await bumpScopeInTx(tx, [...knowledge.scopes, ...assignees]);
 }

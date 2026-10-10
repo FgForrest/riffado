@@ -21,11 +21,17 @@ import {
     knowledgeFactEvidence,
     knowledgeFacts,
     knowledgeRelationTypes,
+    mailContents,
     recordings,
     transcriptSpeakers,
     users,
 } from "@/db/schema";
-import { decryptText, encryptText } from "@/lib/encryption/fields";
+import type { ContentSegment } from "@/lib/content/types";
+import {
+    decryptJsonField,
+    decryptText,
+    encryptText,
+} from "@/lib/encryption/fields";
 import { AppError, ErrorCode } from "@/lib/errors";
 import {
     type KnowledgeTarget,
@@ -436,6 +442,97 @@ export async function confirmFactFromRecordingInTx(
                 transcriptRevision: revision,
                 speakerLabel,
                 dependsOnSpeaker: speakerLabel !== null,
+                quote: encryptText(quote),
+                confirmedByUserId: args.actorUserId,
+                confirmedAt: new Date(),
+            },
+        });
+    return factId;
+}
+
+export interface MailFactArgs extends FactArgs {
+    /** The mail's owner, whose content it is. */
+    ownerUserId: string;
+    itemId: string;
+    /** The content revision the person was looking at. */
+    revision: number;
+    actorUserId: string;
+    /** Where in the mail's content it was written. */
+    text: { segmentIndex: number; charStart: number; charEnd: number };
+    /** The participant who wrote it, when the fact is about them. */
+    speakerLabel?: string | null;
+}
+
+/**
+ * Confirm a fact from what a mail says, with its evidence: the words of
+ * one segment's range, cut from the mail's content here. The caller holds
+ * the mail's lock and checked the writer rule; the content must still be
+ * the revision the person saw. The fact goes into the actor's scope.
+ * Returns the fact's id.
+ */
+export async function confirmFactFromMailInTx(
+    tx: Tx,
+    args: MailFactArgs,
+): Promise<string> {
+    const [content] = await tx
+        .select({
+            revision: mailContents.revision,
+            segments: mailContents.segments,
+        })
+        .from(mailContents)
+        .where(
+            and(
+                eq(mailContents.itemId, args.itemId),
+                eq(mailContents.userId, args.ownerUserId),
+            ),
+        )
+        .limit(1);
+    if (!content || content.revision !== args.revision) {
+        throw new AppError(ErrorCode.CONFLICT, "The mail changed; reload", 409);
+    }
+    const segment = (
+        decryptJsonField<ContentSegment[]>(content.segments) ?? []
+    ).find((candidate) => candidate.index === args.text.segmentIndex);
+    const quote = segment?.text
+        .slice(args.text.charStart, args.text.charEnd)
+        .trim();
+    if (!quote) throw invalid("Nothing was written there", "text");
+    const factId = await confirmFactInTx(tx, {
+        ...args,
+        scopeUserId: args.actorUserId,
+        origin: "mail",
+    });
+    await tx
+        .insert(knowledgeFactEvidence)
+        .values({
+            userId: args.actorUserId,
+            factId,
+            transcriptionId: null,
+            itemId: args.itemId,
+            transcriptRevision: args.revision,
+            startMs: null,
+            endMs: null,
+            segmentIndex: args.text.segmentIndex,
+            charStart: args.text.charStart,
+            charEnd: args.text.charEnd,
+            speakerLabel: args.speakerLabel ?? null,
+            dependsOnSpeaker: false,
+            quote: encryptText(quote),
+            confirmedByUserId: args.actorUserId,
+        })
+        .onConflictDoUpdate({
+            target: [
+                knowledgeFactEvidence.factId,
+                knowledgeFactEvidence.itemId,
+                knowledgeFactEvidence.segmentIndex,
+                knowledgeFactEvidence.charStart,
+                knowledgeFactEvidence.charEnd,
+            ],
+            targetWhere: sql`${knowledgeFactEvidence.segmentIndex} is not null`,
+            set: {
+                status: "supported",
+                transcriptRevision: args.revision,
+                speakerLabel: args.speakerLabel ?? null,
                 quote: encryptText(quote),
                 confirmedByUserId: args.actorUserId,
                 confirmedAt: new Date(),

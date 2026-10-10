@@ -13,7 +13,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Readable } from "node:stream";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import unzipper from "unzipper";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -496,7 +496,10 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         const [message] = await db()
             .select({ id: mailMessages.id })
             .from(mailMessages)
-            .where(eq(mailMessages.sizeBytes, raw.length));
+            .where(eq(mailMessages.sizeBytes, raw.length))
+            // The newest of that size: two messages may share one.
+            .orderBy(desc(mailMessages.createdAt))
+            .limit(1);
         const itemId = message?.id ?? "";
         const assigned = async () =>
             (
@@ -671,7 +674,10 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         const [message] = await db()
             .select({ id: mailMessages.id, path: mailMessages.rawStoragePath })
             .from(mailMessages)
-            .where(eq(mailMessages.sizeBytes, raw.length));
+            .where(eq(mailMessages.sizeBytes, raw.length))
+            // The newest of that size: two messages may share one.
+            .orderBy(desc(mailMessages.createdAt))
+            .limit(1);
         if (!message?.path) throw new Error("not stored");
         await deleteMail("u-jan", message.id);
         expect(
@@ -775,7 +781,10 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         const [message] = await db()
             .select({ id: mailMessages.id })
             .from(mailMessages)
-            .where(eq(mailMessages.sizeBytes, raw.length));
+            .where(eq(mailMessages.sizeBytes, raw.length))
+            // The newest of that size: two messages may share one.
+            .orderBy(desc(mailMessages.createdAt))
+            .limit(1);
         const itemId = message?.id ?? "";
         expect(await loadMailDetail("u-eva", itemId)).toBeNull();
         expect(await mailRawFor("u-eva", itemId)).toBeNull();
@@ -875,7 +884,10 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         const [message] = await db()
             .select({ id: mailMessages.id })
             .from(mailMessages)
-            .where(eq(mailMessages.sizeBytes, raw.length));
+            .where(eq(mailMessages.sizeBytes, raw.length))
+            // The newest of that size: two messages may share one.
+            .orderBy(desc(mailMessages.createdAt))
+            .limit(1);
         const itemId = message?.id ?? "";
         await addRecordingToFolder({
             userId: "u-jan",

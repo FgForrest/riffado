@@ -40,7 +40,10 @@ export interface MailPhrasePayload {
 }
 
 export type MailNewRecordPayload = Omit<NewRecordPayload, "evidenceMs"> & {
+    /** Where the mail names them; none when only its headers do. */
     evidence: MailTextAnchor[];
+    /** A participant's address: kept as the person's email when added. */
+    address?: string;
 };
 
 /** A review item of a run on a mail, as stored: never a time. */
@@ -151,4 +154,66 @@ export function mailCandidates(
         }
     }
     return candidates;
+}
+
+/** Whether a name has a surname too: two words at least. */
+function fullName(name: string): boolean {
+    return name.trim().split(/\s+/).length >= 2;
+}
+
+/**
+ * New people a mail's headers name: each participant with a full name and
+ * an address that is nobody's yet, unless the run already proposes them
+ * or someone of that name is known. Accepting one keeps the address as
+ * their email, so the next mail from them is theirs.
+ */
+export function participantProposals(
+    participants: readonly ContentParticipant[],
+    candidates: readonly MailReviewCandidate[],
+    knownNames: ReadonlySet<string>,
+    fingerprintOf: (address: string) => string,
+): MailReviewCandidate[] {
+    const fold = (name: string) => name.trim().toLowerCase();
+    const proposed = new Set(
+        candidates.flatMap((candidate) =>
+            candidate.kind === "new_record"
+                ? [
+                      fold(candidate.payload.name),
+                      candidate.payload.speakerLabel ?? "",
+                  ]
+                : [],
+        ),
+    );
+    const proposals: MailReviewCandidate[] = [];
+    for (const participant of participants) {
+        const name = participant.displayName?.trim();
+        const address = participant.address?.trim().toLowerCase();
+        if (participant.personId || !name || !address || !fullName(name)) {
+            continue;
+        }
+        if (
+            proposed.has(fold(name)) ||
+            proposed.has(participant.ref) ||
+            knownNames.has(fold(name))
+        ) {
+            continue;
+        }
+        proposed.add(fold(name));
+        proposals.push({
+            kind: "new_record",
+            fingerprint: fingerprintOf(address),
+            preTicked: false,
+            payload: {
+                ref: `mail:${participant.ref}`,
+                kind: "person",
+                typeKey: null,
+                name,
+                speakerLabel: participant.ref,
+                evidence: [],
+                reason: "A participant of the mail",
+                address,
+            },
+        });
+    }
+    return proposals;
 }
