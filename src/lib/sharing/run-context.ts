@@ -1,5 +1,9 @@
 import { AppError } from "@/lib/errors";
-import { type RecordingView, requireRecordingView } from "@/lib/sharing/access";
+import {
+    type AccessOptions,
+    type RecordingView,
+    requireRecordingView,
+} from "@/lib/sharing/access";
 
 /**
  * Whose data a transcription or summary run touches.
@@ -41,6 +45,7 @@ export async function resolveRunContext(
     actorUserId: string,
     recordingId: string,
     view: RecordingView,
+    options: AccessOptions = {},
 ): Promise<ContentRunContext | null> {
     if (view === "private") return privateRunContext(actorUserId);
     try {
@@ -48,6 +53,7 @@ export async function resolveRunContext(
             actorUserId,
             recordingId,
             "org",
+            options,
         );
         return {
             view,

@@ -1,8 +1,18 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { chatterItems, transcriptions } from "@/db/schema";
+import {
+    chatterItems,
+    mailContents,
+    mailParticipants,
+    transcriptions,
+} from "@/db/schema";
 import { audioContentFrom } from "@/lib/content/audio-content";
+import {
+    type MailContentSource,
+    mailContentFrom,
+} from "@/lib/content/mail-content";
 import type { ItemContent } from "@/lib/content/types";
+import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import {
     getPreferredTranscriptSource,
     resolvePrimaryTranscript,
@@ -38,8 +48,66 @@ export async function readItemContent(
         case "audio":
             return readAudioContent(ownerUserId, itemId, options);
         case "mail":
-            return null;
+            return readMailContent(ownerUserId, itemId);
     }
+}
+
+async function readMailContent(
+    ownerUserId: string,
+    itemId: string,
+): Promise<ItemContent | null> {
+    const [[content], participants] = await Promise.all([
+        db
+            .select({
+                id: mailContents.id,
+                revision: mailContents.revision,
+                language: mailContents.language,
+                segments: mailContents.segments,
+            })
+            .from(mailContents)
+            .where(
+                and(
+                    eq(mailContents.itemId, itemId),
+                    eq(mailContents.userId, ownerUserId),
+                ),
+            )
+            .limit(1),
+        db
+            .select({
+                ref: mailParticipants.ref,
+                roles: mailParticipants.roles,
+                name: mailParticipants.name,
+                address: mailParticipants.address,
+                authenticated: mailParticipants.authenticated,
+            })
+            .from(mailParticipants)
+            .where(
+                and(
+                    eq(mailParticipants.itemId, itemId),
+                    eq(mailParticipants.userId, ownerUserId),
+                ),
+            )
+            .orderBy(asc(mailParticipants.position)),
+    ]);
+    if (!content) return null;
+    return mailContentFrom({
+        itemId,
+        contentId: content.id,
+        revision: content.revision,
+        language: content.language,
+        segments:
+            decryptJsonField<MailContentSource["segments"]>(content.segments) ??
+            [],
+        participants: participants.map((participant) => ({
+            ref: participant.ref,
+            roles: participant.roles,
+            name: participant.name ? decryptText(participant.name) : null,
+            address: participant.address
+                ? decryptText(participant.address)
+                : null,
+            authenticated: participant.authenticated,
+        })),
+    });
 }
 
 async function readAudioContent(

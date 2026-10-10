@@ -1,6 +1,6 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { recordings } from "@/db/schema";
+import { type ChatterItemKind, chatterItems, recordings } from "@/db/schema";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { getOrgUserId } from "@/lib/org/config";
 import { isRecordingShared } from "@/lib/sharing/shared";
@@ -23,6 +23,8 @@ export type RecordingAccessRole = "owner" | "member" | "curator";
 
 export interface RecordingAccess {
     recordingId: string;
+    /** What the item is: a recording unless the caller admitted other kinds. */
+    kind: ChatterItemKind;
     ownerUserId: string;
     role: RecordingAccessRole;
     shared: boolean;
@@ -39,6 +41,40 @@ export interface RecordingViewContext extends RecordingAccess {
     contentUserId: string;
 }
 
+export interface AccessOptions {
+    /**
+     * The item kinds the caller handles. A recording only by default, so a
+     * route made for audio answers 404 for a mail id before doing anything.
+     */
+    kinds?: readonly ChatterItemKind[];
+}
+
+async function findItem(
+    itemId: string,
+    kinds: readonly ChatterItemKind[] | undefined,
+): Promise<{ userId: string; kind: ChatterItemKind } | null> {
+    if (!kinds || (kinds.length === 1 && kinds[0] === "audio")) {
+        const [recording] = await db
+            .select({ id: recordings.id, userId: recordings.userId })
+            .from(recordings)
+            .where(and(eq(recordings.id, itemId), isNull(recordings.deletedAt)))
+            .limit(1);
+        return recording ? { userId: recording.userId, kind: "audio" } : null;
+    }
+    const [item] = await db
+        .select({ userId: chatterItems.userId, kind: chatterItems.kind })
+        .from(chatterItems)
+        .where(
+            and(
+                eq(chatterItems.id, itemId),
+                inArray(chatterItems.kind, [...kinds]),
+                isNull(chatterItems.deletedAt),
+            ),
+        )
+        .limit(1);
+    return item ?? null;
+}
+
 /**
  * Who `userId` is to `recordingId`, or null when they may not see it at all.
  *
@@ -48,14 +84,9 @@ export interface RecordingViewContext extends RecordingAccess {
 export async function resolveRecordingAccess(
     userId: string,
     recordingId: string,
+    options: AccessOptions = {},
 ): Promise<RecordingAccess | null> {
-    const [recording] = await db
-        .select({ id: recordings.id, userId: recordings.userId })
-        .from(recordings)
-        .where(
-            and(eq(recordings.id, recordingId), isNull(recordings.deletedAt)),
-        )
-        .limit(1);
+    const recording = await findItem(recordingId, options.kinds);
     if (!recording) return null;
 
     const orgUserId = await getOrgUserId();
@@ -66,6 +97,7 @@ export async function resolveRecordingAccess(
     if (recording.userId === userId) {
         return {
             recordingId,
+            kind: recording.kind,
             ownerUserId: recording.userId,
             role: "owner",
             shared,
@@ -75,6 +107,7 @@ export async function resolveRecordingAccess(
     if (!shared) return null;
     return {
         recordingId,
+        kind: recording.kind,
         ownerUserId: recording.userId,
         role: userId === orgUserId ? "curator" : "member",
         shared,
@@ -99,8 +132,9 @@ export async function requireRecordingView(
     userId: string,
     recordingId: string,
     view: RecordingView,
+    options: AccessOptions = {},
 ): Promise<RecordingViewContext> {
-    const access = await resolveRecordingAccess(userId, recordingId);
+    const access = await resolveRecordingAccess(userId, recordingId, options);
     const allowed =
         access !== null &&
         (view === "private"
@@ -123,8 +157,9 @@ export async function requireRecordingView(
 export async function requireRecordingAccess(
     userId: string,
     recordingId: string,
+    options: AccessOptions = {},
 ): Promise<RecordingAccess> {
-    const access = await resolveRecordingAccess(userId, recordingId);
+    const access = await resolveRecordingAccess(userId, recordingId, options);
     if (!access) {
         throw new AppError(
             ErrorCode.RECORDING_NOT_FOUND,
