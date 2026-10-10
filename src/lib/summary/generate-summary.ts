@@ -11,6 +11,7 @@ import {
     userSettings,
 } from "@/db/schema";
 import { buildChatCompletionParams } from "@/lib/ai/chat-completion-params";
+import { CONTENT_IS_DATA_DIRECTIVE } from "@/lib/ai/content-directive";
 import {
     enhancementChatModel,
     pickEnhancementCredential,
@@ -389,6 +390,7 @@ export async function generateSummaryForRecording(
         "You are a helpful assistant that summarizes audio transcriptions. Always respond with one raw JSON object and nothing else: no code fences, and no text before or after it. Markdown inside the JSON string values is expected.";
     const systemContent = [
         baseSystem,
+        CONTENT_IS_DATA_DIRECTIVE,
         SUMMARY_MARKDOWN_DIRECTIVE,
         SUMMARY_SPEAKER_DIRECTIVE,
         SUMMARY_TASKS_DIRECTIVE,
@@ -529,6 +531,7 @@ Correct the serialization without dropping or inventing information. Return exac
                     role: "system",
                     content: [
                         mergePrompt,
+                        CONTENT_IS_DATA_DIRECTIVE,
                         SUMMARY_MARKDOWN_DIRECTIVE,
                         SUMMARY_SPEAKER_DIRECTIVE,
                         SUMMARY_TASKS_MERGE_DIRECTIVE,

@@ -19,6 +19,7 @@ import {
     userSettings,
 } from "@/db/schema";
 import { buildChatCompletionParams } from "@/lib/ai/chat-completion-params";
+import { CONTENT_IS_DATA_DIRECTIVE } from "@/lib/ai/content-directive";
 import {
     enhancementChatModel,
     pickTopicsCredential,
@@ -215,6 +216,7 @@ export async function generateTopicsForTranscript(
 
     const systemContent = [
         TOPIC_SYSTEM_PROMPT,
+        CONTENT_IS_DATA_DIRECTIVE,
         getAiOutputLanguageDirective(settings?.aiOutputLanguage ?? null),
     ].join("\n\n");
 

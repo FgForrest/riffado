@@ -21,6 +21,7 @@ import {
     transcriptions,
     userSettings,
 } from "@/db/schema";
+import { CONTENT_IS_DATA_DIRECTIVE } from "@/lib/ai/content-directive";
 import {
     SUMMARY_MARKDOWN_DIRECTIVE,
     SUMMARY_SPEAKER_DIRECTIVE,
@@ -284,6 +285,15 @@ describe("markdown formatting directive", () => {
         expect(messages.length).toBeGreaterThan(2);
         expect(messages.at(-1)).toContain(SUMMARY_MARKDOWN_DIRECTIVE);
         expect(messages.at(-1)).toContain(SUMMARY_SPEAKER_DIRECTIVE);
+    });
+
+    it("tells every pass and the merge that the content is data, not instructions", async () => {
+        await summarize({ summaryMultiPass: true, summaryMultiPassRounds: 2 });
+        const messages = systemMessages();
+        expect(messages.length).toBeGreaterThan(2);
+        for (const message of messages) {
+            expect(message).toContain(CONTENT_IS_DATA_DIRECTIVE);
+        }
     });
 
     it("forbids guessed identities and specifies stable placeholders", async () => {

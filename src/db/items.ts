@@ -53,7 +53,15 @@ export function toRecordingResponseRow<
         occurredAt: Date;
         contentReapedAt: Date | null;
     },
->({ title, occurredAt, contentReapedAt, ...rest }: T) {
+>({
+    title,
+    occurredAt,
+    contentReapedAt,
+    kind: _kind,
+    ...rest
+}: T & {
+    kind?: string;
+}) {
     return {
         ...rest,
         filename: title,
