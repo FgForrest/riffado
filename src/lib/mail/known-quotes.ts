@@ -1,9 +1,11 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { chatterItems, mailMessages, people } from "@/db/schema";
+import { chatterItems, mailMessages, people, personEmails } from "@/db/schema";
 import type { ContentSegment } from "@/lib/content/types";
 import { lookupHash } from "@/lib/knowledge/lookup-hash";
+import { readableScopes } from "@/lib/knowledge/scope";
 import { messageIdHash } from "@/lib/mail/hash";
+import { getOrgUserId } from "@/lib/org/config";
 
 /**
  * The mail of the owner's pile that a new mail's quoted parts repeat, by
@@ -63,13 +65,19 @@ export function markKnownQuotes(
 }
 
 /**
- * The owner's people whose email is one of `addresses`, by address
- * (lowercase): a mail's participants are then those people.
+ * The people the owner reads (their own, and the Organization's) whose
+ * email, primary or another of theirs, is one of `addresses`, by address
+ * (lowercase): a mail's participants are then those people, the owner's
+ * own first. A person merged away stands for the one they became.
  */
 export async function peopleByAddress(
     ownerUserId: string,
     addresses: readonly string[],
 ): Promise<Map<string, string>> {
+    const scopes = readableScopes(
+        { kind: "recording", ownerUserId, shared: false },
+        await getOrgUserId(),
+    );
     const byHash = new Map(
         [...new Set(addresses.map((address) => address.toLowerCase()))].map(
             (address) => [lookupHash(address), address] as const,
@@ -78,18 +86,46 @@ export async function peopleByAddress(
     const found = new Map<string, string>();
     if (byHash.size === 0) return found;
     const rows = await db
-        .select({ id: people.id, hash: people.primaryEmailHash })
+        .select({
+            id: people.id,
+            userId: people.userId,
+            hash: people.primaryEmailHash,
+        })
         .from(people)
         .where(
             and(
-                eq(people.userId, ownerUserId),
+                inArray(people.userId, scopes),
                 isNull(people.mergedIntoId),
                 inArray(people.primaryEmailHash, [...byHash.keys()]),
             ),
         );
+    // The owner's own person of an address over the Organization's.
+    rows.sort((a, b) =>
+        a.userId === ownerUserId ? -1 : b.userId === ownerUserId ? 1 : 0,
+    );
     for (const row of rows) {
         const address = row.hash ? byHash.get(row.hash) : undefined;
-        if (address) found.set(address, row.id);
+        if (address && !found.has(address)) found.set(address, row.id);
+    }
+    const others = await db
+        .select({
+            hash: personEmails.emailHash,
+            id: people.id,
+            mergedIntoId: people.mergedIntoId,
+        })
+        .from(personEmails)
+        .innerJoin(people, eq(people.id, personEmails.personId))
+        .where(
+            and(
+                inArray(personEmails.userId, scopes),
+                inArray(personEmails.emailHash, [...byHash.keys()]),
+            ),
+        );
+    for (const row of others) {
+        const address = byHash.get(row.hash);
+        if (address && !found.has(address)) {
+            found.set(address, row.mergedIntoId ?? row.id);
+        }
     }
     return found;
 }

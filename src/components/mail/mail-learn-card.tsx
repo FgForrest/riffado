@@ -93,6 +93,11 @@ export function MailLearnCard({
     };
 
     const decide = async (item: ReviewItemView, accepted: boolean) => {
+        // "The same person as …?": yes is that person.
+        const maybe =
+            item.kind === "new_record"
+                ? (item.payload as unknown as MailNewRecordPayload).maybe
+                : undefined;
         const response = await fetch(
             `${base}/review/items/${encodeURIComponent(item.id)}${query}`,
             {
@@ -101,6 +106,7 @@ export function MailLearnCard({
                 body: JSON.stringify({
                     decision: accepted ? "accepted" : "rejected",
                     version: item.version,
+                    ...(accepted && maybe ? { choice: maybe } : {}),
                 }),
             },
         );
@@ -277,7 +283,25 @@ export function MailLearnCard({
                                         />
                                     )}
                                     <div className="min-w-0 space-y-1">
-                                        {record ? (
+                                        {record?.maybe ? (
+                                            <p>
+                                                {i18n(
+                                                    "{name}: the same person as {known}?",
+                                                    {
+                                                        name: record.name,
+                                                        known: nameOf(
+                                                            record.maybe as Side,
+                                                        ),
+                                                    },
+                                                )}
+                                                {record.address && (
+                                                    <span className="text-muted-foreground">
+                                                        {" "}
+                                                        · {record.address}
+                                                    </span>
+                                                )}
+                                            </p>
+                                        ) : record ? (
                                             <p>
                                                 {record.kind === "person"
                                                     ? i18n(

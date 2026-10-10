@@ -3796,3 +3796,27 @@ export const mailLearnedParts = pgTable(
         itemIdIdx: index("mail_learned_parts_item_id_idx").on(table.itemId),
     }),
 );
+
+// More addresses of a person than their primary email: what mail from them
+// is known by. One person per address in a scope.
+export const personEmails = pgTable(
+    "person_emails",
+    {
+        // The scope the person belongs to.
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        personId: text("person_id")
+            .notNull()
+            .references(() => people.id, { onDelete: "cascade" }),
+        // `lookupHash` of the address, as `people.primaryEmailHash` is.
+        emailHash: varchar("email_hash", { length: 64 }).notNull(),
+        // Encrypted.
+        email: text("email").notNull(),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        pk: primaryKey({ columns: [table.userId, table.emailHash] }),
+        personIdIdx: index("person_emails_person_id_idx").on(table.personId),
+    }),
+);

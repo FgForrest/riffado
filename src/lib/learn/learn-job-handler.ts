@@ -1095,17 +1095,21 @@ async function runMailLearnJob(
                 parts,
                 content.participants,
             );
-            const knownNames = new Set(
-                [...frame.people.values()].map((person) =>
-                    person.name.trim().toLowerCase(),
-                ),
-            );
+            // A name of one known person only: two of a name are nobody's.
+            const knownByName = new Map<string, string>();
+            const ambiguous = new Set<string>();
+            for (const [personId, person] of frame.people) {
+                const key = person.name.trim().toLowerCase();
+                if (knownByName.has(key)) ambiguous.add(key);
+                knownByName.set(key, personId);
+            }
+            for (const key of ambiguous) knownByName.delete(key);
             const candidates = [
                 ...fromRun,
                 ...participantProposals(
                     content.participants,
                     fromRun,
-                    knownNames,
+                    knownByName,
                     (address) =>
                         JSON.stringify([
                             "participant",

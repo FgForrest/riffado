@@ -112,6 +112,11 @@ vi.mock("@/db/schema", async (importOriginal) => ({
         userId: "personNotes.userId",
         notes: "personNotes.notes",
     },
+    personEmails: {
+        __table: "personEmails",
+        personId: "personEmails.personId",
+        email: "personEmails.email",
+    },
     transcriptCorrections: {
         userId: "transcriptCorrections.userId",
         transcriptionId: "transcriptCorrections.transcriptionId",
@@ -231,6 +236,10 @@ function mockSelectSequence(
             }
             if (table?.__table === "apiCredentials") {
                 return { where: () => Promise.resolve(extras.rates ?? []) };
+            }
+            // Nobody here has an address beside their primary email.
+            if (table?.__table === "personEmails") {
+                return { where: () => Promise.resolve([]) };
             }
             // The folder assignment read joins its folder; the join itself
             // adds nothing a canned result needs to reproduce.

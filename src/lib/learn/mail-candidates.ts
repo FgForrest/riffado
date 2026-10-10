@@ -163,14 +163,15 @@ function fullName(name: string): boolean {
 
 /**
  * New people a mail's headers name: each participant with a full name and
- * an address that is nobody's yet, unless the run already proposes them
- * or someone of that name is known. Accepting one keeps the address as
- * their email, so the next mail from them is theirs.
+ * an address that is nobody's yet, unless the run already proposes them.
+ * Someone of that name known already is asked about instead (`maybe`):
+ * another address of theirs? Accepting keeps the address as theirs, so
+ * the next mail from them is theirs.
  */
 export function participantProposals(
     participants: readonly ContentParticipant[],
     candidates: readonly MailReviewCandidate[],
-    knownNames: ReadonlySet<string>,
+    knownByName: ReadonlyMap<string, string>,
     fingerprintOf: (address: string) => string,
 ): MailReviewCandidate[] {
     const fold = (name: string) => name.trim().toLowerCase();
@@ -191,14 +192,11 @@ export function participantProposals(
         if (participant.personId || !name || !address || !fullName(name)) {
             continue;
         }
-        if (
-            proposed.has(fold(name)) ||
-            proposed.has(participant.ref) ||
-            knownNames.has(fold(name))
-        ) {
+        if (proposed.has(fold(name)) || proposed.has(participant.ref)) {
             continue;
         }
         proposed.add(fold(name));
+        const known = knownByName.get(fold(name));
         proposals.push({
             kind: "new_record",
             fingerprint: fingerprintOf(address),
@@ -210,8 +208,11 @@ export function participantProposals(
                 name,
                 speakerLabel: participant.ref,
                 evidence: [],
-                reason: "A participant of the mail",
+                reason: known
+                    ? "Another address of a known person"
+                    : "A participant of the mail",
                 address,
+                ...(known ? { maybe: { personId: known } } : {}),
             },
         });
     }

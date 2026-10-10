@@ -33,6 +33,7 @@ import {
     mailContents,
     mailParticipants,
     people,
+    personEmails,
     transcriptions,
     transcriptSpeakers,
 } from "@/db/schema";
@@ -952,20 +953,38 @@ async function linkParticipantInTx(
         link.address ??
         (participant?.address ? decryptText(participant.address) : null);
     if (!email) return;
+    const hash = lookupHash(email);
     try {
         await tx.transaction(async (sp) => {
-            await sp
-                .update(people)
-                .set({
-                    primaryEmail: encryptText(email),
-                    primaryEmailHash: lookupHash(email),
+            const [person] = await sp
+                .select({
+                    userId: people.userId,
+                    primaryEmailHash: people.primaryEmailHash,
                 })
-                .where(
-                    and(
-                        eq(people.id, link.personId),
-                        isNull(people.primaryEmailHash),
-                    ),
-                );
+                .from(people)
+                .where(eq(people.id, link.personId))
+                .limit(1);
+            if (!person || person.primaryEmailHash === hash) return;
+            if (person.primaryEmailHash === null) {
+                await sp
+                    .update(people)
+                    .set({
+                        primaryEmail: encryptText(email),
+                        primaryEmailHash: hash,
+                    })
+                    .where(eq(people.id, link.personId));
+                return;
+            }
+            // Another address of theirs: what their next mail is known by.
+            await sp
+                .insert(personEmails)
+                .values({
+                    userId: person.userId,
+                    personId: link.personId,
+                    emailHash: hash,
+                    email: encryptText(email),
+                })
+                .onConflictDoNothing();
         });
     } catch (error) {
         if (!isUniqueViolation(error)) throw error;

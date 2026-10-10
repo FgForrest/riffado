@@ -30,6 +30,7 @@ import {
     learnReviewItems,
     learnRuns,
     people,
+    personEmails,
     personNotes,
     recordingFolderAssignments,
     recordingFolders,
@@ -1197,6 +1198,37 @@ async function collectKnowledgeBase(
         })),
     ];
 
+    // A person's other addresses: theirs to carry where their primary
+    // email is (their own people, or the whole Organization's).
+    const emailRows =
+        archivedRows.length > 0
+            ? await db
+                  .select({
+                      personId: personEmails.personId,
+                      email: personEmails.email,
+                  })
+                  .from(personEmails)
+                  .where(
+                      inArray(
+                          personEmails.personId,
+                          archivedRows
+                              .filter(
+                                  (row) =>
+                                      scope.kind === "organization" ||
+                                      !row.organization,
+                              )
+                              .map((row) => row.id),
+                      ),
+                  )
+            : [];
+    const emailsOf = new Map<string, string[]>();
+    for (const row of emailRows) {
+        emailsOf.set(row.personId, [
+            ...(emailsOf.get(row.personId) ?? []),
+            decryptText(row.email),
+        ]);
+    }
+
     return {
         people: archivedRows.map((row) => ({
             id: row.id,
@@ -1204,6 +1236,7 @@ async function collectKnowledgeBase(
             primaryEmail: row.primaryEmail
                 ? decryptText(row.primaryEmail)
                 : null,
+            ...(emailsOf.has(row.id) ? { emails: emailsOf.get(row.id) } : {}),
             notes: row.notes ? decryptText(row.notes) : null,
             mergedIntoId: row.mergedIntoId,
             organization: scope.kind === "organization" || row.organization,

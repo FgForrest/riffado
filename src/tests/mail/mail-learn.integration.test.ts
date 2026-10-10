@@ -24,6 +24,7 @@ import {
     mailMessages,
     mailParticipants,
     people,
+    personEmails,
     recordingFolders,
     userSettings,
     users,
@@ -169,12 +170,16 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
         return database.db;
     }
 
-    async function deliver(subject: string, body: string): Promise<string> {
+    async function deliver(
+        subject: string,
+        body: string,
+        eva = "eva@client.example",
+    ): Promise<string> {
         const raw = await signMessage(
             rawMessage(
                 [
                     "From: Jan Novotny <jan@company.example>",
-                    "To: Eva Buyer <eva@client.example>, jan@klepna.example",
+                    `To: Eva Buyer <${eva}>, jan@klepna.example`,
                     `Subject: ${subject}`,
                     "Date: Fri, 09 Oct 2026 14:02:00 +0200",
                     `Message-ID: <${Math.random().toString(36).slice(2)}@company.example>`,
@@ -518,6 +523,83 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
             withdraw: true,
         });
         expect(await orgEvidence()).toHaveLength(0);
+    });
+
+    it("keeps a known person's other address, and knows the next mail from it", async () => {
+        const second = "eva@second.example";
+        const itemId = await deliver(
+            "Second address",
+            "Thanks, Eva Buyer, for the call.",
+            second,
+        );
+        createCompletion.mockReset();
+        createCompletion
+            .mockResolvedValueOnce(reply({ mentions: [] }))
+            .mockResolvedValueOnce(
+                reply({
+                    newRecords: [
+                        {
+                            ref: "n1",
+                            kind: "person",
+                            typeKey: null,
+                            name: "Eva Buyer",
+                            speakerLabel: "p2",
+                            evidence: ["00:00"],
+                            reason: "A participant",
+                        },
+                    ],
+                    speakers: [],
+                    corrections: [],
+                    facts: [],
+                    relationPhrases: [],
+                }),
+            );
+        await learn(itemId);
+        const access = await requireRecordingView("u-jan", itemId, "private", {
+            kinds: ALL_ITEM_KINDS,
+        });
+        const review = await loadReview(access);
+        const versions: Record<string, number> = {};
+        for (const item of review.items) {
+            const maybe = (item.payload as { maybe?: { personId: string } })
+                .maybe;
+            versions[item.id] = (
+                await decideReviewItem(access, item.id, {
+                    decision: "accepted",
+                    version: item.version,
+                    ...(maybe ? { choice: maybe } : {}),
+                })
+            ).version;
+        }
+        // Eva is known: asked whether this address is hers.
+        expect(
+            review.items.some(
+                (item) =>
+                    (item.payload as { maybe?: unknown }).maybe !== undefined,
+            ),
+        ).toBe(true);
+        await finishReview(access, "u-jan", { versions });
+        // Eva is the Organization's since the mail was shared above.
+        const stored = await db()
+            .select({
+                personId: personEmails.personId,
+                email: personEmails.email,
+            })
+            .from(personEmails);
+        expect(stored.map((row) => decryptText(row.email))).toEqual([second]);
+
+        const next = await deliver("Third", "Hello again.", second);
+        const participants = await db()
+            .select({
+                ref: mailParticipants.ref,
+                personId: mailParticipants.personId,
+            })
+            .from(mailParticipants)
+            .where(eq(mailParticipants.itemId, next));
+        // Eva, by her second address.
+        expect(participants.find((row) => row.ref === "p2")?.personId).toBe(
+            stored[0]?.personId,
+        );
     });
 
     it("starts Learn by itself on a new mail when automatic Learn is on", async () => {
