@@ -52,6 +52,8 @@ interface RecordingListProps {
     initialKindFilter?: KindFilter;
     initialChunkSize: number;
     onOrganize: () => void;
+    /** The library the list shows, which the server search reads. */
+    searchView?: "private" | "org";
 }
 
 export interface RecordingListHandle {
@@ -96,6 +98,7 @@ export function RecordingList({
     initialKindFilter = "all",
     initialChunkSize,
     onOrganize,
+    searchView = "private",
     ref,
 }: RecordingListProps & { ref?: React.Ref<RecordingListHandle> }) {
     const i18n = useExtracted();
@@ -109,6 +112,46 @@ export function RecordingList({
         [recordings],
     );
     const [query, setQuery] = useState("");
+    // What the server found for the query in what this page does not
+    // hold (a mail's text), with the words around each match.
+    const [serverHits, setServerHits] = useState<{
+        query: string;
+        hits: Map<string, string | null>;
+    } | null>(null);
+    useEffect(() => {
+        const q = query.trim();
+        if (q.length < 2) {
+            setServerHits(null);
+            return;
+        }
+        const controller = new AbortController();
+        const timer = setTimeout(async () => {
+            const hits = new Map<string, string | null>();
+            let before: string | null = null;
+            // A few bounded pages reach well back; a narrower query, further.
+            for (let page = 0; page < 5; page++) {
+                const params = new URLSearchParams({ q, view: searchView });
+                if (before) params.set("before", before);
+                const response = await fetch(`/api/items/search?${params}`, {
+                    signal: controller.signal,
+                }).catch(() => null);
+                if (!response?.ok) return;
+                const data = (await response.json()) as {
+                    hits: { id: string; snippet: string | null }[];
+                    complete: boolean;
+                    continueBefore: string | null;
+                };
+                for (const hit of data.hits) hits.set(hit.id, hit.snippet);
+                setServerHits({ query: q, hits: new Map(hits) });
+                if (data.complete || !data.continueBefore) return;
+                before = data.continueBefore;
+            }
+        }, 300);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [query, searchView]);
     // Only the recordings a Learn review waits on.
     const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
     const reviewCount = useMemo(
@@ -147,8 +190,13 @@ export function RecordingList({
             needsReviewOnly && reviewCount > 0
                 ? ofKind.filter((r) => r.needsReview)
                 : ofKind;
+        const found =
+            serverHits && serverHits.query.toLowerCase() === q
+                ? serverHits.hits
+                : null;
         const base = q
             ? pool.filter((r) => {
+                  if (found?.has(r.id)) return true;
                   if (r.filename.toLowerCase().includes(q)) return true;
                   if (r.mail?.from?.toLowerCase().includes(q)) return true;
                   // What people read, and the words as heard, both.
@@ -184,6 +232,7 @@ export function RecordingList({
         recordings,
         transcriptions,
         query,
+        serverHits,
         sortOrder,
         needsReviewOnly,
         reviewCount,
@@ -347,12 +396,19 @@ export function RecordingList({
                                         inFlight={inFlightActions.get(
                                             recording.id,
                                         )}
-                                        snippet={transcriptSnippet(
-                                            transcriptions.get(recording.id)
-                                                ?.readText ??
+                                        snippet={
+                                            (query.trim() &&
+                                                serverHits?.hits.get(
+                                                    recording.id,
+                                                )) ||
+                                            transcriptSnippet(
                                                 transcriptions.get(recording.id)
-                                                    ?.text,
-                                        )}
+                                                    ?.readText ??
+                                                    transcriptions.get(
+                                                        recording.id,
+                                                    )?.text,
+                                            )
+                                        }
                                         isCompact={false}
                                         rowPadding={rowPadding}
                                         dateTimeFormat={dateTimeFormat}

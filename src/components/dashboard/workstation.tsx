@@ -989,6 +989,9 @@ export function Workstation({
                                 {libraryMode === "recent" ? (
                                     <RecordingList
                                         ref={listRef}
+                                        searchView={
+                                            isOrgAccount ? "org" : "private"
+                                        }
                                         recordings={visibleRecordings}
                                         transcriptions={libraryTranscriptions}
                                         currentRecording={currentRecording}

@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+    cleanup,
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfirmDialogProvider } from "@/components/confirm-dialog";
 import { RecordingList } from "@/components/dashboard/recording-list";
@@ -111,5 +117,39 @@ describe("the list, as people read the transcript", () => {
             expect(screen.getByText("Weekly")).toBeTruthy();
             expect(screen.queryByText("Budget")).toBeNull();
         }
+    });
+});
+
+describe("the list's search, on the server", () => {
+    afterEach(() => {
+        cleanup();
+        vi.unstubAllGlobals();
+    });
+
+    it("adds what the server finds in what this page does not hold", async () => {
+        const fetch = vi.fn(async (input: RequestInfo | URL) => {
+            const url = String(input);
+            if (!url.startsWith("/api/items/search")) {
+                return new Response("{}");
+            }
+            expect(new URL(url, "http://localhost").searchParams.get("q")).toBe(
+                "invoice",
+            );
+            return Response.json({
+                hits: [{ id: "m1", snippet: "\u2026the invoice is attached" }],
+                complete: true,
+                continueBefore: null,
+            });
+        });
+        vi.stubGlobal("fetch", fetch);
+        list([recording("r1", "Weekly"), recording("m1", "Re: Order")]);
+        fireEvent.change(
+            screen.getByRole("textbox", { name: "Search recordings" }),
+            { target: { value: "invoice" } },
+        );
+        // The browser holds no mail text: only the server finds it.
+        await waitFor(() => expect(screen.getByText("Re: Order")).toBeTruthy());
+        expect(screen.queryByText("Weekly")).toBeNull();
+        expect(screen.getByText(/the invoice is attached/)).toBeTruthy();
     });
 });

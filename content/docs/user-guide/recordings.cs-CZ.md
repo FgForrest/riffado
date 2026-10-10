@@ -12,7 +12,7 @@ Seznam vlevo v části **Nahrávky** zobrazuje Vaše nejnovější nahrávky jak
 
 ![Seznam nahrávek s filtrem Potřebuje zkontrolovat](images/recording-list-needs-review.png)
 
-- **Hledat** vyhledává slova v názvech a přepisech. Prohledává opravené přepisy, takže pokud opravíte např. jméno, najde je podle Vašeho zápisu.
+- **Hledat** vyhledává slova v názvech a přepisech. Prohledává opravené přepisy, takže pokud opravíte např. jméno, najde je podle Vašeho zápisu. E-mail najde podle odesílatele a podle toho, co píše on sám, ne podle citovaných dřívějších zpráv, podpisu ani právního dovětku.
 - **Nejnovější** mění pořadí: od nejnovějších, od nejstarších nebo podle názvu.
 - **Potřebuje zkontrolovat** se zobrazí, když má Learn návrhy čekající na schválení v některých nahrávkách, a zobrazí pouze tyto nahrávky. Viz [Learn](learn.md).
 - **Organizovat** přepne seznam do režimu složek. Viz [Soubory](#folders).
