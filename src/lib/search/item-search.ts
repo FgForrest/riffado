@@ -213,6 +213,26 @@ export async function searchItems({
     before?: string | null;
 }): Promise<ItemSearchResult> {
     const words = foldForSearch(query).split(/\s+/).filter(Boolean);
+    // A colleague's mail is searched as it reads to the viewer: matched
+    // on its secret addresses, a search would spell out their tokens.
+    const masked = async (items: LoadedItem[]): Promise<LoadedItem[]> => {
+        const foreign = items.filter(
+            (item) => item.kind === "mail" && item.userId !== viewerUserId,
+        );
+        if (foreign.length === 0) return items;
+        const mask = await secretAddressMasker(
+            foreign.flatMap((item) => [item.title, ...item.texts]),
+        );
+        return items.map((item) =>
+            foreign.includes(item)
+                ? {
+                      ...item,
+                      title: mask(item.title),
+                      texts: item.texts.map(mask),
+                  }
+                : item,
+        );
+    };
     if (words.length === 0) {
         return { hits: [], scanned: 0, complete: true, continueBefore: null };
     }
@@ -231,9 +251,9 @@ export async function searchItems({
     } else {
         scope = eq(chatterItems.userId, viewerUserId);
     }
-    const found: (ItemSearchHit & { ownerUserId: string })[] = [];
+    const found: ItemSearchHit[] = [];
     const scan = await boundedScan({
-        batches: (stamp) => loadBatch(scope, stamp),
+        batches: async (stamp) => masked(await loadBatch(scope, stamp)),
         stampOf: (item) => encodeKeyset({ at: item.occurredAt, id: item.id }),
         visit: (item) => {
             const all = [item.title, ...item.texts];
@@ -242,12 +262,7 @@ export async function searchItems({
             const snippet = foldForSearch(item.title).includes(words[0] ?? "")
                 ? null
                 : snippetOf(item.texts, words[0] ?? "");
-            found.push({
-                id: item.id,
-                kind: item.kind,
-                snippet,
-                ownerUserId: item.userId,
-            });
+            found.push({ id: item.id, kind: item.kind, snippet });
             return item.id;
         },
         limit: SCAN_LIMIT,
@@ -255,28 +270,8 @@ export async function searchItems({
         maxResults: MAX_RESULTS,
         before,
     });
-    const foreignMail = found.filter(
-        (hit) =>
-            hit.kind === "mail" &&
-            hit.snippet &&
-            hit.ownerUserId !== viewerUserId,
-    );
-    const mask =
-        foreignMail.length > 0
-            ? await secretAddressMasker(
-                  foreignMail.map((hit) => hit.snippet ?? ""),
-              )
-            : (text: string) => text;
     return {
-        hits: found.map(({ ownerUserId, ...hit }) => ({
-            ...hit,
-            snippet:
-                hit.snippet &&
-                hit.kind === "mail" &&
-                ownerUserId !== viewerUserId
-                    ? mask(hit.snippet)
-                    : hit.snippet,
-        })),
+        hits: found,
         scanned: scan.scanned,
         complete: scan.complete,
         continueBefore: scan.continueBefore,

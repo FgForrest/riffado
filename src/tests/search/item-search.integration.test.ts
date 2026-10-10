@@ -321,6 +321,9 @@ describeWithDatabase("searching the pile (PostgreSQL)", () => {
         expect(hits.map((hit) => hit.id)).toEqual([janMail]);
         expect(hits[0]?.snippet).toContain("jan.");
         expect(hits[0]?.snippet).not.toContain(token);
+        // Nor does a search spell the token out.
+        expect(await ids("u-eva", token.slice(0, 7), "org")).toEqual([]);
+        expect(await ids("u-jan", token.slice(0, 7))).toEqual([janMail]);
         // Its owner reads their own.
         const own = await searchItems({
             viewerUserId: "u-jan",

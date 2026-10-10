@@ -136,6 +136,28 @@ async function mailMasker(tasks: readonly TaskListItem[]): Promise<Mask> {
         : (text: string) => text;
 }
 
+/** The tasks, those of mail with their secret addresses masked. */
+async function maskedMailTasks(tasks: TaskListItem[]): Promise<TaskListItem[]> {
+    if (!tasks.some((task) => task.recording.kind === "mail")) return tasks;
+    const mask = await mailMasker(tasks);
+    const optional = (text: string | null) => (text ? mask(text) : text);
+    return tasks.map((task) =>
+        task.recording.kind === "mail"
+            ? {
+                  ...task,
+                  text: mask(task.text),
+                  quote: optional(task.quote),
+                  duePhrase: optional(task.duePhrase),
+                  assigneeHint: optional(task.assigneeHint),
+                  recording: {
+                      ...task.recording,
+                      title: mask(task.recording.title),
+                  },
+              }
+            : task,
+    );
+}
+
 function toItem(
     caller: McpCaller,
     task: TaskListItem,
@@ -358,11 +380,15 @@ const searchTasks = defineTool({
         };
         const viewer = await taskViewerFor(caller);
         const scan = await boundedScan({
-            batches: (before) =>
-                listCallerTasks(viewer, {
-                    ...query,
-                    after: parseKeyset(before),
-                }),
+            // Matched as returned: a search on a secret address would
+            // spell out its token.
+            batches: async (before) =>
+                maskedMailTasks(
+                    await listCallerTasks(viewer, {
+                        ...query,
+                        after: parseKeyset(before),
+                    }),
+                ),
             stampOf: taskKeyset,
             visit: (task) => {
                 // A quote of a mail the caller may not read finds nothing.
