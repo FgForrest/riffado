@@ -126,8 +126,22 @@ export function buildSummaryMarkdown(input: SummarySidecarInput): string {
         "---",
     ].join("\n");
 
-    const sections: string[] = [`# ${input.title}`];
+    const sections = [`# ${input.title}`, ...summarySections(input)];
 
+    return `${frontMatter}\n\n${sections.join("\n\n")}\n`;
+}
+
+/**
+ * A summary's Markdown sections: its text, key points, and its tasks (or,
+ * while there are none, its action items).
+ */
+export function summarySections(
+    input: Pick<
+        SummarySidecarInput,
+        "summary" | "keyPoints" | "actionItems" | "tasks"
+    >,
+): string[] {
+    const sections: string[] = [];
     const summary = input.summary?.trim();
     if (summary) {
         sections.push(`## Summary\n\n${summary}`);
@@ -140,8 +154,7 @@ export function buildSummaryMarkdown(input: SummarySidecarInput): string {
     } else if (input.actionItems.length > 0) {
         sections.push(`## Action items\n\n${bulletList(input.actionItems)}`);
     }
-
-    return `${frontMatter}\n\n${sections.join("\n\n")}\n`;
+    return sections;
 }
 
 function taskList(tasks: readonly SummarySidecarTask[]): string {

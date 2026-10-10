@@ -21,6 +21,7 @@ import { readItemContent } from "@/lib/content/read-item-content";
 import { renderMailForModel } from "@/lib/content/render-mail";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { AppError, ErrorCode } from "@/lib/errors";
+import { exportRecordingSidecarsIfEnabled } from "@/lib/export/document-sidecars";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { notifyIfShared } from "@/lib/sharing/notify";
 import type { ContentRunContext } from "@/lib/sharing/run-context";
@@ -276,6 +277,12 @@ export async function generateMailSummary(
         throw new AppError(ErrorCode.NOT_FOUND, "Mail was deleted", 410);
     }
 
+    await exportRecordingSidecarsIfEnabled(
+        ctx.contentUserId,
+        itemId,
+        "summary",
+        "riffado",
+    );
     await notifyIfShared(itemId);
     await captureServerEvent({
         distinctId: ctx.actorUserId,

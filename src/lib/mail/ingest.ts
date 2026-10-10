@@ -22,6 +22,7 @@ import {
 } from "@/db/schema";
 import { encryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
+import { enqueueExportPlansForUser } from "@/lib/folder-exports/jobs";
 import {
     type MailAddressRow,
     mailUserByEmail,
@@ -348,6 +349,8 @@ export async function ingestMail(input: IngestInput): Promise<IngestResult> {
                     stored.duplicate ? "duplicate" : "accepted",
                 );
             }
+            // A duplicate may have been filed into another folder.
+            await scheduleOwnerExports(delivery.ownerUserId);
             if (!stored.duplicate) {
                 await processNewMail(delivery.ownerUserId, stored.itemId);
             }
@@ -357,6 +360,18 @@ export async function ingestMail(input: IngestInput): Promise<IngestResult> {
         entry.outcome = outcomeOf.get(entry.recipient) ?? entry.outcome;
     }
     return { outcomes, overQuota };
+}
+
+/** Plans the owner's folder exports again; never fails the delivery. */
+async function scheduleOwnerExports(ownerUserId: string): Promise<void> {
+    try {
+        await enqueueExportPlansForUser(ownerUserId);
+    } catch (error) {
+        console.error(
+            "[mail] could not schedule folder exports:",
+            error instanceof Error ? error.message : error,
+        );
+    }
 }
 
 /** The folder a secret address's base address files into, if any. */

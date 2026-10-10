@@ -9,6 +9,7 @@ import {
     recordingFolders,
 } from "@/db/schema";
 import { AppError, ErrorCode } from "@/lib/errors";
+import { enqueueExportPlansForUser } from "@/lib/folder-exports/jobs";
 import { lockOrgTree, orgTreeChanged } from "@/lib/folders/folders";
 import {
     knowledgeOnRecordingInTx,
@@ -152,6 +153,13 @@ export async function deleteMail(
         await bumpScopeInTx(tx, knowledge.scopes);
     });
     if (wasShared) await orgTreeChanged();
+    // What the owner's exports wrote of it goes too.
+    await enqueueExportPlansForUser(ownerUserId).catch((error: unknown) => {
+        console.error(
+            "[mail] could not schedule folder exports:",
+            error instanceof Error ? error.message : error,
+        );
+    });
 }
 
 /**

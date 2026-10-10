@@ -16,7 +16,8 @@ export function parseSaveFolderExportInput(
         !body ||
         typeof body.exportAudio !== "boolean" ||
         typeof body.exportTranscript !== "boolean" ||
-        typeof body.exportSummary !== "boolean"
+        typeof body.exportSummary !== "boolean" ||
+        (body.exportMail !== undefined && typeof body.exportMail !== "boolean")
     ) {
         throw invalid();
     }
@@ -24,6 +25,9 @@ export function parseSaveFolderExportInput(
         exportAudio: body.exportAudio,
         exportTranscript: body.exportTranscript,
         exportSummary: body.exportSummary,
+        ...(typeof body.exportMail === "boolean"
+            ? { exportMail: body.exportMail }
+            : {}),
     };
     if (body.provider === "filesystem") {
         if (typeof body.targetPath !== "string") throw invalid();

@@ -1,6 +1,15 @@
 import type { Readable } from "node:stream";
 
-export type ExportArtifactType = "audio" | "transcript" | "summary";
+/**
+ * What one exported file is: a recording's audio, transcript or summary, or
+ * a mail as it arrived (`.eml`) and as a Markdown document of it.
+ */
+export type ExportArtifactType =
+    | "audio"
+    | "transcript"
+    | "summary"
+    | "mail"
+    | "mail_document";
 export type FolderExportProviderType = "filesystem" | "google-drive";
 
 /** How one artifact lands in the target: a plain file, or a Google Doc. */
@@ -99,6 +108,7 @@ export interface FolderExportConfigurationDto {
     exportAudio: boolean;
     exportTranscript: boolean;
     exportSummary: boolean;
+    exportMail: boolean;
     googleDrive: GoogleDriveExportDto | null;
     /** Why the export stopped, when only the user can fix it. */
     lastError: string | null;
@@ -108,4 +118,6 @@ export interface FolderExportConfigurationDto {
 export interface ExportProvidersAvailability {
     filesystem: boolean;
     googleDrive: boolean;
+    /** Mail is on here, so an export can carry it. */
+    mail: boolean;
 }

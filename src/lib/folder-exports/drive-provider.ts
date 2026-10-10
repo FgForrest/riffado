@@ -35,6 +35,7 @@ export class DriveTargetLostError extends Error {
 
 const CONTENT_TYPES: Record<string, string> = {
     ".aac": "audio/aac",
+    ".eml": "message/rfc822",
     ".flac": "audio/flac",
     ".m4a": "audio/mp4",
     ".md": "text/markdown",

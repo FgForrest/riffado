@@ -24,6 +24,7 @@ Klikněte na **Přidat export do souborového systému**, zadejte název složky
 - **Audio**: originální nahrávka.
 - **Přepis**: přepis, ve všech jeho formách.
 - **Souhrn**: souhrn, ve všech jeho formách.
+- **Pošta** (kde vaše instance přijímá poštu): každý e-mail tak, jak přišel (`message.eml` i s přílohami), a jako čitelný `mail.md` se souhrnem a úkoly. Je vypnutá, dokud ji nezapnete; export jen pošty je v pořádku.
 
 Klikněte na **Uložit export**. Export zahrnuje složku a všechny složky uvnitř ní. Soubory jsou pojmenovány podle názvů nahrávek.
 
@@ -42,6 +43,7 @@ Nejprve propojte svůj Google účet v **Nastavení → Google účet**. Poté k
 - Soubory smazaných nahrávek, odstraněných přepisů nebo souhrnů, nebo druhů, které jste vypnuli, jsou z exportu vymazány.
 - Nahrávka zařazená do více složek má kopii v každé z nich.
 - Riffado se nikdy nedotýká souborů, které samo nevytvořilo. Audio, které [uchovávání](#deleting-old-data-automatically) odstranilo z Riffado, zůstává v exportu.
+- Export účtu organizace zapisuje u sdíleného e-mailu jen `mail.md` se skrytými tajnými adresami: zpráva tak, jak přišla, zůstává jejímu odesílateli.
 - **Synchronizovat** zkontroluje export a znovu zapíše to, co chybí.
 
 <span id="backups" />

@@ -47,6 +47,37 @@ describe("folder export request body", () => {
         });
     });
 
+    it("takes mail when it is given, and leaves it unset otherwise", () => {
+        expect(
+            parseSaveFolderExportInput({
+                provider: "filesystem",
+                targetPath: "team",
+                ...flags,
+                exportMail: true,
+            }),
+        ).toEqual({
+            provider: "filesystem",
+            targetPath: "team",
+            ...flags,
+            exportMail: true,
+        });
+        expect(
+            parseSaveFolderExportInput({
+                provider: "filesystem",
+                targetPath: "team",
+                ...flags,
+            }),
+        ).not.toHaveProperty("exportMail");
+        expect(() =>
+            parseSaveFolderExportInput({
+                provider: "filesystem",
+                targetPath: "team",
+                ...flags,
+                exportMail: "yes",
+            }),
+        ).toThrow("Invalid export configuration");
+    });
+
     it("rejects anything else", () => {
         for (const body of [
             null,

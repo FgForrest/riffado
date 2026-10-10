@@ -70,7 +70,11 @@ function renderPane(folder: RecordingFolder) {
                 onDeleteFolder={vi.fn()}
                 hiddenOnMobile={false}
                 onBackToFolders={vi.fn()}
-                exportProviders={{ filesystem: false, googleDrive: false }}
+                exportProviders={{
+                    filesystem: false,
+                    googleDrive: false,
+                    mail: false,
+                }}
             />
         </ConfirmDialogProvider>,
     );

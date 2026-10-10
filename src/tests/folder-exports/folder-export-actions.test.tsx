@@ -94,7 +94,7 @@ function renderActions() {
     render(
         <FolderExportActions
             folder={folder}
-            providers={{ filesystem: false, googleDrive: true }}
+            providers={{ filesystem: false, googleDrive: true, mail: true }}
             privateTree
         />,
     );
@@ -129,6 +129,12 @@ describe("folder export dialog with Google Drive", () => {
         await screen.findByText("Connected as jane@example.com");
         const save = screen.getByRole("button", { name: "Save export" });
         expect(save).toHaveProperty("disabled", true);
+        // Mail is on here, and off for a new export.
+        expect(
+            screen
+                .getByLabelText("Mail (the message and a Markdown document)")
+                .getAttribute("aria-checked"),
+        ).toBe("false");
 
         fireEvent.click(screen.getByRole("button", { name: /Choose folder/ }));
         await screen.findByText("Company exports");
@@ -154,6 +160,7 @@ describe("folder export dialog with Google Drive", () => {
                 exportAudio: true,
                 exportTranscript: true,
                 exportSummary: true,
+                exportMail: false,
             }),
         );
         expect(toastMock.success).toHaveBeenCalledWith(
@@ -216,6 +223,7 @@ describe("folder export dialog with Google Drive", () => {
                     exportAudio: true,
                     exportTranscript: false,
                     exportSummary: true,
+                    exportMail: false,
                     lastError:
                         "The Google Drive folder of this export no longer exists or is in the trash",
                     lastErrorAt: "2026-09-23T10:00:00.000Z",
@@ -251,6 +259,7 @@ describe("folder export dialog with Google Drive", () => {
                     exportAudio: true,
                     exportTranscript: false,
                     exportSummary: false,
+                    exportMail: false,
                     lastError: null,
                     lastErrorAt: null,
                     googleDrive: {

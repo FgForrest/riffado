@@ -470,9 +470,7 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
         }
     });
 
-    if (!isMail) {
-        await removeRecordingSidecar(ownerUserId, id, "summary", source);
-    }
+    await removeRecordingSidecar(ownerUserId, id, "summary", source);
     await notifyIfShared(id);
 
     return NextResponse.json({ success: true });

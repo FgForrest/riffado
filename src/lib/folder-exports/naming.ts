@@ -28,6 +28,14 @@ export function recordingDirectory(title: string): string {
     return safePathSegment(title, "recording");
 }
 
+export function mailDirectory(subject: string): string {
+    return safePathSegment(subject, "mail");
+}
+
+/** A mail's message as it arrived, and its Markdown document. */
+export const MAIL_MESSAGE_FILENAME = "message.eml";
+export const MAIL_DOCUMENT_FILENAME = "mail.md";
+
 export function folderDirectory(name: string): string {
     return safePathSegment(name, "folder");
 }

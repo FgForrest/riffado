@@ -1,0 +1,1 @@
+ALTER TABLE "folder_export_configurations" ADD COLUMN "export_mail" boolean DEFAULT false NOT NULL;

@@ -11,6 +11,7 @@ import {
     folderExportDirectories,
     folderExportMaterializations,
     folderExportPlacements,
+    mailMessages,
     recordings,
     transcriptions,
 } from "@/db/schema";
@@ -25,8 +26,12 @@ import {
     exportPlacementFolderIds,
     relativeFolderChain,
 } from "@/lib/folders/hierarchy";
+import { mailMarkdownDocument } from "@/lib/mail/export-document";
 import { isOrgAccount } from "@/lib/org/config";
-import { sharedRecordingCondition } from "@/lib/sharing/shared";
+import {
+    sharedItemCondition,
+    sharedRecordingCondition,
+} from "@/lib/sharing/shared";
 import type { RecordingFolder } from "@/types/folder";
 import { enqueueExportMaterialization } from "./jobs";
 import { withExportLock } from "./lock";
@@ -35,6 +40,9 @@ import {
     audioExtension,
     documentFiles,
     folderDirectory,
+    MAIL_DOCUMENT_FILENAME,
+    MAIL_MESSAGE_FILENAME,
+    mailDirectory,
     recordingDirectory,
     sourceFilename,
 } from "./naming";
@@ -55,7 +63,10 @@ interface PlannedArtifact {
     version: string;
     filename: string;
     size: number;
-    /** Audio Riffado no longer holds: only an exported copy can stay. */
+    /**
+     * Audio or a mail's message Riffado no longer holds: only an exported
+     * copy can stay.
+     */
     reaped: boolean;
 }
 
@@ -195,7 +206,8 @@ function legacyProjectionPaths(
 
 /**
  * Projects the export's folder subtree onto its target: one directory per
- * folder, one per placement of a recording, and the files of each.
+ * folder, one per placement of a recording or a mail, and the files of
+ * each.
  *
  * Whatever the export wrote earlier and no longer places is moved where it
  * belongs now or deleted; entries it did not create are never touched.
@@ -255,6 +267,33 @@ async function planLocked(
         sharedRecordingCondition(userId),
         isNull(recordings.deletedAt),
     );
+    const mailRows = configuration.exportMail
+        ? await db
+              .select({
+                  id: chatterItems.id,
+                  userId: chatterItems.userId,
+                  title: chatterItems.title,
+                  rawHash: mailMessages.rawHash,
+                  sizeBytes: mailMessages.sizeBytes,
+                  rawStoragePath: mailMessages.rawStoragePath,
+              })
+              .from(mailMessages)
+              .innerJoin(
+                  chatterItems,
+                  and(
+                      eq(chatterItems.id, mailMessages.id),
+                      eq(chatterItems.userId, mailMessages.userId),
+                  ),
+              )
+              .where(
+                  and(
+                      isOrg
+                          ? sharedItemCondition(userId, chatterItems.id)
+                          : eq(chatterItems.userId, userId),
+                      isNull(chatterItems.deletedAt),
+                  ),
+              )
+        : [];
     const [
         transcriptRows,
         summaryRows,
@@ -508,19 +547,40 @@ async function planLocked(
         }
     }
 
-    const exportedAudio = new Map<string, ExistingState>();
+    // A written copy of what retention may take: audio, a mail's message.
+    const exportedCopy = new Map<string, ExistingState>();
+    const copyKey = (artifactType: ExportArtifactType, itemId: string) =>
+        `${artifactType}\0${itemId}`;
     for (const state of existingStates) {
+        const key = copyKey(state.artifactType, state.recordingId);
         if (
-            state.artifactType === "audio" &&
+            (state.artifactType === "audio" || state.artifactType === "mail") &&
             state.status === "exported" &&
-            !exportedAudio.has(state.recordingId)
+            !exportedCopy.has(key)
         ) {
-            exportedAudio.set(state.recordingId, state);
+            exportedCopy.set(key, state);
         }
     }
+    const keptCopy = (
+        artifactType: ExportArtifactType,
+        itemId: string,
+    ): PlannedArtifact | null => {
+        const kept = exportedCopy.get(copyKey(artifactType, itemId));
+        return kept
+            ? {
+                  artifactType,
+                  artifactId: itemId,
+                  format: "file",
+                  version: kept.artifactVersion,
+                  filename: path.posix.basename(kept.logicalPath),
+                  size: kept.expectedSize,
+                  reaped: true,
+              }
+            : null;
+    };
 
     const plannedPlacements: Array<{
-        recording: (typeof recordingRows)[number];
+        itemId: string;
         placementFolderId: string;
         artifacts: PlannedArtifact[];
         preferredName: string;
@@ -558,18 +618,8 @@ async function planLocked(
                 reaped: false,
             });
         } else if (configuration.exportAudio) {
-            const kept = exportedAudio.get(recording.id);
-            if (kept) {
-                artifacts.push({
-                    artifactType: "audio",
-                    artifactId: recording.id,
-                    format: "file",
-                    version: kept.artifactVersion,
-                    filename: path.posix.basename(kept.logicalPath),
-                    size: kept.expectedSize,
-                    reaped: true,
-                });
-            }
+            const kept = keptCopy("audio", recording.id);
+            if (kept) artifacts.push(kept);
         }
         if (configuration.exportTranscript) {
             for (const transcript of transcriptRows.filter(
@@ -629,10 +679,63 @@ async function planLocked(
         }
         for (const placementFolderId of placements) {
             plannedPlacements.push({
-                recording,
+                itemId: recording.id,
                 placementFolderId,
                 artifacts,
                 preferredName: recordingDirectory(decryptText(recording.title)),
+            });
+        }
+    }
+    for (const mail of mailRows) {
+        const placements = exportPlacementFolderIds(
+            organization.folders,
+            organization.assignments,
+            mail.id,
+            configuration.folderId,
+        ).filter((folderId) => configSubtree.has(folderId));
+        if (placements.length === 0) continue;
+        placementFoldersByRecording.set(mail.id, new Set(placements));
+
+        const artifacts: PlannedArtifact[] = [];
+        // The message as it arrived carries every header unmasked: the
+        // owner's alone. The Organization's export writes the document.
+        if (!isOrg && mail.rawStoragePath) {
+            artifacts.push({
+                artifactType: "mail",
+                artifactId: mail.id,
+                format: "file",
+                version: mail.rawHash,
+                filename: MAIL_MESSAGE_FILENAME,
+                size: mail.sizeBytes,
+                reaped: false,
+            });
+        } else if (!isOrg) {
+            const kept = keptCopy("mail", mail.id);
+            if (kept) artifacts.push(kept);
+        }
+        const document = await mailMarkdownDocument({
+            viewerUserId: userId,
+            ownerUserId: mail.userId,
+            itemId: mail.id,
+        });
+        if (document) {
+            const content = Buffer.from(document);
+            artifacts.push({
+                artifactType: "mail_document",
+                artifactId: mail.id,
+                format: "file",
+                version: digest(content),
+                filename: MAIL_DOCUMENT_FILENAME,
+                size: content.byteLength,
+                reaped: false,
+            });
+        }
+        for (const placementFolderId of placements) {
+            plannedPlacements.push({
+                itemId: mail.id,
+                placementFolderId,
+                artifacts,
+                preferredName: mailDirectory(decryptText(mail.title)),
             });
         }
     }
@@ -673,10 +776,10 @@ async function planLocked(
         );
         if (folderOrder) return folderOrder;
         const leftExisting = placementByKey.get(
-            placementKey(left.recording.id, left.placementFolderId),
+            placementKey(left.itemId, left.placementFolderId),
         );
         const rightExisting = placementByKey.get(
-            placementKey(right.recording.id, right.placementFolderId),
+            placementKey(right.itemId, right.placementFolderId),
         );
         const priority =
             allocationPriority(
@@ -687,7 +790,7 @@ async function planLocked(
                 rightExisting?.directoryName,
                 right.preferredName,
             );
-        return priority || left.recording.id.localeCompare(right.recording.id);
+        return priority || left.itemId.localeCompare(right.itemId);
     });
 
     // Every name in a directory is taken, the export's own included: a
@@ -705,7 +808,7 @@ async function planLocked(
     }
     for (const placement of plannedPlacements) {
         const existing = placementByKey.get(
-            placementKey(placement.recording.id, placement.placementFolderId),
+            placementKey(placement.itemId, placement.placementFolderId),
         );
         if (existing?.targetPath !== configuration.targetPath) continue;
         occupiedByFolder
@@ -723,10 +826,7 @@ async function planLocked(
         const foreign =
             foreignByFolder.get(placement.placementFolderId) ??
             new Set<string>();
-        const key = placementKey(
-            placement.recording.id,
-            placement.placementFolderId,
-        );
+        const key = placementKey(placement.itemId, placement.placementFolderId);
         const existing = placementByKey.get(key);
         const sameTarget = existing?.targetPath === configuration.targetPath;
         if (sameTarget && !foreign.has(existing.directoryName)) {
@@ -771,7 +871,7 @@ async function planLocked(
             .values({
                 userId,
                 exportConfigurationId: exportId,
-                itemId: placement.recording.id,
+                itemId: placement.itemId,
                 placementFolderId: placement.placementFolderId,
                 targetPath: configuration.targetPath,
                 directoryName,
@@ -803,7 +903,7 @@ async function planLocked(
                 .values({
                     userId,
                     exportConfigurationId: exportId,
-                    itemId: placement.recording.id,
+                    itemId: placement.itemId,
                     placementFolderId: placement.placementFolderId,
                     artifactType: artifact.artifactType,
                     artifactId: artifact.artifactId,
@@ -840,7 +940,7 @@ async function planLocked(
                 id: state.id,
                 status: state.status,
                 key: artifactKey({
-                    recordingId: placement.recording.id,
+                    recordingId: placement.itemId,
                     ...artifact,
                 }),
                 logicalPath,
@@ -903,8 +1003,8 @@ async function planLocked(
                     ),
                 );
         } else if (planned.reaped) {
-            // Riffado no longer holds this audio: a copy that could not be
-            // moved stays where it is, the only one left.
+            // Riffado no longer holds this audio or message: a copy that
+            // could not be moved stays where it is, the only one left.
             for (const state of candidates) {
                 const current = relocatedPath(state.logicalPath, moves);
                 if (

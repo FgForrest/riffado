@@ -11,6 +11,7 @@ import { AppError, ErrorCode } from "@/lib/errors";
 import { applicableExportConfigurationIds } from "@/lib/folders/hierarchy";
 import { isGoogleIntegrationAvailable } from "@/lib/integrations/google/config";
 import { inspectDriveFolder } from "@/lib/integrations/google/drive-folders";
+import { isMailEnabled } from "@/lib/mail/config";
 import { assertOrgScopeWritable, isOrgAccount } from "@/lib/org/config";
 import { validateRelativeExportPath } from "./filesystem-provider";
 import { enqueueExportPlan } from "./jobs";
@@ -30,6 +31,8 @@ interface SaveFolderExportCommon {
     exportAudio: boolean;
     exportTranscript: boolean;
     exportSummary: boolean;
+    /** Absent: off on a new export, unchanged on an existing one. */
+    exportMail?: boolean;
 }
 
 export type SaveFolderExportInput = SaveFolderExportCommon &
@@ -57,6 +60,7 @@ export function exportProvidersAvailability(): ExportProvidersAvailability {
     return {
         filesystem: !env.IS_HOSTED && Boolean(env.FILESYSTEM_EXPORT_ROOT),
         googleDrive: isGoogleIntegrationAvailable(),
+        mail: isMailEnabled(),
     };
 }
 
@@ -90,8 +94,18 @@ export function assertFolderExportsAvailable(): void {
     }
 }
 
-function validateSelection(input: SaveFolderExportInput): void {
-    if (!input.exportAudio && !input.exportTranscript && !input.exportSummary) {
+function validateSelection(selection: {
+    exportAudio: boolean;
+    exportTranscript: boolean;
+    exportSummary: boolean;
+    exportMail: boolean;
+}): void {
+    if (
+        !selection.exportAudio &&
+        !selection.exportTranscript &&
+        !selection.exportSummary &&
+        !selection.exportMail
+    ) {
         throw new AppError(
             ErrorCode.INVALID_INPUT,
             "Enable at least one artifact type",
@@ -185,7 +199,8 @@ export async function createFolderExport(
 ): Promise<FolderExportConfigurationDto> {
     const provider = providerOf(input);
     assertProviderAvailable(provider);
-    validateSelection(input);
+    const exportMail = input.exportMail ?? false;
+    validateSelection({ ...input, exportMail });
     await assertExportableFolder(userId, folderId);
     const targetPath =
         input.provider === "google-drive"
@@ -205,6 +220,7 @@ export async function createFolderExport(
                 exportAudio: input.exportAudio,
                 exportTranscript: input.exportTranscript,
                 exportSummary: input.exportSummary,
+                exportMail,
             })
             .returning();
         if (!created) throw new Error("Export configuration was not created");
@@ -241,11 +257,12 @@ export async function updateFolderExport(
 ): Promise<FolderExportConfigurationDto> {
     const provider = providerOf(input);
     assertProviderAvailable(provider);
-    validateSelection(input);
     const existing = await loadExportTarget(userId, exportId);
     if (!existing || existing.folderId !== folderId) {
         throw new AppError(ErrorCode.NOT_FOUND, "Export not found", 404);
     }
+    const exportMail = input.exportMail ?? existing.exportMail;
+    validateSelection({ ...input, exportMail });
     if (existing.provider !== provider) {
         throw new AppError(
             ErrorCode.INVALID_INPUT,
@@ -268,6 +285,7 @@ export async function updateFolderExport(
                 exportAudio: input.exportAudio,
                 exportTranscript: input.exportTranscript,
                 exportSummary: input.exportSummary,
+                exportMail,
                 updatedAt: new Date(),
             })
             .where(

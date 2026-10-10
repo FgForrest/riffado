@@ -668,6 +668,8 @@ export const folderExportConfigurations = pgTable(
         exportAudio: boolean("export_audio").notNull().default(true),
         exportTranscript: boolean("export_transcript").notNull().default(true),
         exportSummary: boolean("export_summary").notNull().default(true),
+        // Mail filed into the folders: off unless asked for.
+        exportMail: boolean("export_mail").notNull().default(false),
         // The last failure only the user can fix (a revoked account, a
         // deleted target folder); cleared by the next successful plan.
         lastError: text("last_error"),
@@ -926,8 +928,12 @@ export const folderExportMaterializations = pgTable(
         placementFolderId: text("placement_folder_id")
             .notNull()
             .references(() => recordingFolders.id, { onDelete: "cascade" }),
+        // A mail is two artifacts: its message as it arrived (`mail`) and
+        // a Markdown document of it rendered when written (`mail_document`).
         artifactType: varchar("artifact_type", { length: 16 })
-            .$type<"audio" | "transcript" | "summary">()
+            .$type<
+                "audio" | "transcript" | "summary" | "mail" | "mail_document"
+            >()
             .notNull(),
         artifactId: text("artifact_id").notNull(),
         // `google_doc` only on Google Drive: the Markdown converted to a Doc.
