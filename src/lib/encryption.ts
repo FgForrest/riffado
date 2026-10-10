@@ -77,3 +77,43 @@ export function decryptJSON<T>(ciphertext: string): T {
 export function generateEncryptionKey(): string {
     return randomBytes(KEY_LENGTH).toString("hex");
 }
+
+const BUFFER_MAGIC = Buffer.from("RFE1");
+const BUFFER_IV_LENGTH = 12;
+const BUFFER_TAG_LENGTH = 16;
+
+/**
+ * AES-256-GCM over bytes, for files (a raw mail): `RFE1`, a 12-byte IV, the
+ * 16-byte tag, then the ciphertext. Binary, so a 36 MB message stays one.
+ */
+export function encryptBuffer(plaintext: Buffer): Buffer {
+    const iv = randomBytes(BUFFER_IV_LENGTH);
+    const cipher = createCipheriv(ALGORITHM, getEncryptionKey(), iv);
+    const encrypted = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+    return Buffer.concat([BUFFER_MAGIC, iv, cipher.getAuthTag(), encrypted]);
+}
+
+/** Decrypts what `encryptBuffer` produced; throws on any tampering. */
+export function decryptBuffer(ciphertext: Buffer): Buffer {
+    const header = BUFFER_MAGIC.length + BUFFER_IV_LENGTH + BUFFER_TAG_LENGTH;
+    if (
+        ciphertext.length < header ||
+        !ciphertext.subarray(0, BUFFER_MAGIC.length).equals(BUFFER_MAGIC)
+    ) {
+        throw new Error("Decryption failed: not an encrypted file");
+    }
+    const iv = ciphertext.subarray(
+        BUFFER_MAGIC.length,
+        BUFFER_MAGIC.length + BUFFER_IV_LENGTH,
+    );
+    const tag = ciphertext.subarray(
+        BUFFER_MAGIC.length + BUFFER_IV_LENGTH,
+        header,
+    );
+    const decipher = createDecipheriv(ALGORITHM, getEncryptionKey(), iv);
+    decipher.setAuthTag(tag);
+    return Buffer.concat([
+        decipher.update(ciphertext.subarray(header)),
+        decipher.final(),
+    ]);
+}

@@ -99,33 +99,37 @@ function parseTag(raw: string): Tag | null {
     };
 }
 
-/** Whether an opening tag starts a quoted part, by how clients mark one. */
+/**
+ * Whether an opening tag starts a quoted part. Every client wraps the
+ * quoted message itself in a `blockquote` (Gmail's `gmail_quote`, Apple
+ * Mail's and Thunderbird's `type="cite"`); the containers around it hold
+ * the reply header, which the segmenter reads as text, and Outlook's and
+ * Gmail's forwards carry no quote markup at all.
+ */
 function opensQuote(tag: Tag): boolean {
-    if (tag.name === "blockquote") return true;
-    if (tag.name !== "div") return false;
-    const attributes = tag.attributes.toLowerCase();
-    return (
-        /class\s*=\s*["'][^"']*\bgmail_quote\b/.test(attributes) ||
-        /id\s*=\s*["']?(appendonsend|divrplyfwdmsg|mail-editor-reference-message-container)\b/.test(
-            attributes,
-        ) ||
-        /class\s*=\s*["'][^"']*\b(yahoo_quoted|moz-cite-prefix)\b/.test(
-            attributes,
-        )
-    );
+    return tag.name === "blockquote";
 }
 
 /**
- * The text of `html`, block elements on lines of their own, quoted parts
- * between markers. Gmail's attribution line (`gmail_attr`) stays inside the
- * quote it introduces, where the segmenter reads it.
+ * The text of `html` as a browser would lay it out in lines: a block
+ * boundary breaks a line that has text, a `<br>` breaks one always (so an
+ * empty `<div><br></div>` is an empty line), a paragraph is followed by a
+ * blank line. Quoted parts sit between marker lines.
  */
 export function htmlToText(html: string): string {
     const out: string[] = [];
-    // Per open element: whether it opened a quote.
     const stack: { name: string; quote: boolean }[] = [];
     let skipping: string | null = null;
     let quoteDepth = 0;
+    let lineHasText = false;
+    const breakLine = () => {
+        if (lineHasText) out.push("\n");
+        lineHasText = false;
+    };
+    const marker = (value: string) => {
+        breakLine();
+        out.push(`${value}\n`);
+    };
     const tokens = html.match(/<!--[\s\S]*?-->|<[^>]*>|[^<]+/g) ?? [];
     for (const token of tokens) {
         if (token.startsWith("<!--")) continue;
@@ -136,51 +140,66 @@ export function htmlToText(html: string): string {
                 if (tag.closing && tag.name === skipping) skipping = null;
                 continue;
             }
+            const selfClosing = /\/\s*>$/.test(token);
             if (!tag.closing && SKIPPED_TAGS.has(tag.name)) {
-                if (!/\/\s*>$/.test(token)) skipping = tag.name;
+                if (!selfClosing) skipping = tag.name;
                 continue;
             }
             if (tag.name === "br") {
                 out.push("\n");
+                lineHasText = false;
                 continue;
             }
             if (!tag.closing) {
                 const quote = opensQuote(tag);
                 if (quote) {
                     quoteDepth++;
-                    out.push(`\n${QUOTE_OPEN}\n`);
-                } else if (BLOCK_TAGS.has(tag.name) || tag.name === "td") {
-                    out.push(tag.name === "td" ? " " : "\n");
+                    marker(QUOTE_OPEN);
+                } else if (tag.name === "p") {
+                    if (lineHasText) out.push("\n\n");
+                    lineHasText = false;
+                } else if (BLOCK_TAGS.has(tag.name)) {
+                    breakLine();
+                } else if (tag.name === "td" || tag.name === "th") {
+                    if (lineHasText) out.push(" ");
                 }
-                if (tag.name === "hr") out.push("\n");
-                if (!/\/\s*>$/.test(token) && tag.name !== "hr") {
+                if (!selfClosing && tag.name !== "hr") {
                     stack.push({ name: tag.name, quote });
                 }
                 continue;
             }
-            // A closing tag closes the innermost open element of its name.
             for (let i = stack.length - 1; i >= 0; i--) {
-                const open = stack[i];
-                if (open?.name !== tag.name) continue;
+                if (stack[i]?.name !== tag.name) continue;
                 for (const closed of stack.splice(i)) {
                     if (closed.quote) {
                         quoteDepth--;
-                        out.push(`\n${QUOTE_CLOSE}\n`);
+                        marker(QUOTE_CLOSE);
                     }
                 }
                 break;
             }
-            if (BLOCK_TAGS.has(tag.name)) out.push("\n");
+            if (tag.name === "p") {
+                if (lineHasText) out.push("\n\n");
+                lineHasText = false;
+            } else if (BLOCK_TAGS.has(tag.name)) {
+                breakLine();
+            }
             continue;
         }
         if (skipping) continue;
-        out.push(decodeEntities(token.replace(/\s+/g, " ")));
+        const text = decodeEntities(token.replace(/\s+/g, " "));
+        if (!text.trim()) {
+            if (lineHasText) out.push(" ");
+            continue;
+        }
+        out.push(lineHasText ? text : text.replace(/^\s+/, ""));
+        lineHasText = true;
     }
-    while (quoteDepth-- > 0) out.push(`\n${QUOTE_CLOSE}\n`);
+    while (quoteDepth-- > 0) marker(QUOTE_CLOSE);
     return out
         .join("")
         .split("\n")
-        .map((line) => line.replace(/[ \t ]+/g, " ").trim())
+        .map((line) => line.replace(/[ \t\u00a0]+/g, " ").trim())
         .join("\n")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
