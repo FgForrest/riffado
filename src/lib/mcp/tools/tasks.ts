@@ -129,6 +129,7 @@ async function mailMasker(tasks: readonly TaskListItem[]): Promise<Mask> {
             task.quote ?? "",
             task.duePhrase ?? "",
             task.assigneeHint ?? "",
+            task.assignee?.name ?? "",
             task.recording.title,
         ]);
     return texts.length > 0
@@ -175,7 +176,7 @@ function toItem(
         text: mask(task.text),
         status: listedStatus(task.status),
         assignee: task.assignee
-            ? { id: task.assignee.personId, name: task.assignee.name }
+            ? { id: task.assignee.personId, name: mask(task.assignee.name) }
             : null,
         assignee_hint: task.assigneeHint ? mask(task.assigneeHint) : null,
         due_date: task.dueDate,

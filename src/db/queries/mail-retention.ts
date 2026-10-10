@@ -22,6 +22,7 @@ import {
     knowledgeFactEvidence,
     learnRuns,
     mailContents,
+    mailLearnedParts,
     mailMessages,
     recordingTasks,
     userSettings,
@@ -359,6 +360,11 @@ export async function deleteMailContent(
                 ),
             );
         await tx.delete(learnRuns).where(eq(learnRuns.itemId, itemId));
+        // Its signatures and disclaimers were read here: read them again
+        // in the next mail that has them.
+        await tx
+            .delete(mailLearnedParts)
+            .where(eq(mailLearnedParts.itemId, itemId));
         await pruneUnsupportedFactsInTx(tx, knowledge.factIds);
         await tx
             .update(chatterItems)

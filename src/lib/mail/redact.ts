@@ -57,13 +57,23 @@ export async function secretAddressMasker(
  * lengths, so a quote the model gives back is found at the same place.
  */
 export async function maskedContentForModel<
-    T extends Pick<ItemContent, "segments">,
+    T extends Pick<ItemContent, "segments" | "participants">,
 >(content: T): Promise<T> {
-    const mask = await secretAddressMasker(
-        content.segments.map((segment) => segment.text),
-    );
+    const mask = await secretAddressMasker([
+        ...content.segments.map((segment) => segment.text),
+        // A sender names themselves as they like, an address included.
+        ...content.participants.map(
+            (participant) => participant.displayName ?? "",
+        ),
+    ]);
     return {
         ...content,
+        participants: content.participants.map((participant) => ({
+            ...participant,
+            displayName: participant.displayName
+                ? mask(participant.displayName)
+                : participant.displayName,
+        })),
         segments: content.segments.map((segment) => ({
             ...segment,
             text: mask(segment.text),

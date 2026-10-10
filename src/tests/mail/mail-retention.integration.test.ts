@@ -21,6 +21,7 @@ import {
     knowledgeFactEvidence,
     knowledgeFacts,
     mailContents,
+    mailLearnedParts,
     mailMessages,
     mailParticipants,
     recordingFolders,
@@ -330,6 +331,10 @@ describeWithDatabase("mail retention (PostgreSQL)", () => {
         );
         await summarize(itemId);
         const factId = await mailFact(itemId);
+        // A signature Learn read in this mail.
+        await db()
+            .insert(mailLearnedParts)
+            .values({ userId: "u-jan", fingerprint: "f".repeat(64), itemId });
         await age(itemId, 40);
         const [stored] = await db()
             .select({ path: mailMessages.rawStoragePath })
@@ -379,6 +384,13 @@ describeWithDatabase("mail retention (PostgreSQL)", () => {
                 .select()
                 .from(knowledgeFacts)
                 .where(eq(knowledgeFacts.id, factId)),
+        ).toEqual([]);
+        // Its signature is read again in the next mail that has it.
+        expect(
+            await db()
+                .select()
+                .from(mailLearnedParts)
+                .where(eq(mailLearnedParts.itemId, itemId)),
         ).toEqual([]);
         expect(
             await db()

@@ -181,9 +181,13 @@ export async function generateMailSummary(
         outputLanguage,
         "extractions",
     );
+    // The tasks already decided name what people typed, an address too.
+    const tasksText = (await secretAddressMasker([tasksContext.text]))(
+        tasksContext.text,
+    );
     const prompt = [
         promptTemplate.replaceAll("{transcription}", () => mailText),
-        tasksContext.text,
+        tasksText,
     ]
         .filter(Boolean)
         .join("\n\n");

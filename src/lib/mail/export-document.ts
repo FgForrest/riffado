@@ -189,7 +189,7 @@ export async function mailMarkdownDocument({
         summary.summary ?? "",
         ...summary.keyPoints,
         ...summary.actionItems,
-        ...summary.tasks.map((task) => task.text),
+        ...summary.tasks.flatMap((task) => [task.text, task.assignee ?? ""]),
     ]);
     return buildMailMarkdown(detail, {
         summary: summary.summary ? mask(summary.summary) : null,
@@ -198,6 +198,7 @@ export async function mailMarkdownDocument({
         tasks: summary.tasks.map((task) => ({
             ...task,
             text: mask(task.text),
+            assignee: task.assignee ? mask(task.assignee) : null,
         })),
     });
 }

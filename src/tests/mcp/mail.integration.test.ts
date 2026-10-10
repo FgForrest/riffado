@@ -241,7 +241,8 @@ describeWithDatabase("mail through the MCP server (PostgreSQL)", () => {
         const raw = await signMessage(
             rawMessage(
                 [
-                    "From: Jan Novotny <jan@company.example>",
+                    // A display name carrying a secret address.
+                    `From: "Jan Novotny ${secret.localPart}@klepna.example" <jan@company.example>`,
                     "To: Eva Buyer <eva@client.example>, jan@klepna.example",
                     "Subject: Contract",
                     "Date: Fri, 09 Oct 2026 14:02:00 +0200",
@@ -441,7 +442,10 @@ describeWithDatabase("mail through the MCP server (PostgreSQL)", () => {
                 kind: "mail",
                 untrusted: true,
                 subject: "Contract",
-                from: { name: "Jan Novotny", address: "jan@company.example" },
+                from: {
+                    name: expect.stringMatching(/^Jan Novotny jan\.•{10}@/),
+                    address: "jan@company.example",
+                },
             }),
         ]);
         const read = await call<{
