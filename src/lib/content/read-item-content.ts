@@ -79,6 +79,7 @@ async function readMailContent(
                 name: mailParticipants.name,
                 address: mailParticipants.address,
                 authenticated: mailParticipants.authenticated,
+                personId: mailParticipants.personId,
             })
             .from(mailParticipants)
             .where(
@@ -106,6 +107,7 @@ async function readMailContent(
                 ? decryptText(participant.address)
                 : null,
             authenticated: participant.authenticated,
+            personId: participant.personId,
         })),
     });
 }

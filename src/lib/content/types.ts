@@ -28,6 +28,8 @@ export interface ContentParticipant {
     address?: string | null;
     /** The address was proven by the sender's DKIM signature. */
     authenticated?: boolean;
+    /** The owner's person this participant's address belongs to. */
+    personId?: string | null;
 }
 
 /**

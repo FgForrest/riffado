@@ -21,6 +21,7 @@ export interface MailContentSource {
         name: string | null;
         address: string | null;
         authenticated: boolean;
+        personId?: string | null;
     }[];
 }
 
@@ -48,6 +49,7 @@ export function mailContentFrom(source: MailContentSource): ItemContent {
             displayName: participant.name,
             address: participant.address,
             authenticated: participant.authenticated,
+            personId: participant.personId ?? null,
         }),
     );
     return {

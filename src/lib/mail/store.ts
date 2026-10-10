@@ -19,6 +19,11 @@ import {
     participantAddressHash,
     rawMessageHash,
 } from "@/lib/mail/hash";
+import {
+    knownQuotedItems,
+    markKnownQuotes,
+    peopleByAddress,
+} from "@/lib/mail/known-quotes";
 import type { ParsedMessage } from "@/lib/mail/parse";
 import type { MessageFacts } from "@/lib/mail/policy";
 import { deleteRawMail, storeRawMail } from "@/lib/mail/raw-storage";
@@ -194,6 +199,16 @@ export async function storeMailForOwner(input: {
     });
     const threadRoot =
         parsed.references[0] ?? parsed.inReplyTo ?? parsed.messageId;
+    const [knownQuotes, participantPeople] = await Promise.all([
+        knownQuotedItems(owner, parsed.references, parsed.inReplyTo),
+        peopleByAddress(
+            owner,
+            segmented.participants.flatMap((participant) =>
+                participant.address ? [participant.address] : [],
+            ),
+        ),
+    ]);
+    const segments = markKnownQuotes(segmented.segments, knownQuotes);
     const rawStoragePath = await storeRawMail(owner, itemId, input.raw);
     try {
         await db.transaction(async (tx) => {
@@ -254,6 +269,11 @@ export async function storeMailForOwner(input: {
                         name: participant.displayName
                             ? encryptText(participant.displayName)
                             : null,
+                        personId: participant.address
+                            ? (participantPeople.get(
+                                  participant.address.toLowerCase(),
+                              ) ?? null)
+                            : null,
                         authenticated: participant.authenticated,
                         position,
                     })),
@@ -264,7 +284,7 @@ export async function storeMailForOwner(input: {
                 userId: owner,
                 revision: 0,
                 parserVersion: MAIL_PARSER_VERSION,
-                segments: encryptJsonField(segmented.segments),
+                segments: encryptJsonField(segments),
             });
             await fileInTx(tx, delivery, itemId);
             await logAcceptedInTx(

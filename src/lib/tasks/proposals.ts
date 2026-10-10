@@ -220,9 +220,10 @@ export async function resolveTaskProposals({
     /** The content of the mail the summary is of. */
     mail?: ItemContent | null;
 }): Promise<TaskProposals> {
+    const participantOf = (ref: string) =>
+        mail?.participants.find((participant) => participant.ref === ref);
     const participantName = (ref: string) =>
-        mail?.participants.find((participant) => participant.ref === ref)
-            ?.displayName ?? null;
+        participantOf(ref)?.displayName ?? null;
     const evidence = (quote: string | null) =>
         mail
             ? mailEvidence(mail, quote)
@@ -265,7 +266,12 @@ export async function resolveTaskProposals({
             ? (item.assignee ??
               (item.speaker ? participantName(item.speaker) : null))
             : null;
-        if (mail) {
+        const known =
+            mail && item.speaker ? participantOf(item.speaker) : undefined;
+        if (known?.personId) {
+            // The participant's address is the person's: no guess.
+            assigneePersonId = known.personId;
+        } else if (mail) {
             const person =
                 heard && view ? matchPerson(view, heard, language) : null;
             if (person) {

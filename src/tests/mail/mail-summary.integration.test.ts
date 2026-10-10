@@ -20,6 +20,7 @@ import {
     apiCredentials,
     asyncJobs,
     mailMessages,
+    mailParticipants,
     recordingTasks,
     userSettings,
     users,
@@ -104,9 +105,11 @@ vi.mock("openai", async (importOriginal) => {
 
 import { CONTENT_IS_DATA_DIRECTIVE } from "@/lib/ai/content-directive";
 import { readItemContent } from "@/lib/content/read-item-content";
+import { renderMailForModel } from "@/lib/content/render-mail";
 import { encrypt } from "@/lib/encryption";
 import { decryptText } from "@/lib/encryption/fields";
 import { ensureRootFolders } from "@/lib/folders/folders";
+import { createPerson } from "@/lib/knowledge/people";
 import { ensureMailbox } from "@/lib/mail/addresses";
 import { collectArchivedMail } from "@/lib/mail/archive";
 import { authenticateMessage } from "@/lib/mail/dkim";
@@ -254,6 +257,76 @@ describeWithDatabase("summaries of mail (PostgreSQL)", () => {
         expect(await readItemContent("u-other", itemId)).toBeNull();
     });
 
+    it("reads a reply's quote of a mail in the pile once, and knows its people", async () => {
+        const person = await createPerson({
+            userId: "u-jan",
+            displayName: "Eva Buyer",
+            primaryEmail: "Eva@Client.example",
+        });
+        const original = await deliver(
+            await signMessage(
+                rawMessage(
+                    [
+                        ...headers("Delivery").filter(
+                            (line) => !line.startsWith("Message-ID"),
+                        ),
+                        "Message-ID: <first-1@company.example>",
+                    ],
+                    "Can you deliver in November?",
+                ),
+                company,
+            ),
+            ["jan@klepna.example"],
+        );
+        const reply = await deliver(
+            await signMessage(
+                rawMessage(
+                    [
+                        ...headers("Re: Delivery").filter(
+                            (line) => !line.startsWith("Message-ID"),
+                        ),
+                        "Message-ID: <reply-1@company.example>",
+                        "In-Reply-To: <first-1@company.example>",
+                        "References: <first-1@company.example>",
+                    ],
+                    [
+                        "November works for us.",
+                        "",
+                        "On Fri, 9 Oct 2026 at 14:02, Jan Novotny <jan@company.example> wrote:",
+                        "> Can you deliver in November?",
+                    ].join("\n"),
+                ),
+                company,
+            ),
+            ["jan@klepna.example"],
+        );
+        const content = await readItemContent("u-jan", reply);
+        const quoted = content?.segments.find(
+            (segment) => segment.role === "quoted",
+        );
+        expect(quoted?.knownItemId).toBe(original);
+        const shown = renderMailForModel(
+            content ?? { participants: [], segments: [] },
+            {
+                subject: "Re: Delivery",
+                sentAt: null,
+            },
+        );
+        expect(shown).toContain("November works for us.");
+        expect(shown).not.toContain("Can you deliver in November?");
+
+        const [eva] = await db()
+            .select({ personId: mailParticipants.personId })
+            .from(mailParticipants)
+            .where(
+                and(
+                    eq(mailParticipants.itemId, reply),
+                    eq(mailParticipants.ref, "p2"),
+                ),
+            );
+        expect(eva?.personId).toBe(person.id);
+    });
+
     it("summarizes a mail and proposes its tasks, quoted ones unticked", async () => {
         const itemId = await deliver(
             await signMessage(
@@ -338,7 +411,9 @@ describeWithDatabase("summaries of mail (PostgreSQL)", () => {
             evidenceProvenance: null,
             dueDate: "2026-10-09",
         });
-        expect(decryptText(contract?.assigneeHint ?? "")).toBe("Eva Buyer");
+        // Eva's address is a person of Jan's Almanac since the test above.
+        expect(contract?.assigneePersonId).toEqual(expect.any(String));
+        expect(contract?.assigneeCheck).toBe(false);
         const samples = byText.get("Deliver the samples to the warehouse");
         expect(samples).toMatchObject({
             ticked: false,
