@@ -9,6 +9,7 @@ const { prunes, posthog } = vi.hoisted(() => ({
         pruneCompletedStripeWebhookEvents: vi.fn(),
         pruneExpiredRateLimitBuckets: vi.fn(),
         pruneMcpAccessLog: vi.fn(),
+        pruneMailDeliveryLog: vi.fn(),
         pruneSettledWebhookDeliveries: vi.fn(),
     },
     posthog: { captureServerException: vi.fn() },
@@ -26,6 +27,10 @@ vi.mock("@/db/queries/auth-sessions", () => ({
 }));
 vi.mock("@/db/queries/billing", () => ({
     pruneCompletedStripeWebhookEvents: prunes.pruneCompletedStripeWebhookEvents,
+}));
+vi.mock("@/db/queries/mail", () => ({
+    MAIL_DELIVERY_LOG_RETENTION_DAYS: 30,
+    pruneMailDeliveryLog: prunes.pruneMailDeliveryLog,
 }));
 vi.mock("@/db/queries/mcp-audit", () => ({
     pruneMcpAccessLog: prunes.pruneMcpAccessLog,
@@ -97,8 +102,10 @@ describe("runHousekeeping", () => {
             verifications: 0,
             admin_audit_log: 0,
             mcp_access_log: 0,
+            mail_delivery_log: 0,
         });
         expect(prunes.pruneMcpAccessLog).toHaveBeenCalledWith(30, 10);
+        expect(prunes.pruneMailDeliveryLog).toHaveBeenCalledWith(30, 10);
         expect(posthog.captureServerException).toHaveBeenCalledWith(
             expect.any(Error),
             expect.objectContaining({ table: "async_jobs" }),

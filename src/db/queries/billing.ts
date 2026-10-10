@@ -1,8 +1,9 @@
-import { and, desc, eq, sql, sum } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql, sum } from "drizzle-orm";
 import { db } from "@/db";
 import {
     billingCustomers,
     foundingMemberReservations,
+    mailMessages,
     recordings,
     stripeWebhookEvents,
     subscriptions,
@@ -814,11 +815,26 @@ export async function claimUsersDueForDeletion(
 export async function listRecordingStoragePaths(
     userId: string,
 ): Promise<string[]> {
-    const rows = await db
-        .select({ storagePath: recordings.storagePath })
-        .from(recordings)
-        .where(eq(recordings.userId, userId));
-    return rows.map((r) => r.storagePath);
+    const [audio, mail] = await Promise.all([
+        db
+            .select({ storagePath: recordings.storagePath })
+            .from(recordings)
+            .where(eq(recordings.userId, userId)),
+        // The encrypted raw messages of their mail go with the account too.
+        db
+            .select({ storagePath: mailMessages.rawStoragePath })
+            .from(mailMessages)
+            .where(
+                and(
+                    eq(mailMessages.userId, userId),
+                    isNotNull(mailMessages.rawStoragePath),
+                ),
+            ),
+    ]);
+    return [
+        ...audio.map((r) => r.storagePath),
+        ...mail.flatMap((r) => (r.storagePath ? [r.storagePath] : [])),
+    ];
 }
 
 /**

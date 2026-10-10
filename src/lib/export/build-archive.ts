@@ -40,6 +40,7 @@ import {
     transcriptSpeakers,
     users,
 } from "@/db/schema";
+import { decryptBuffer } from "@/lib/encryption";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import {
     type ArchiveScope,
@@ -47,6 +48,7 @@ import {
     scopeUserId,
 } from "@/lib/export/archive-scope";
 import { orgOwnedCondition } from "@/lib/knowledge/org-people";
+import { collectArchivedMail } from "@/lib/mail/archive";
 import type { StorageProvider } from "@/lib/storage/types";
 import {
     archivedAssigneeIds,
@@ -344,8 +346,15 @@ export async function buildAndUploadExportArchive(input: {
         facts?: { facts: number; evidence: number };
         learn?: { runs: number; items: number };
         aiProviderRates?: { count: number; path: string };
+        /** Mail of the pile: each a directory with message.eml and mail.json. */
+        mail?: {
+            id: string;
+            subject: string;
+            occurredAt: string;
+            path: string;
+        }[];
     } = {
-        version: "2.1",
+        version: "2.2",
         scope: scope.kind,
         createdAt: new Date().toISOString(),
         userId,
@@ -695,9 +704,46 @@ export async function buildAndUploadExportArchive(input: {
         };
     }
 
+    // Mail rides along: the raw message as it arrived (decrypted), and what
+    // was read from it.
+    const archivedMail = await collectArchivedMail(scope);
+    for (const mail of archivedMail) {
+        onProgress?.();
+        const directory = `mail/${folderName({
+            id: mail.id,
+            occurredAt: new Date(mail.occurredAt),
+        })}`;
+        const { rawStoragePath, ...meta } = mail;
+        if (rawStoragePath) {
+            try {
+                archive.append(
+                    decryptBuffer(
+                        await sourceStorage.downloadFile(rawStoragePath),
+                    ),
+                    { name: `${directory}/message.eml` },
+                );
+            } catch (error) {
+                console.error(
+                    `[export] could not read the raw message of mail ${mail.id}:`,
+                    error instanceof Error ? error.message : error,
+                );
+            }
+        }
+        archive.append(Buffer.from(JSON.stringify(meta, null, 2)), {
+            name: `${directory}/mail.json`,
+        });
+        manifest.mail ??= [];
+        manifest.mail.push({
+            id: mail.id,
+            subject: mail.subject,
+            occurredAt: mail.occurredAt,
+            path: directory,
+        });
+    }
+
     const organization = await collectFolderOrganization(
         scope,
-        new Set(recordingIds),
+        new Set([...recordingIds, ...archivedMail.map((mail) => mail.id)]),
     );
     if (organization.folders.length > 0) {
         archive.append(Buffer.from(JSON.stringify(organization, null, 2)), {

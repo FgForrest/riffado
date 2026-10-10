@@ -12,7 +12,9 @@ import { createHash } from "node:crypto";
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Readable } from "node:stream";
 import { and, eq } from "drizzle-orm";
+import unzipper from "unzipper";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
     accounts,
@@ -96,14 +98,18 @@ import { POST as ingestRoute } from "@/app/api/internal/mail/ingest/route";
 import { POST as precheckRoute } from "@/app/api/internal/mail/precheck/route";
 import { decryptBuffer } from "@/lib/encryption";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
+import { buildAndUploadExportArchive } from "@/lib/export/build-archive";
 import { createFolder, ensureRootFolders } from "@/lib/folders/folders";
 import { ensureMailbox, findFolderAddress } from "@/lib/mail/addresses";
+import { collectArchivedMail } from "@/lib/mail/archive";
 import { loadMailDetail } from "@/lib/mail/detail";
 import { authenticateMessage } from "@/lib/mail/dkim";
 import { ingestMail, precheckMail } from "@/lib/mail/ingest";
 import { loadMailListRows } from "@/lib/mail/list";
 import { deleteMail, shareMail } from "@/lib/mail/manage";
 import { ensureOrgAccount } from "@/lib/org/account";
+import { LocalStorage } from "@/lib/storage/local-storage";
+import type { StorageProvider } from "@/lib/storage/types";
 import {
     rawMessage,
     signMessage,
@@ -459,6 +465,62 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         expect(assigned).toEqual([{ folderId: orgWeeklyFolderId }]);
         const detail = await loadMailDetail("u-eva", row.id);
         expect(detail?.pendingShares).toEqual([]);
+    });
+
+    it("backs up mail: the owner's own, and the Organization's shared ones", async () => {
+        const mine = await collectArchivedMail({
+            kind: "personal",
+            userId: "u-jan",
+        });
+        expect(mine.length).toBeGreaterThanOrEqual(2);
+        expect(mine.every((mail) => mail.ownerUserId === "u-jan")).toBe(true);
+        const shared = await collectArchivedMail({
+            kind: "organization",
+            orgUserId,
+        });
+        expect(shared.map((mail) => mail.ownerUserId)).toEqual(["u-eva"]);
+
+        const source = new LocalStorage(storageDir);
+        let uploaded = Buffer.alloc(0);
+        const destination: StorageProvider = {
+            ...source,
+            uploadFile: async (key) => key,
+            uploadStream: async (key: string, stream: Readable) => {
+                const chunks: Buffer[] = [];
+                for await (const chunk of stream)
+                    chunks.push(Buffer.from(chunk));
+                uploaded = Buffer.concat(chunks);
+                return key;
+            },
+            downloadFile: (key) => source.downloadFile(key),
+            downloadStream: (key) => source.downloadStream(key),
+            exists: (key) => source.exists(key),
+            getSignedUrl: (key, expires) => source.getSignedUrl(key, expires),
+            deleteFile: (key) => source.deleteFile(key),
+            testConnection: () => source.testConnection(),
+        };
+        await buildAndUploadExportArchive({
+            scope: { kind: "personal", userId: "u-jan" },
+            sourceStorage: source,
+            destinationStorage: destination,
+            storageKey: "exports/u-jan.zip",
+        });
+        const directory = await unzipper.Open.buffer(uploaded);
+        const names = directory.files.map((entry) => entry.path);
+        const emls = names.filter((name) => name.endsWith("/message.eml"));
+        expect(emls.length).toBe(mine.length);
+        const manifest = JSON.parse(
+            (
+                await directory.files
+                    .find((entry) => entry.path === "manifest.json")
+                    ?.buffer()
+            )?.toString() ?? "{}",
+        );
+        expect(manifest.mail).toHaveLength(mine.length);
+        const first = directory.files.find((entry) => entry.path === emls[0]);
+        const eml = (await first?.buffer())?.toString() ?? "";
+        expect(eml).toContain("From:");
+        expect(eml).not.toContain("RFE1");
     });
 
     it("deletes a mail with everything on it, raw message included", async () => {

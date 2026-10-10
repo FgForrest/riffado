@@ -5,6 +5,10 @@ import {
     pruneExpiredVerifications,
 } from "@/db/queries/auth-sessions";
 import { pruneCompletedStripeWebhookEvents } from "@/db/queries/billing";
+import {
+    MAIL_DELIVERY_LOG_RETENTION_DAYS,
+    pruneMailDeliveryLog,
+} from "@/db/queries/mail";
 import { pruneMcpAccessLog } from "@/db/queries/mcp-audit";
 import { pruneExpiredRateLimitBuckets } from "@/db/queries/rate-limit";
 import { pruneSettledWebhookDeliveries } from "@/db/queries/webhook-deliveries";
@@ -95,6 +99,11 @@ export async function runHousekeeping(
         [
             "mcp_access_log",
             (limit) => pruneMcpAccessLog(env.MCP_AUDIT_RETENTION_DAYS, limit),
+        ],
+        [
+            "mail_delivery_log",
+            (limit) =>
+                pruneMailDeliveryLog(MAIL_DELIVERY_LOG_RETENTION_DAYS, limit),
         ],
     ];
 

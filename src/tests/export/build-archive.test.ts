@@ -15,6 +15,12 @@ vi.mock("@/lib/tasks/archive", () => ({
     taskUpdatesForArchive: vi.fn(async () => new Map()),
     archivedAssigneeIds: vi.fn(() => []),
 }));
+vi.mock("@/lib/mail/archive", () => ({
+    collectArchivedMail: vi.fn().mockResolvedValue([]),
+}));
+vi.mock("@/lib/encryption", () => ({
+    decryptBuffer: (value: Buffer) => value,
+}));
 vi.mock("@/db/schema", async (importOriginal) => ({
     // The recording reads select `audioItemColumns`, which is derived from
     // the real recording and item tables.
