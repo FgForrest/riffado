@@ -1,6 +1,7 @@
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import {
+    asyncJobs,
     chatterItems,
     mailMessages,
     mailPendingShares,
@@ -9,10 +10,16 @@ import {
 } from "@/db/schema";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { lockOrgTree, orgTreeChanged } from "@/lib/folders/folders";
+import {
+    knowledgeOnRecordingInTx,
+    pruneUnsupportedFactsInTx,
+} from "@/lib/knowledge/fact-evidence";
 import { lockOrgPeople } from "@/lib/knowledge/org-people";
+import { bumpScopeInTx } from "@/lib/knowledge/scope-generation";
 import { deleteRawMail } from "@/lib/mail/raw-storage";
 import { shareMailInTx } from "@/lib/mail/share-gate";
 import { getOrgUserId } from "@/lib/org/config";
+import { recordingJobSubject } from "@/lib/sharing/view";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
@@ -46,7 +53,8 @@ async function lockMailInTx(
  * as a recording's audio does: when storage fails nothing else changed and
  * the owner can retry, and no message is left behind without its row. Then
  * the item and everything on it (participants, segments, folder
- * assignments, pending shares) in one transaction.
+ * assignments, pending shares, evidence) in one transaction, with the
+ * facts it was the only evidence of, and the jobs queued for it.
  */
 export async function deleteMail(
     ownerUserId: string,
@@ -109,6 +117,29 @@ export async function deleteMail(
                 );
             wasShared = (shared?.n ?? 0) > 0;
         }
+        const now = new Date();
+        await tx
+            .update(asyncJobs)
+            .set({
+                status: "failed",
+                completedAt: now,
+                updatedAt: now,
+                heartbeatAt: null,
+                claimToken: null,
+                errorCode: ErrorCode.RECORDING_NOT_FOUND,
+                lastError: "Cancelled because the mail was deleted",
+            })
+            .where(
+                and(
+                    inArray(asyncJobs.subjectId, [
+                        recordingJobSubject(itemId, "private"),
+                        recordingJobSubject(itemId, "org"),
+                    ]),
+                    inArray(asyncJobs.kind, ["summary", "learn.run"]),
+                    inArray(asyncJobs.status, ["pending", "processing"]),
+                ),
+            );
+        const knowledge = await knowledgeOnRecordingInTx(tx, itemId);
         await tx
             .delete(chatterItems)
             .where(
@@ -117,6 +148,8 @@ export async function deleteMail(
                     eq(chatterItems.userId, ownerUserId),
                 ),
             );
+        await pruneUnsupportedFactsInTx(tx, knowledge.factIds);
+        await bumpScopeInTx(tx, knowledge.scopes);
     });
     if (wasShared) await orgTreeChanged();
 }

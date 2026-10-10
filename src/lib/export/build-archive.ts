@@ -1198,8 +1198,8 @@ async function collectKnowledgeBase(
         })),
     ];
 
-    // A person's other addresses: theirs to carry where their primary
-    // email is (their own people, or the whole Organization's).
+    // A person's other addresses, as this scope knows them: a member's
+    // knowledge that an address is an Organization person's stays theirs.
     const emailRows =
         archivedRows.length > 0
             ? await db
@@ -1209,15 +1209,12 @@ async function collectKnowledgeBase(
                   })
                   .from(personEmails)
                   .where(
-                      inArray(
-                          personEmails.personId,
-                          archivedRows
-                              .filter(
-                                  (row) =>
-                                      scope.kind === "organization" ||
-                                      !row.organization,
-                              )
-                              .map((row) => row.id),
+                      and(
+                          eq(personEmails.userId, userId),
+                          inArray(
+                              personEmails.personId,
+                              archivedRows.map((row) => row.id),
+                          ),
                       ),
                   )
             : [];
@@ -1635,6 +1632,8 @@ interface ArchivedFacts {
         charEnd: number | null;
         speakerLabel: string | null;
         dependsOnSpeaker: boolean;
+        /** In a mail: "quoted" (an earlier writer's words) or "unverified". */
+        provenance: string | null;
         quote: string;
         status: string;
         confirmedAt: string;
@@ -1682,6 +1681,7 @@ async function collectFacts(
                 charEnd: knowledgeFactEvidence.charEnd,
                 speakerLabel: knowledgeFactEvidence.speakerLabel,
                 dependsOnSpeaker: knowledgeFactEvidence.dependsOnSpeaker,
+                provenance: knowledgeFactEvidence.provenance,
                 quote: knowledgeFactEvidence.quote,
                 status: knowledgeFactEvidence.status,
                 confirmedAt: knowledgeFactEvidence.confirmedAt,

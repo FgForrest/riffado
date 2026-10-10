@@ -2,6 +2,7 @@ import { and, eq, inArray, ne, or, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
     chatterItems,
+    type EvidenceProvenance,
     people,
     recordingTasks,
     taskUpdateProposals,
@@ -29,7 +30,7 @@ export interface ArchivedTask {
         charStart: number;
         charEnd: number;
     };
-    evidenceProvenance?: "quoted" | "unverified";
+    evidenceProvenance?: EvidenceProvenance;
     source: string;
     createdAt: string;
     acceptedAt: string | null;
@@ -48,6 +49,13 @@ export interface ArchivedTaskUpdate {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    /** As on a task of a mail. */
+    evidenceText?: {
+        segmentIndex: number;
+        charStart: number;
+        charEnd: number;
+    };
+    evidenceProvenance?: EvidenceProvenance;
     ticked: boolean;
     createdAt: string;
 }
@@ -208,6 +216,10 @@ export async function taskUpdatesForArchive(
             duePhrase: taskUpdateProposals.duePhrase,
             quote: taskUpdateProposals.quote,
             evidenceStartMs: taskUpdateProposals.evidenceStartMs,
+            evidenceSegmentIndex: taskUpdateProposals.evidenceSegmentIndex,
+            evidenceCharStart: taskUpdateProposals.evidenceCharStart,
+            evidenceCharEnd: taskUpdateProposals.evidenceCharEnd,
+            evidenceProvenance: taskUpdateProposals.evidenceProvenance,
             ticked: taskUpdateProposals.ticked,
             createdAt: taskUpdateProposals.createdAt,
         })
@@ -239,6 +251,20 @@ export async function taskUpdatesForArchive(
             duePhrase: optional(row.duePhrase),
             quote: optional(row.quote),
             evidenceStartMs: row.evidenceStartMs,
+            ...(row.evidenceSegmentIndex !== null &&
+            row.evidenceCharStart !== null &&
+            row.evidenceCharEnd !== null
+                ? {
+                      evidenceText: {
+                          segmentIndex: row.evidenceSegmentIndex,
+                          charStart: row.evidenceCharStart,
+                          charEnd: row.evidenceCharEnd,
+                      },
+                  }
+                : {}),
+            ...(row.evidenceProvenance
+                ? { evidenceProvenance: row.evidenceProvenance }
+                : {}),
             ticked: row.ticked,
             createdAt: row.createdAt.toISOString(),
         });

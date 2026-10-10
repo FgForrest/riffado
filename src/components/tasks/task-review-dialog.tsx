@@ -383,18 +383,29 @@ function ProposalRow({
                             “{task.quote}”
                         </span>
                     )}
-                    {task.evidenceProvenance && (
-                        <span className="text-xs text-amber-700 dark:text-amber-400">
-                            {task.evidenceProvenance === "quoted"
-                                ? i18n(
-                                      "From an earlier message quoted in the mail",
-                                  )
-                                : i18n("From a sender nothing verified")}
-                        </span>
-                    )}
+                    <ProvenanceNote provenance={task.evidenceProvenance} />
                 </div>
             </div>
         </li>
+    );
+}
+
+/** Why a proposal read in a mail is worth a second look. */
+function ProvenanceNote({
+    provenance,
+}: {
+    provenance: TaskView["evidenceProvenance"];
+}) {
+    const i18n = useExtracted();
+    if (!provenance) return null;
+    return (
+        <span className="text-xs text-amber-700 dark:text-amber-400">
+            {provenance === "quoted"
+                ? i18n("From an earlier message quoted in the mail")
+                : provenance === "unverified"
+                  ? i18n("From a sender nothing verified")
+                  : i18n("Its words were not found in the mail")}
+        </span>
     );
 }
 
@@ -444,6 +455,7 @@ function UpdateRow({
                           })}
                     {update.quote && <> · “{update.quote}”</>}
                 </p>
+                <ProvenanceNote provenance={update.evidenceProvenance} />
             </div>
             {update.evidenceStartMs !== null && onPlay && (
                 <button

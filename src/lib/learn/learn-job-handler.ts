@@ -1014,7 +1014,7 @@ async function runMailLearnJob(
                 .map(([index]) => index),
         );
         const { turns, parts } = mailLearnParts(content, { skip });
-        const readNow = [...fingerprints]
+        const unread = [...fingerprints]
             .filter(([index]) => !skip.has(index))
             .map(([, fingerprint]) => fingerprint);
 
@@ -1053,6 +1053,9 @@ async function runMailLearnJob(
                   })
                 : null;
         reportProgress({ phase: "checking" });
+        // A part of a window that failed was never read: the next mail
+        // with it reads it again.
+        const readNow = pass && pass.failedWindows > 0 ? [] : unread;
         const baseStats = pass
             ? {
                   calls: pass.calls,

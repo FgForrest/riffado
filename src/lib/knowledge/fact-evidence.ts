@@ -8,7 +8,7 @@
  * drizzle, `encryption/fields` and modules that import no more.
  */
 
-import { and, eq, inArray, notExists } from "drizzle-orm";
+import { and, eq, inArray, ne, notExists } from "drizzle-orm";
 import type { db } from "@/db";
 import {
     knowledgeFactEvidence,
@@ -61,8 +61,8 @@ export async function knowledgeOnRecordingInTx(
 }
 
 /**
- * Delete the facts among `factIds` that came from recordings and have no
- * evidence left: decay. Facts a person entered by hand stay. A fact one of
+ * Delete the facts among `factIds` that came from recordings or mail and
+ * have no evidence left: decay. Facts a person entered by hand stay. A fact one of
  * them replaced is current again when it was the newest: the last value
  * still said somewhere (`deleteFactsInTx` keeps the chain whole).
  *
@@ -80,7 +80,7 @@ export async function pruneUnsupportedFactsInTx(
         .where(
             and(
                 inArray(knowledgeFacts.id, [...factIds]),
-                eq(knowledgeFacts.origin, "recording"),
+                ne(knowledgeFacts.origin, "manual"),
                 notExists(
                     tx
                         .select({ id: knowledgeFactEvidence.id })

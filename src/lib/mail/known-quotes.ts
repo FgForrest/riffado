@@ -118,6 +118,7 @@ export async function peopleByAddress(
         .where(
             and(
                 inArray(personEmails.userId, scopes),
+                inArray(people.userId, scopes),
                 inArray(personEmails.emailHash, [...byHash.keys()]),
             ),
         );

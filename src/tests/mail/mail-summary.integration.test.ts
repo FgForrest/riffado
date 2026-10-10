@@ -103,6 +103,7 @@ vi.mock("openai", async (importOriginal) => {
     };
 });
 
+import { db as appDb } from "@/db";
 import { CONTENT_IS_DATA_DIRECTIVE } from "@/lib/ai/content-directive";
 import { readItemContent } from "@/lib/content/read-item-content";
 import { renderMailForModel } from "@/lib/content/render-mail";
@@ -120,6 +121,8 @@ import { parseSummaryJobPayload } from "@/lib/summary/summary-job";
 import { summaryJobHandler } from "@/lib/summary/summary-job-handler";
 import { taskViewerById } from "@/lib/tasks/access";
 import { tasksForArchive } from "@/lib/tasks/archive";
+import { taskFingerprint } from "@/lib/tasks/proposals";
+import { writeTaskProposalsInTx } from "@/lib/tasks/store";
 import {
     acceptReview,
     listRecordingTasks,
@@ -489,6 +492,105 @@ describeWithDatabase("summaries of mail (PostgreSQL)", () => {
             status: "open",
             evidenceText: { segmentIndex: 0 },
         });
+    });
+
+    it("leaves unticked a task whose words are not found in a mail that quotes", async () => {
+        const itemId = await deliver(
+            await signMessage(rawMessage(headers("Unplaced"), BODY), company),
+            ["jan@klepna.example"],
+        );
+        createCompletion.mockReset();
+        createCompletion.mockResolvedValueOnce(
+            reply({
+                summary: "Samples and a contract.",
+                keyPoints: [],
+                actionItems: [
+                    {
+                        text: "Book the courier",
+                        speaker: null,
+                        assignee: null,
+                        due: null,
+                        quote: "words this mail never had",
+                    },
+                    {
+                        text: "Call the warehouse",
+                        speaker: null,
+                        assignee: null,
+                        due: null,
+                        quote: null,
+                    },
+                ],
+                taskUpdates: [],
+            }),
+        );
+        await generateSummaryForRecording("u-jan", itemId);
+        const tasks = await db()
+            .select()
+            .from(recordingTasks)
+            .where(eq(recordingTasks.itemId, itemId));
+        expect(tasks).toHaveLength(2);
+        for (const task of tasks) {
+            expect(task).toMatchObject({
+                ticked: false,
+                evidenceSegmentIndex: null,
+                evidenceProvenance: "unlocated",
+            });
+        }
+    });
+
+    it("keeps where a follow-up was read in a mail, and how far to trust it", async () => {
+        const viewer = await taskViewerById("u-jan");
+        const [contract] = (
+            await db()
+                .select({
+                    id: recordingTasks.id,
+                    text: recordingTasks.text,
+                })
+                .from(recordingTasks)
+                .where(eq(recordingTasks.status, "open"))
+        ).filter(
+            (task) => decryptText(task.text) === "Send the signed contract",
+        );
+        expect(contract).toBeDefined();
+        const itemId = await deliver(
+            await signMessage(rawMessage(headers("Signed"), BODY), company),
+            ["jan@klepna.example"],
+        );
+        await appDb.transaction(async (tx) => {
+            await writeTaskProposalsInTx(tx, {
+                recordingId: itemId,
+                ownerUserId: "u-jan",
+                actorUserId: "u-jan",
+                proposals: {
+                    source: "riffado",
+                    tasks: [],
+                    updates: [
+                        {
+                            taskId: contract?.id ?? "",
+                            kind: "done",
+                            dueDate: null,
+                            duePhrase: null,
+                            quote: "deliver the samples",
+                            evidenceStartMs: null,
+                            evidenceText: {
+                                segmentIndex: 2,
+                                charStart: 0,
+                                charEnd: 10,
+                            },
+                            evidenceProvenance: "quoted",
+                        },
+                    ],
+                    fingerprintOf: taskFingerprint,
+                },
+            });
+        });
+        const listed = await listRecordingTasks(viewer, itemId);
+        expect(listed?.updates).toEqual([
+            expect.objectContaining({
+                kind: "done",
+                evidenceProvenance: "quoted",
+            }),
+        ]);
     });
 
     it("queues a summary of new mail, unless machine-sent or switched off", async () => {

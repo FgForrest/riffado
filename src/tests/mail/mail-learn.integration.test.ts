@@ -11,7 +11,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
     accounts,
@@ -117,6 +117,8 @@ import {
     removeRecordingFromFolder,
 } from "@/lib/folders/folders";
 import { createEntity } from "@/lib/knowledge/entities";
+import { factsForPage } from "@/lib/knowledge/fact-page";
+import { listFacts } from "@/lib/knowledge/facts";
 import { knowledgeStore } from "@/lib/knowledge/knowledge-loader";
 import { seedCoreVocabulary } from "@/lib/knowledge/vocabulary";
 import { startLearnRun } from "@/lib/learn/learn-job";
@@ -125,6 +127,7 @@ import { decideReviewItem, finishReview, loadReview } from "@/lib/learn/review";
 import { ensureMailbox } from "@/lib/mail/addresses";
 import { authenticateMessage } from "@/lib/mail/dkim";
 import { ingestMail, precheckMail } from "@/lib/mail/ingest";
+import { deleteMail } from "@/lib/mail/manage";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { requireRecordingView } from "@/lib/sharing/access";
 import {
@@ -487,6 +490,41 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
                 "Petra Mala leads the pilot at Acme.",
             ].sort(),
         );
+        // D4: the quoted part's words stay an earlier writer's.
+        const provenance = new Map(
+            evidence.map((row) => [decryptText(row.quote), row.provenance]),
+        );
+        expect(provenance.get("I work for Globex now.")).toBe("quoted");
+        expect(
+            provenance.get("Petra Mala leads the pilot at Acme."),
+        ).toBeNull();
+
+        // The Almanac shows where: the mail, the quoted words marked.
+        const acme = await factsForPage("u-jan", orgUserId, {
+            entityId: acmeId,
+        });
+        const worksFor = acme.find((relation) => relation.key === "works_for");
+        expect(worksFor?.facts[0]?.evidence).toEqual([
+            expect.objectContaining({
+                recordingId: firstMail,
+                kind: "mail",
+                startMs: null,
+                quoted: false,
+                view: "private",
+            }),
+        ]);
+        const eva = await factsForPage("u-jan", orgUserId, {
+            personId: evaPerson?.id ?? "",
+        });
+        expect(
+            eva.flatMap((relation) =>
+                relation.facts.flatMap((fact) => fact.evidence),
+            ),
+        ).toEqual([expect.objectContaining({ kind: "mail", quoted: true })]);
+        const listed = await listFacts("u-jan", { entityId: acmeId });
+        expect(listed).toEqual([
+            expect.objectContaining({ origin: "mail", supportedEvidence: 1 }),
+        ]);
     });
 
     it("shares a mail's facts into the Organization, and takes them back with it", async () => {
@@ -523,6 +561,13 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
             withdraw: true,
         });
         expect(await orgEvidence()).toHaveLength(0);
+        // D5: said nowhere else the Organization reads, they go.
+        expect(
+            await db()
+                .select({ id: knowledgeFacts.id })
+                .from(knowledgeFacts)
+                .where(eq(knowledgeFacts.userId, orgUserId)),
+        ).toHaveLength(0);
     });
 
     it("keeps a known person's other address, and knows the next mail from it", async () => {
@@ -579,14 +624,28 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
             ),
         ).toBe(true);
         await finishReview(access, "u-jan", { versions });
-        // Eva is the Organization's since the mail was shared above.
+        // Eva is the Organization's since the mail was shared above: Jan's
+        // private mail tells only Jan her second address.
         const stored = await db()
             .select({
+                userId: personEmails.userId,
                 personId: personEmails.personId,
                 email: personEmails.email,
             })
             .from(personEmails);
         expect(stored.map((row) => decryptText(row.email))).toEqual([second]);
+        expect(stored[0]?.userId).toBe("u-jan");
+        const [orgEva] = await db()
+            .select({
+                userId: people.userId,
+                primaryEmail: people.primaryEmail,
+            })
+            .from(people)
+            .where(eq(people.id, stored[0]?.personId ?? ""));
+        expect(orgEva?.userId).toBe(orgUserId);
+        expect(decryptText(orgEva?.primaryEmail ?? "")).toBe(
+            "eva@client.example",
+        );
 
         const next = await deliver("Third", "Hello again.", second);
         const participants = await db()
@@ -687,5 +746,66 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
             .from(learnRuns)
             .where(eq(learnRuns.itemId, itemId));
         expect(run?.transcriptionId).toBeNull();
+    });
+
+    it("reads a signature again when a part of the mail could not be read", async () => {
+        // Two windows of text: the first answer is no shape, even repaired.
+        const paragraph = "The archive moves to the new building. ".repeat(20);
+        const long = [
+            Array.from({ length: 40 }, () => paragraph.trim()).join("\n\n"),
+            "",
+            "Best regards,",
+            "Jan Novotny",
+            "Chief Archivist",
+        ].join("\n");
+        const itemId = await deliver("Archive move", long);
+        const broken = {
+            choices: [{ message: { content: "not an answer" } }],
+            usage: { prompt_tokens: 10, completion_tokens: 10 },
+        };
+        const empty = reply({
+            newRecords: [],
+            speakers: [],
+            corrections: [],
+            facts: [],
+            relationPhrases: [],
+        });
+        createCompletion.mockReset();
+        createCompletion
+            .mockResolvedValueOnce(reply({ mentions: [] }))
+            .mockResolvedValueOnce(broken)
+            .mockResolvedValueOnce(broken)
+            .mockResolvedValueOnce(reply({ mentions: [] }))
+            .mockResolvedValueOnce(empty)
+            .mockResolvedValue(empty);
+        const { runId, result } = await learn(itemId);
+        expect(result).toMatchObject({ status: "finished" });
+        const [run] = await db()
+            .select({ stats: learnRuns.stats })
+            .from(learnRuns)
+            .where(eq(learnRuns.id, runId));
+        expect(run?.stats).toMatchObject({ failed_windows: 1 });
+        expect(
+            await db()
+                .select({ fingerprint: mailLearnedParts.fingerprint })
+                .from(mailLearnedParts)
+                .where(eq(mailLearnedParts.itemId, itemId)),
+        ).toEqual([]);
+    });
+
+    it("takes the facts only a mail said with it when the mail is deleted", async () => {
+        const mailFacts = () =>
+            db()
+                .select({ id: knowledgeFacts.id })
+                .from(knowledgeFacts)
+                .where(
+                    and(
+                        eq(knowledgeFacts.userId, "u-jan"),
+                        eq(knowledgeFacts.origin, "mail"),
+                    ),
+                );
+        expect(await mailFacts()).toHaveLength(2);
+        await deleteMail("u-jan", firstMail);
+        expect(await mailFacts()).toHaveLength(0);
     });
 });

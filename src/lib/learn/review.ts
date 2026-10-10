@@ -930,11 +930,15 @@ async function mailSourceInTx(
 /**
  * A mail's participant as the person a review added or found for them:
  * linked on the mail, and their address the person's email when the person
- * has none (another person's email already is left alone).
+ * has none, another address of theirs otherwise. The address is known in
+ * the scope the review writes in: an Organization person a member's
+ * private mail names gets no address of the mail's, the member knows it
+ * as theirs (a correspondent reaches the Organization only by sharing).
  */
 async function linkParticipantInTx(
     tx: Tx,
     run: LatestRun,
+    writerUserId: string,
     link: { ref: string; personId: string; address: string | null },
 ): Promise<void> {
     const [participant] = await tx
@@ -965,7 +969,10 @@ async function linkParticipantInTx(
                 .where(eq(people.id, link.personId))
                 .limit(1);
             if (!person || person.primaryEmailHash === hash) return;
-            if (person.primaryEmailHash === null) {
+            if (
+                person.userId === writerUserId &&
+                person.primaryEmailHash === null
+            ) {
                 await sp
                     .update(people)
                     .set({
@@ -979,7 +986,7 @@ async function linkParticipantInTx(
             await sp
                 .insert(personEmails)
                 .values({
-                    userId: person.userId,
+                    userId: writerUserId,
                     personId: link.personId,
                     emailHash: hash,
                     email: encryptText(email),
@@ -1273,7 +1280,7 @@ function finishInTx(
                 ) {
                     continue;
                 }
-                await linkParticipantInTx(tx, latest, {
+                await linkParticipantInTx(tx, latest, actorUserId, {
                     ref: payload.speakerLabel,
                     personId: target.personId,
                     address: payload.address ?? null,

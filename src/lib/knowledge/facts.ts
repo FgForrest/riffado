@@ -14,7 +14,6 @@
 
 import { and, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { recordingItemJoin } from "@/db/items";
 import {
     chatterItems,
     knowledgeEntities,
@@ -22,7 +21,7 @@ import {
     knowledgeFacts,
     knowledgeRelationTypes,
     mailContents,
-    recordings,
+    mailParticipants,
     transcriptSpeakers,
     users,
 } from "@/db/schema";
@@ -465,10 +464,12 @@ export interface MailFactArgs extends FactArgs {
 
 /**
  * Confirm a fact from what a mail says, with its evidence: the words of
- * one segment's range, cut from the mail's content here. The caller holds
- * the mail's lock and checked the writer rule; the content must still be
- * the revision the person saw. The fact goes into the actor's scope.
- * Returns the fact's id.
+ * one segment's range, cut from the mail's content here, and how far they
+ * are the sender's (a quoted part is an earlier writer's, D4; a sender
+ * nothing verified may not be who they say). The caller holds the mail's
+ * lock and checked the writer rule; the content must still be the revision
+ * the person saw. The fact goes into the actor's scope. Returns the fact's
+ * id.
  */
 export async function confirmFactFromMailInTx(
     tx: Tx,
@@ -496,7 +497,26 @@ export async function confirmFactFromMailInTx(
     const quote = segment?.text
         .slice(args.text.charStart, args.text.charEnd)
         .trim();
-    if (!quote) throw invalid("Nothing was written there", "text");
+    if (!quote || !segment) throw invalid("Nothing was written there", "text");
+    const [writer] = segment.participantRef
+        ? await tx
+              .select({ authenticated: mailParticipants.authenticated })
+              .from(mailParticipants)
+              .where(
+                  and(
+                      eq(mailParticipants.itemId, args.itemId),
+                      eq(mailParticipants.userId, args.ownerUserId),
+                      eq(mailParticipants.ref, segment.participantRef),
+                  ),
+              )
+              .limit(1)
+        : [];
+    const provenance =
+        segment.role === "quoted" || segment.role === "quoted_signature"
+            ? ("quoted" as const)
+            : writer?.authenticated
+              ? null
+              : ("unverified" as const);
     const factId = await confirmFactInTx(tx, {
         ...args,
         scopeUserId: args.actorUserId,
@@ -517,6 +537,7 @@ export async function confirmFactFromMailInTx(
             charEnd: args.text.charEnd,
             speakerLabel: args.speakerLabel ?? null,
             dependsOnSpeaker: false,
+            provenance,
             quote: encryptText(quote),
             confirmedByUserId: args.actorUserId,
         })
@@ -533,6 +554,7 @@ export async function confirmFactFromMailInTx(
                 status: "supported",
                 transcriptRevision: args.revision,
                 speakerLabel: args.speakerLabel ?? null,
+                provenance,
                 quote: encryptText(quote),
                 confirmedByUserId: args.actorUserId,
                 confirmedAt: new Date(),
@@ -757,10 +779,10 @@ function nodeOf(
 
 /**
  * The current facts about a person or an entity that `viewerUserId` may
- * see: their own scope's and the Organization's. A fact from recordings
- * shows while some of its evidence is supported on a recording the viewer
+ * see: their own scope's and the Organization's. A fact from recordings or
+ * mail shows while some of its evidence is supported on an item the viewer
  * can open (their own, or a shared one); "last said" is when the latest of
- * those began.
+ * those began or was sent.
  */
 export async function listFacts(
     viewerUserId: string,
@@ -808,8 +830,10 @@ export async function listFacts(
             lastSaidAt: sql<Date | null>`max(${chatterItems.occurredAt})`,
         })
         .from(knowledgeFactEvidence)
-        .innerJoin(recordings, eq(recordings.id, knowledgeFactEvidence.itemId))
-        .innerJoin(chatterItems, recordingItemJoin)
+        .innerJoin(
+            chatterItems,
+            eq(chatterItems.id, knowledgeFactEvidence.itemId),
+        )
         .where(
             and(
                 inArray(
@@ -817,11 +841,11 @@ export async function listFacts(
                     rows.map((row) => row.id),
                 ),
                 eq(knowledgeFactEvidence.status, "supported"),
-                // On recordings the viewer can open: their own, or shared.
-                isNull(recordings.deletedAt),
+                // On items the viewer can open: their own, or shared.
+                isNull(chatterItems.deletedAt),
                 or(
-                    eq(recordings.userId, viewerUserId),
-                    recordingSharedCondition(recordings.id),
+                    eq(chatterItems.userId, viewerUserId),
+                    recordingSharedCondition(chatterItems.id),
                 ),
             ),
         )
@@ -830,7 +854,7 @@ export async function listFacts(
 
     return rows.flatMap((row) => {
         const evidence = byFact.get(row.id);
-        if (row.origin === "recording" && !evidence) return [];
+        if (row.origin !== "manual" && !evidence) return [];
         const lastSaidAt = evidence?.lastSaidAt ?? null;
         return [
             {

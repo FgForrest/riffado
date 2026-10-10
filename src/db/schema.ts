@@ -375,6 +375,13 @@ export const plaudDevices = pgTable(
 /** What an item of the Chatter pile is: a recording, or a mail message. */
 export type ChatterItemKind = "audio" | "mail";
 
+/**
+ * How far to trust where a task proposal was read in a mail: in a quoted
+ * part, from a sender nothing verified, or not found in a mail that has
+ * quoted parts.
+ */
+export type EvidenceProvenance = "quoted" | "unverified" | "unlocated";
+
 // The Chatter pile: one row per item of any kind, sharing its id with the
 // row of its kind (`recordings`, `mail_messages`). Everything that is not
 // about one kind (folders, summaries, tasks, Learn, exports) points here.
@@ -1822,6 +1829,11 @@ export const knowledgeFactEvidence = pgTable(
         dependsOnSpeaker: boolean("depends_on_speaker")
             .notNull()
             .default(false),
+        // In a mail: written in a quoted part (an earlier writer's words,
+        // the label then theirs), or by a sender nothing verified.
+        provenance: varchar("provenance", { length: 16 }).$type<
+            "quoted" | "unverified"
+        >(),
         quote: text("quote").notNull(),
         status: varchar("status", { length: 16 })
             .$type<"supported" | "wording_changed" | "speaker_changed">()
@@ -2337,12 +2349,12 @@ export const recordingTasks = pgTable(
         evidenceSegmentIndex: integer("evidence_segment_index"),
         evidenceCharStart: integer("evidence_char_start"),
         evidenceCharEnd: integer("evidence_char_end"),
-        // Where its evidence is a quoted part of a mail, or text from a
-        // sender nothing verified: shown with the proposal, which then
-        // starts unticked.
+        // Where its evidence is a quoted part of a mail, text from a sender
+        // nothing verified, or words not found in a mail with quoted parts:
+        // shown with the proposal, which then starts unticked.
         evidenceProvenance: varchar("evidence_provenance", {
             length: 16,
-        }).$type<"quoted" | "unverified">(),
+        }).$type<EvidenceProvenance>(),
         source: varchar("source", { length: 16 })
             .$type<"riffado" | "plaud" | "manual">()
             .notNull(),
@@ -2469,6 +2481,10 @@ export const taskUpdateProposals = pgTable(
         evidenceSegmentIndex: integer("evidence_segment_index"),
         evidenceCharStart: integer("evidence_char_start"),
         evidenceCharEnd: integer("evidence_char_end"),
+        // As on `recording_tasks`.
+        evidenceProvenance: varchar("evidence_provenance", {
+            length: 16,
+        }).$type<EvidenceProvenance>(),
         ticked: boolean("ticked").notNull().default(false),
         version: integer("version").notNull().default(0),
         createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -3802,7 +3818,8 @@ export const mailLearnedParts = pgTable(
 export const personEmails = pgTable(
     "person_emails",
     {
-        // The scope the person belongs to.
+        // The scope that knows the address as the person's: the person's
+        // own, or a member's for an Organization person (their mail's).
         userId: text("user_id")
             .notNull()
             .references(() => users.id, { onDelete: "cascade" }),

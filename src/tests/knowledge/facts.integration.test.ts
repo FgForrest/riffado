@@ -24,7 +24,6 @@ import {
     knowledgeFacts,
     knowledgeRelationTypes,
     people,
-    recordings,
     transcriptions,
     transcriptSpeakers,
     users,
@@ -88,6 +87,7 @@ vi.mock("@/lib/webhooks/emit", () => ({
     emitEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
+import { markRecordingDeleted } from "@/db/items";
 import { deleteTranscriptsForRecording } from "@/db/queries/retention";
 import { encryptText } from "@/lib/encryption/fields";
 import { createEntity } from "@/lib/knowledge/entities";
@@ -452,10 +452,11 @@ describeWithDatabase("facts and evidence (PostgreSQL)", () => {
             await confirmFrom(MARCH);
             await recording(JUNE, "2026-06-14T09:00:00Z");
             await confirmFrom(JUNE);
-            await db()
-                .update(recordings)
-                .set({ deletedAt: new Date() })
-                .where(eq(recordings.id, JUNE));
+            await markRecordingDeleted(db(), {
+                id: JUNE,
+                userId: ALICE,
+                at: new Date(),
+            });
             expect(await listFacts(ALICE, { personId: jan })).toEqual([
                 expect.objectContaining({
                     supportedEvidence: 1,

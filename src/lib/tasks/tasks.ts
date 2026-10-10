@@ -18,6 +18,7 @@ import {
 import { db } from "@/db";
 import {
     chatterItems,
+    type EvidenceProvenance,
     people,
     recordings,
     recordingTaskRejections,
@@ -75,8 +76,11 @@ export interface TaskView {
         charStart: number;
         charEnd: number;
     } | null;
-    /** The quote is from a quoted part, or from an unverified sender. */
-    evidenceProvenance: "quoted" | "unverified" | null;
+    /**
+     * The quote is from a quoted part, from an unverified sender, or was
+     * not found in a mail with quoted parts.
+     */
+    evidenceProvenance: EvidenceProvenance | null;
     source: "riffado" | "plaud" | "manual";
     ticked: boolean;
     version: number;
@@ -97,6 +101,8 @@ export interface TaskUpdateView {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    /** As on a task proposal of a mail. */
+    evidenceProvenance: EvidenceProvenance | null;
     ticked: boolean;
     version: number;
     task: {
@@ -325,6 +331,7 @@ async function listUpdateProposals(
             duePhrase: taskUpdateProposals.duePhrase,
             quote: taskUpdateProposals.quote,
             evidenceStartMs: taskUpdateProposals.evidenceStartMs,
+            evidenceProvenance: taskUpdateProposals.evidenceProvenance,
             ticked: taskUpdateProposals.ticked,
             version: taskUpdateProposals.version,
             taskId: recordingTasks.id,
@@ -359,6 +366,7 @@ async function listUpdateProposals(
             duePhrase: decryptOptional(row.duePhrase),
             quote: decryptOptional(row.quote),
             evidenceStartMs: row.evidenceStartMs,
+            evidenceProvenance: row.evidenceProvenance ?? null,
             ticked: row.ticked,
             version: row.version,
             task: {

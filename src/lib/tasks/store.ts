@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import type { db } from "@/db";
 import {
     aiEnhancements,
+    type EvidenceProvenance,
     people,
     recordingTaskRejections,
     recordingTasks,
@@ -46,10 +47,11 @@ export interface ProposedTask {
     /** Where in a mail the quote is: a range of one segment's text. */
     evidenceText?: TextEvidence | null;
     /**
-     * The quote is in a quoted part of a mail, or by a sender nothing
-     * verified: the proposal then starts unticked.
+     * The quote is in a quoted part of a mail, by a sender nothing
+     * verified, or not found in a mail with quoted parts: the proposal then
+     * starts unticked.
      */
-    evidenceProvenance?: "quoted" | "unverified" | null;
+    evidenceProvenance?: EvidenceProvenance | null;
 }
 
 /** A range of one segment of a mail's content. */
@@ -67,7 +69,7 @@ export interface ProposedTaskUpdate {
     quote: string | null;
     evidenceStartMs: number | null;
     evidenceText?: TextEvidence | null;
-    evidenceProvenance?: "quoted" | "unverified" | null;
+    evidenceProvenance?: EvidenceProvenance | null;
 }
 
 /** What one summary proposes, ready to store. */

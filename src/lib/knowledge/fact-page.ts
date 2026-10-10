@@ -2,19 +2,19 @@
  * The facts a People or entity page shows about one person or entity: the
  * current ones the viewer may read (their own scope's and the
  * Organization's), grouped by relation, each with the other side's name,
- * and where it was said, from evidence on recordings the viewer can open.
+ * and where it was said or written, from evidence on recordings and mail
+ * the viewer can open.
  */
 
 import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { db } from "@/db";
-import { recordingItemJoin } from "@/db/items";
 import {
+    type ChatterItemKind,
     chatterItems,
     knowledgeEntities,
     knowledgeFactEvidence,
     knowledgeFacts,
     people,
-    recordings,
 } from "@/db/schema";
 import { decryptText } from "@/lib/encryption/fields";
 import type { KnowledgeTarget } from "@/lib/knowledge/aliases";
@@ -25,7 +25,7 @@ import {
 } from "@/lib/knowledge/org-people";
 import { peopleVisibleTo } from "@/lib/knowledge/people";
 import { vocabularyVisibleTo } from "@/lib/knowledge/vocabulary";
-import { sharedRecordingCondition } from "@/lib/sharing/shared";
+import { sharedItemCondition } from "@/lib/sharing/shared";
 
 export interface FactSide {
     kind: "person" | "entity" | "literal";
@@ -35,12 +35,19 @@ export interface FactSide {
 }
 
 export interface PageEvidence {
+    /** The recording or mail. */
     recordingId: string;
+    kind: ChatterItemKind;
     title: string;
-    /** When the recording began, ISO 8601. */
+    /** When the recording began or the mail was sent, ISO 8601. */
     recordedAt: string;
     /** Where in the recording; null for evidence in a mail. */
     startMs: number | null;
+    /**
+     * Written only in a quoted part of the mail: an earlier writer's words,
+     * not the sender's.
+     */
+    quoted: boolean;
     /** Where the viewer opens it: their own, or the Organization's view. */
     view: "private" | "org";
 }
@@ -105,20 +112,24 @@ export async function factsForPage(
         );
     if (facts.length === 0) return [];
 
-    // Where they were said, on recordings the viewer can open: their own,
-    // or shared ones.
+    // Where they were said or written, on recordings and mail the viewer
+    // can open: their own, or shared ones.
     const evidence = await db
         .select({
             factId: knowledgeFactEvidence.factId,
-            recordingId: recordings.id,
-            recordingOwner: recordings.userId,
+            itemId: chatterItems.id,
+            itemOwner: chatterItems.userId,
+            kind: chatterItems.kind,
             title: chatterItems.title,
             startTime: chatterItems.occurredAt,
             startMs: knowledgeFactEvidence.startMs,
+            provenance: knowledgeFactEvidence.provenance,
         })
         .from(knowledgeFactEvidence)
-        .innerJoin(recordings, eq(recordings.id, knowledgeFactEvidence.itemId))
-        .innerJoin(chatterItems, recordingItemJoin)
+        .innerJoin(
+            chatterItems,
+            eq(chatterItems.id, knowledgeFactEvidence.itemId),
+        )
         .where(
             and(
                 inArray(
@@ -126,29 +137,33 @@ export async function factsForPage(
                     facts.map((fact) => fact.id),
                 ),
                 eq(knowledgeFactEvidence.status, "supported"),
-                isNull(recordings.deletedAt),
+                isNull(chatterItems.deletedAt),
                 or(
-                    eq(recordings.userId, viewerUserId),
-                    orgUserId ? sharedRecordingCondition(orgUserId) : undefined,
+                    eq(chatterItems.userId, viewerUserId),
+                    orgUserId ? sharedItemCondition(orgUserId) : undefined,
                 ),
             ),
         );
     const evidenceByFact = new Map<string, PageEvidence[]>();
     for (const row of evidence) {
         const list = evidenceByFact.get(row.factId) ?? [];
-        if (
-            !list.some(
-                (item) =>
-                    item.recordingId === row.recordingId &&
-                    item.startMs === row.startMs,
-            )
-        ) {
+        const quoted = row.provenance === "quoted";
+        const same = list.find(
+            (item) =>
+                item.recordingId === row.itemId && item.startMs === row.startMs,
+        );
+        if (same) {
+            // Written by the sender somewhere in the mail too.
+            same.quoted &&= quoted;
+        } else {
             list.push({
-                recordingId: row.recordingId,
+                recordingId: row.itemId,
+                kind: row.kind,
                 title: decryptText(row.title),
                 recordedAt: row.startTime.toISOString(),
                 startMs: row.startMs,
-                view: row.recordingOwner === viewerUserId ? "private" : "org",
+                quoted,
+                view: row.itemOwner === viewerUserId ? "private" : "org",
             });
         }
         evidenceByFact.set(row.factId, list);
@@ -220,8 +235,9 @@ export async function factsForPage(
     const byRelation = new Map<string, PageRelation>();
     for (const { fact, direction, other } of sides) {
         const evidenceList = evidenceByFact.get(fact.id) ?? [];
-        // A fact from recordings shows while the viewer can see it said.
-        if (fact.origin === "recording" && evidenceList.length === 0) continue;
+        // A fact from recordings or mail shows while the viewer can see
+        // where it was said.
+        if (fact.origin !== "manual" && evidenceList.length === 0) continue;
         let otherSide: FactSide;
         if (!other) {
             otherSide = {

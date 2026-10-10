@@ -1,6 +1,10 @@
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { db } from "@/db";
-import { recordings, recordingTasks } from "@/db/schema";
+import {
+    type EvidenceProvenance,
+    recordings,
+    recordingTasks,
+} from "@/db/schema";
 import type { ItemContent } from "@/lib/content/types";
 import { decryptText } from "@/lib/encryption/fields";
 import { getTranscriptSpeakers } from "@/lib/knowledge/attribution";
@@ -342,7 +346,8 @@ export async function resolveTaskProposals({
 /**
  * Where in a mail a quote is, and how far to trust it: a quoted part was
  * written by someone else earlier, and a sender nothing verified may not be
- * who they say.
+ * who they say. Words not found anywhere may be from either: unless the
+ * sender is verified and the mail quotes nothing, they are checked too.
  */
 function mailEvidence(
     mail: ItemContent,
@@ -351,26 +356,39 @@ function mailEvidence(
     ProposedTask,
     "evidenceStartMs" | "evidenceText" | "evidenceProvenance"
 > {
-    const range = locateTextQuote(
-        mail.segments.filter(
-            (segment) => !segment.knownItemId && segment.role !== "disclaimer",
-        ),
-        quote,
+    const readable = mail.segments.filter(
+        (segment) => !segment.knownItemId && segment.role !== "disclaimer",
     );
+    const range = locateTextQuote(readable, quote);
     const segment = range
         ? mail.segments.find((item) => item.index === range.segmentIndex)
         : undefined;
-    const author = segment?.participantRef
-        ? mail.participants.find(
-              (participant) => participant.ref === segment.participantRef,
-          )
-        : undefined;
-    const provenance =
-        segment?.role === "quoted" || segment?.role === "quoted_signature"
-            ? "quoted"
-            : segment && !author?.authenticated
-              ? "unverified"
+    const authorOf = (ref: string | null | undefined) =>
+        ref
+            ? mail.participants.find((participant) => participant.ref === ref)
+            : undefined;
+    let provenance: EvidenceProvenance | null;
+    if (segment) {
+        provenance =
+            segment.role === "quoted" || segment.role === "quoted_signature"
+                ? "quoted"
+                : authorOf(segment.participantRef)?.authenticated
+                  ? null
+                  : "unverified";
+    } else {
+        const sender = mail.participants.find((participant) =>
+            participant.roles.includes("from"),
+        );
+        provenance = !sender?.authenticated
+            ? "unverified"
+            : readable.some(
+                    (part) =>
+                        part.role === "quoted" ||
+                        part.role === "quoted_signature",
+                )
+              ? "unlocated"
               : null;
+    }
     return {
         evidenceStartMs: null,
         evidenceText: range,
