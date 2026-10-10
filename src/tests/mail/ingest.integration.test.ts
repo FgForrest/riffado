@@ -98,8 +98,11 @@ import { decryptBuffer } from "@/lib/encryption";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { createFolder, ensureRootFolders } from "@/lib/folders/folders";
 import { ensureMailbox, findFolderAddress } from "@/lib/mail/addresses";
+import { loadMailDetail } from "@/lib/mail/detail";
 import { authenticateMessage } from "@/lib/mail/dkim";
 import { ingestMail, precheckMail } from "@/lib/mail/ingest";
+import { loadMailListRows } from "@/lib/mail/list";
+import { deleteMail, shareMail } from "@/lib/mail/manage";
 import { ensureOrgAccount } from "@/lib/org/account";
 import {
     rawMessage,
@@ -406,6 +409,91 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
             .from(recordingFolderAssignments)
             .where(eq(recordingFolderAssignments.itemId, message?.id ?? ""));
         expect(assigned).toEqual([]);
+    });
+
+    it("lists mail in the owner's pile and shows it, decrypted", async () => {
+        const rows = await loadMailListRows("u-jan");
+        // The first message: the only one sent with a display name.
+        const row = rows.find((r) => r.mail?.from === "Jan Novotny");
+        expect(row).toMatchObject({
+            kind: "mail",
+            mail: {
+                from: "Jan Novotny",
+                senderVerified: true,
+                waitingToShare: false,
+            },
+        });
+        const detail = await loadMailDetail("u-jan", row?.id ?? "");
+        expect(detail?.subject).toBe("Conditions for November");
+        expect(detail?.segments.map((segment) => segment.role)).toEqual([
+            "body",
+            "signature",
+            "quoted",
+        ]);
+        expect(detail?.folderIds).toEqual([weeklyFolderId]);
+        // Nobody else's.
+        expect(await loadMailDetail("u-eva", row?.id ?? "")).toBeNull();
+    });
+
+    it("shares a mail into the Organization folder it was sent to, once asked", async () => {
+        const [row] = (await loadMailListRows("u-eva")).filter(
+            (r) => r.mail?.waitingToShare,
+        );
+        if (!row) throw new Error("no waiting mail");
+        await expect(
+            shareMail({
+                ownerUserId: "u-jan",
+                itemId: row.id,
+                folderId: orgWeeklyFolderId,
+            }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        await shareMail({
+            ownerUserId: "u-eva",
+            itemId: row.id,
+            folderId: orgWeeklyFolderId,
+        });
+        const assigned = await db()
+            .select({ folderId: recordingFolderAssignments.folderId })
+            .from(recordingFolderAssignments)
+            .where(eq(recordingFolderAssignments.itemId, row.id));
+        expect(assigned).toEqual([{ folderId: orgWeeklyFolderId }]);
+        const detail = await loadMailDetail("u-eva", row.id);
+        expect(detail?.pendingShares).toEqual([]);
+    });
+
+    it("deletes a mail with everything on it, raw message included", async () => {
+        const raw = await signMessage(
+            rawMessage(
+                headers("jan@company.example", "jan@klepna.example"),
+                "To be deleted.",
+            ),
+            company,
+        );
+        await deliver(raw, ["jan@klepna.example"]);
+        const [message] = await db()
+            .select({ id: mailMessages.id, path: mailMessages.rawStoragePath })
+            .from(mailMessages)
+            .where(eq(mailMessages.sizeBytes, raw.length));
+        if (!message?.path) throw new Error("not stored");
+        await deleteMail("u-jan", message.id);
+        expect(
+            await db()
+                .select()
+                .from(chatterItems)
+                .where(eq(chatterItems.id, message.id)),
+        ).toEqual([]);
+        expect(
+            await db()
+                .select()
+                .from(mailParticipants)
+                .where(eq(mailParticipants.itemId, message.id)),
+        ).toEqual([]);
+        expect(() =>
+            readFileSync(join(storageDir, message.path ?? "")),
+        ).toThrow();
+        await expect(deleteMail("u-eva", message.id)).rejects.toMatchObject({
+            statusCode: 404,
+        });
     });
 
     it("refuses an Organization address in BCC only", async () => {

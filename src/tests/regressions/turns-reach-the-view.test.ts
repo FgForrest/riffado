@@ -33,6 +33,9 @@ vi.mock("@/lib/learn/llm-input", () => ({
 }));
 
 vi.mock("@/db", () => ({ db: { select: vi.fn() } }));
+vi.mock("@/lib/mail/list", () => ({
+    loadMailListRows: vi.fn().mockResolvedValue([]),
+}));
 
 vi.mock("@/lib/env", () => ({ env: { IS_HOSTED: false } }));
 

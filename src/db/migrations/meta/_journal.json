@@ -708,6 +708,13 @@
       "when": 1791657143219,
       "tag": "0100_last_sso_login_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1791658649324,
+      "tag": "0101_chatter_kind_filter",
+      "breakpoints": true
     }
   ]
 }

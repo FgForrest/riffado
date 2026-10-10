@@ -19,6 +19,7 @@ import { TrialBanner } from "@/components/dashboard/trial-banner";
 import { WorkstationDetailPane } from "@/components/dashboard/workstation-detail-pane";
 import { WorkstationEmptyState } from "@/components/dashboard/workstation-empty-state";
 import { WorkstationHeader } from "@/components/dashboard/workstation-header";
+import { MailDetailPane } from "@/components/mail/mail-detail-pane";
 import { OnboardingDialog } from "@/components/onboarding-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { useAutoSync } from "@/hooks/use-auto-sync";
@@ -1005,6 +1006,9 @@ export function Workstation({
                                         initialSortOrder={
                                             initialSettings.recordingListSortOrder
                                         }
+                                        initialKindFilter={
+                                            initialSettings.chatterKindFilter
+                                        }
                                         initialChunkSize={
                                             initialSettings.itemsPerPage
                                         }
@@ -1075,6 +1079,16 @@ export function Workstation({
                                     }
                                     exportProviders={exportProviders}
                                     isOrgAccount={isOrgAccount}
+                                />
+                            ) : selectedRecording?.kind === "mail" ? (
+                                <MailDetailPane
+                                    mail={selectedRecording}
+                                    dateTimeFormat={
+                                        initialSettings.dateTimeFormat
+                                    }
+                                    onBackToList={() => setMobileView("list")}
+                                    hiddenOnMobile={mobileView === "list"}
+                                    onChanged={refresh}
                                 />
                             ) : (
                                 <WorkstationDetailPane
@@ -1182,6 +1196,7 @@ export function Workstation({
                     const recording = visibleRecordings.find(
                         (candidate) => candidate.id === id,
                     );
+                    if (recording?.kind === "mail") return;
                     void transcribeById(id, undefined, recording?.view);
                 }}
             />

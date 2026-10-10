@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
     asyncJobs,
+    chatterItems,
     folderExportConfigurations,
     recordingFolderAssignments,
     recordingFolders,
@@ -364,13 +365,13 @@ async function listTreeOrganization(
                 eq(recordingFolders.id, recordingFolderAssignments.folderId),
             )
             .innerJoin(
-                recordings,
-                eq(recordings.id, recordingFolderAssignments.itemId),
+                chatterItems,
+                eq(chatterItems.id, recordingFolderAssignments.itemId),
             )
             .where(
                 and(
                     eq(recordingFolders.userId, ownerId),
-                    isNull(recordings.deletedAt),
+                    isNull(chatterItems.deletedAt),
                     assignmentUserId
                         ? eq(
                               recordingFolderAssignments.userId,

@@ -32,6 +32,7 @@ const ENUM_FIELDS = {
     theme: ["light", "dark", "system"],
     dateTimeFormat: ["relative", "absolute", "iso"],
     recordingListSortOrder: ["newest", "oldest", "name"],
+    chatterKindFilter: ["all", "audio", "mail"],
     transcriptionQuality: ["fast", "balanced", "accurate"],
     // Shared with the exporter and the settings picker -- see
     // `src/lib/export/formats.ts`. Hand-maintaining a second copy here is
@@ -82,6 +83,8 @@ const DEFAULT_SETTINGS = {
     transcriptionQuality: "balanced" as const,
     dateTimeFormat: "relative" as const,
     recordingListSortOrder: "newest" as const,
+    chatterKindFilter: "all" as const,
+    mailAutoProcess: true,
     itemsPerPage: 50,
     listDensity: "comfortable" as const,
     theme: "system" as const,
@@ -129,6 +132,8 @@ const SETTINGS_FIELDS = [
     "transcriptionQuality",
     "dateTimeFormat",
     "recordingListSortOrder",
+    "chatterKindFilter",
+    "mailAutoProcess",
     "itemsPerPage",
     "listDensity",
     "theme",

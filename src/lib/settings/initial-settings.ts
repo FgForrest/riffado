@@ -3,6 +3,7 @@ import type { userSettings } from "@/db/schema";
 export interface InitialSettings {
     dateTimeFormat: "relative" | "absolute" | "iso";
     recordingListSortOrder: "newest" | "oldest" | "name";
+    chatterKindFilter: "all" | "audio" | "mail";
     itemsPerPage: number;
     listDensity: "comfortable" | "compact";
     theme: "light" | "dark" | "system";
@@ -29,6 +30,7 @@ export interface InitialSettings {
 export const INITIAL_SETTINGS_DEFAULTS: InitialSettings = {
     dateTimeFormat: "relative",
     recordingListSortOrder: "newest",
+    chatterKindFilter: "all",
     itemsPerPage: 50,
     listDensity: "comfortable",
     theme: "system",
@@ -54,6 +56,8 @@ export function initialSettingsFromRow(row: Row): InitialSettings {
             INITIAL_SETTINGS_DEFAULTS.dateTimeFormat) as InitialSettings["dateTimeFormat"],
         recordingListSortOrder: (r?.recordingListSortOrder ??
             INITIAL_SETTINGS_DEFAULTS.recordingListSortOrder) as InitialSettings["recordingListSortOrder"],
+        chatterKindFilter:
+            r?.chatterKindFilter ?? INITIAL_SETTINGS_DEFAULTS.chatterKindFilter,
         itemsPerPage: r?.itemsPerPage ?? INITIAL_SETTINGS_DEFAULTS.itemsPerPage,
         listDensity: (r?.listDensity ??
             INITIAL_SETTINGS_DEFAULTS.listDensity) as InitialSettings["listDensity"],

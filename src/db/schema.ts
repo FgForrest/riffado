@@ -2694,6 +2694,11 @@ export const userSettings = pgTable("user_settings", {
     dateTimeFormat: varchar("date_time_format", { length: 20 })
         .notNull()
         .default("relative"), // 'relative', 'absolute', 'iso'
+    // Which kinds the Chatter pile shows: everything, recordings or mail.
+    chatterKindFilter: varchar("chatter_kind_filter", { length: 8 })
+        .$type<"all" | "audio" | "mail">()
+        .notNull()
+        .default("all"),
     recordingListSortOrder: varchar("recording_list_sort_order", { length: 20 })
         .notNull()
         .default("newest"), // 'newest', 'oldest', 'name'

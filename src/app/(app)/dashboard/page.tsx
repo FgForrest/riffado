@@ -21,6 +21,7 @@ import { isAdminEmail } from "@/lib/hosted/admin/guard";
 import { confirmedOverlays } from "@/lib/learn/llm-input";
 import { recordingsNeedingReview } from "@/lib/learn/pending";
 import { type OverlayCorrection, readTextOf } from "@/lib/learn/render";
+import { loadMailListRows } from "@/lib/mail/list";
 import { getOrgUserId, isOrgAccount } from "@/lib/org/config";
 import { initialSettingsFromRow } from "@/lib/settings/initial-settings";
 import { sharedRecordingCondition } from "@/lib/sharing/access";
@@ -335,6 +336,11 @@ export default async function DashboardPage() {
             ),
     );
 
+    // Mail sits in the same pile; the organization account has none.
+    const mailRows = viewerIsOrgAccount
+        ? []
+        : await loadMailListRows(session.user.id);
+
     const preferredTranscriptSource =
         settingsRow?.preferredTranscriptSource ?? "plaud";
     const transcriptVariants = buildTranscriptVariants(
@@ -369,7 +375,7 @@ export default async function DashboardPage() {
 
     return (
         <Workstation
-            recordings={recordingsData}
+            recordings={[...recordingsData, ...mailRows]}
             transcriptions={transcriptionMap}
             transcriptVariants={transcriptVariants}
             organizationLibrary={organizationLibrary}

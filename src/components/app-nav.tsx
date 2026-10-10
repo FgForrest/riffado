@@ -28,7 +28,7 @@ export function AppNav({ className }: { className?: string }) {
     // Tasks assigned to the viewer since they last looked.
     const pendingTasks = usePendingTasks();
     const sections = [
-        { href: "/dashboard", label: i18n("Recordings"), icon: Mic },
+        { href: "/dashboard", label: i18n("Chatter"), icon: Mic },
         { href: "/almanac", label: i18n("Almanac"), icon: BookOpenText },
         { href: "/tasks", label: i18n("Tasks"), icon: ListChecks },
     ] as const;
