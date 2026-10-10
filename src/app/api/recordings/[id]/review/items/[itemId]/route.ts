@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/auth-server";
+import { ALL_ITEM_KINDS } from "@/lib/content/item-kinds";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { readBoundedJson } from "@/lib/http/bounded-json";
 import { decideReviewItem, requestedReviewSource } from "@/lib/learn/review";
@@ -73,6 +74,7 @@ async function authorizeLearn(request: Request, recordingId: string) {
         session.user.id,
         recordingId,
         requestedRecordingView(request),
+        { kinds: ALL_ITEM_KINDS },
     );
     assertMayChange(access, session.user.id);
     return { access, actorUserId: session.user.id };

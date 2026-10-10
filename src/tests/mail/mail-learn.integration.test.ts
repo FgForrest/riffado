@@ -25,6 +25,7 @@ import {
     mailParticipants,
     people,
     recordingFolders,
+    userSettings,
     users,
 } from "@/db/schema";
 import {
@@ -517,6 +518,32 @@ describeWithDatabase("Learn on mail (PostgreSQL)", () => {
             withdraw: true,
         });
         expect(await orgEvidence()).toHaveLength(0);
+    });
+
+    it("starts Learn by itself on a new mail when automatic Learn is on", async () => {
+        await db()
+            .insert(userSettings)
+            .values({ userId: "u-jan", autoLearn: true })
+            .onConflictDoUpdate({
+                target: userSettings.userId,
+                set: { autoLearn: true },
+            });
+        try {
+            const itemId = await deliver("Automatic", "Please call Petra.");
+            const [run] = await db()
+                .select({
+                    trigger: learnRuns.trigger,
+                    status: learnRuns.status,
+                })
+                .from(learnRuns)
+                .where(eq(learnRuns.itemId, itemId));
+            expect(run).toMatchObject({ trigger: "auto", status: "queued" });
+        } finally {
+            await db()
+                .update(userSettings)
+                .set({ autoLearn: false })
+                .where(eq(userSettings.userId, "u-jan"));
+        }
     });
 
     it("does not read a signature it has read in another mail", async () => {

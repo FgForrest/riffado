@@ -15,6 +15,7 @@ import { useExtracted, useLocale } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { useConfirm } from "@/components/confirm-dialog";
+import { MailLearnCard } from "@/components/mail/mail-learn-card";
 import { MailSummaryCard } from "@/components/mail/mail-summary-card";
 import { RecordingFolderTags } from "@/components/recordings/recording-folder-tags";
 import { Button } from "@/components/ui/button";
@@ -421,6 +422,13 @@ export function MailDetailPane({
             {detail && !detail.unreadable && (
                 <MailSummaryCard
                     mail={mail}
+                    canChange={mail.view === "org" ? isOrgAccount : isOwn}
+                />
+            )}
+            {detail && (
+                <MailLearnCard
+                    mail={mail}
+                    detail={detail}
                     canChange={mail.view === "org" ? isOrgAccount : isOwn}
                 />
             )}
