@@ -383,6 +383,15 @@ function ProposalRow({
                             “{task.quote}”
                         </span>
                     )}
+                    {task.evidenceProvenance && (
+                        <span className="text-xs text-amber-700 dark:text-amber-400">
+                            {task.evidenceProvenance === "quoted"
+                                ? i18n(
+                                      "From an earlier message quoted in the mail",
+                                  )
+                                : i18n("From a sender nothing verified")}
+                        </span>
+                    )}
                 </div>
             </div>
         </li>

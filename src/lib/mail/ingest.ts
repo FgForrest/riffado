@@ -28,6 +28,7 @@ import {
     mailUserById,
     resolveLocalPart,
 } from "@/lib/mail/addresses";
+import { processNewMail } from "@/lib/mail/auto-process";
 import { isMailEnabled, mailDomain } from "@/lib/mail/config";
 import { authenticateMessage } from "@/lib/mail/dkim";
 import { parseMessage } from "@/lib/mail/parse";
@@ -346,6 +347,9 @@ export async function ingestMail(input: IngestInput): Promise<IngestResult> {
                     recipient,
                     stored.duplicate ? "duplicate" : "accepted",
                 );
+            }
+            if (!stored.duplicate) {
+                await processNewMail(delivery.ownerUserId, stored.itemId);
             }
         }
     }

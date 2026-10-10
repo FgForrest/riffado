@@ -1,6 +1,16 @@
-import { and, desc, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
+import {
+    and,
+    desc,
+    eq,
+    inArray,
+    isNotNull,
+    isNull,
+    type SQL,
+    sql,
+} from "drizzle-orm";
 import { db } from "@/db";
 import {
+    aiEnhancements,
     chatterItems,
     mailMessages,
     mailParticipants,
@@ -48,7 +58,7 @@ async function mailRows(
         .orderBy(desc(chatterItems.occurredAt), desc(chatterItems.id));
     if (rows.length === 0) return [];
     const ids = rows.map((row) => row.id);
-    const [senders, waiting] = await Promise.all([
+    const [senders, waiting, summarized] = await Promise.all([
         db
             .select({
                 itemId: mailParticipants.itemId,
@@ -80,7 +90,24 @@ async function mailRows(
                           inArray(mailPendingShares.itemId, ids),
                       ),
                   ),
+        db
+            .select({ itemId: aiEnhancements.itemId })
+            .from(aiEnhancements)
+            .innerJoin(
+                chatterItems,
+                and(
+                    eq(chatterItems.id, aiEnhancements.itemId),
+                    eq(chatterItems.userId, aiEnhancements.userId),
+                ),
+            )
+            .where(
+                and(
+                    inArray(aiEnhancements.itemId, ids),
+                    isNotNull(aiEnhancements.summary),
+                ),
+            ),
     ]);
+    const summarizedIds = new Set(summarized.map((row) => row.itemId));
     const fromOf = new Map(
         senders.map((sender) => [
             sender.itemId,
@@ -113,7 +140,7 @@ async function mailRows(
             filesize: row.sizeBytes,
             deviceSn: "mail",
             hasTranscript: false,
-            hasSummary: false,
+            hasSummary: summarizedIds.has(row.id),
             audioReaped: false,
             waveformPeaks: null,
             mail: {

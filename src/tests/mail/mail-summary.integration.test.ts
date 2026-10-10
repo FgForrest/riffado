@@ -18,8 +18,10 @@ import {
     accounts,
     aiEnhancements,
     apiCredentials,
+    asyncJobs,
     mailMessages,
     recordingTasks,
+    userSettings,
     users,
 } from "@/db/schema";
 import {
@@ -75,6 +77,7 @@ const { dbProxy, dbRef, mockEnv, createCompletion } = vi.hoisted(() => {
                 "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
             BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-00",
             DATABASE_URL: "postgres://unused",
+            AUTO_SUMMARY_RATE_LIMIT_PER_HOUR: 100,
         },
     };
 });
@@ -88,6 +91,7 @@ vi.mock("@/lib/posthog-server", () => ({
 vi.mock("@/lib/folder-exports/jobs", () => ({
     enqueueExportPlansForUser: vi.fn().mockResolvedValue(undefined),
 }));
+vi.mock("@/lib/jobs/nudge", () => ({ nudge: vi.fn() }));
 vi.mock("openai", async (importOriginal) => {
     const actual = await importOriginal<typeof import("openai")>();
     return {
@@ -405,6 +409,56 @@ describeWithDatabase("summaries of mail (PostgreSQL)", () => {
             status: "open",
             evidenceText: { segmentIndex: 0 },
         });
+    });
+
+    it("queues a summary of new mail, unless machine-sent or switched off", async () => {
+        const queued = async (itemId: string) =>
+            (
+                await db()
+                    .select({ payload: asyncJobs.payload })
+                    .from(asyncJobs)
+                    .where(
+                        and(
+                            eq(asyncJobs.kind, "summary"),
+                            eq(asyncJobs.userId, "u-jan"),
+                        ),
+                    )
+            ).filter(
+                (job) =>
+                    (job.payload as { recordingId?: string }).recordingId ===
+                    itemId,
+            );
+        const plain = await deliver(
+            await signMessage(
+                rawMessage(headers("Plain"), "Please call me."),
+                company,
+            ),
+            ["jan@klepna.example"],
+        );
+        expect(await queued(plain)).toHaveLength(1);
+        const machine = await deliver(
+            await signMessage(
+                rawMessage(headers("Notice", ["Precedence: bulk"]), "News."),
+                company,
+            ),
+            ["jan@klepna.example"],
+        );
+        expect(await queued(machine)).toHaveLength(0);
+        await db()
+            .insert(userSettings)
+            .values({ userId: "u-jan", mailAutoProcess: false })
+            .onConflictDoUpdate({
+                target: userSettings.userId,
+                set: { mailAutoProcess: false },
+            });
+        const off = await deliver(
+            await signMessage(
+                rawMessage(headers("Later"), "Not now."),
+                company,
+            ),
+            ["jan@klepna.example"],
+        );
+        expect(await queued(off)).toHaveLength(0);
     });
 
     it("never summarizes mail sent by machines", async () => {
