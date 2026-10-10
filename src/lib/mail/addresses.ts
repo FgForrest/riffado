@@ -446,6 +446,69 @@ export async function listUserAddresses(
     return rows.map(toRow);
 }
 
+async function loadAddress(
+    executor: Executor,
+    id: string,
+): Promise<MailAddressRow | null> {
+    const [row] = await executor
+        .select(addressColumns())
+        .from(mailAddresses)
+        .where(eq(mailAddresses.id, id))
+        .limit(1);
+    return row ? toRow(row) : null;
+}
+
+function cleanLabel(label: string | null | undefined): string | null {
+    return label?.trim() ? label.trim().slice(0, 100) : null;
+}
+
+async function insertSecretInTx(
+    tx: Tx,
+    input: {
+        userId: string;
+        baseAddressId: string;
+        baseLocalPart: string;
+        label: string | null;
+    },
+): Promise<string> {
+    for (let attempt = 0; attempt < 5; attempt++) {
+        const created = await claimFirstFree(
+            tx,
+            [secretLocalPart(input.baseLocalPart)],
+            {
+                kind: "secret",
+                namespaceUserId: input.userId,
+                baseAddressId: input.baseAddressId,
+                createdByUserId: input.userId,
+                label: input.label ? encryptText(input.label) : null,
+            },
+        );
+        if (created) return created.id;
+    }
+    throw new AppError(ErrorCode.INTERNAL_ERROR, "Address not created", 500);
+}
+
+/** One of the user's own active mailbox or folder addresses, or null. */
+async function ownBaseAddress(
+    executor: Executor,
+    userId: string,
+    addressId: string,
+): Promise<MailAddressRow | null> {
+    const [base] = await executor
+        .select(addressColumns())
+        .from(mailAddresses)
+        .where(
+            and(
+                eq(mailAddresses.id, addressId),
+                eq(mailAddresses.namespaceUserId, userId),
+                inArray(mailAddresses.kind, ["mailbox", "folder"]),
+                eq(mailAddresses.status, "active"),
+            ),
+        )
+        .limit(1);
+    return base ? toRow(base) : null;
+}
+
 /**
  * A new secret address extending one of the user's own personal addresses
  * (D3): anyone who knows it may send, so it is for a Gmail filter or a
@@ -456,47 +519,23 @@ export async function createSecretAddress(input: {
     baseAddressId: string;
     label: string | null;
 }): Promise<MailAddressRow> {
-    const [base] = await db
-        .select(addressColumns())
-        .from(mailAddresses)
-        .where(
-            and(
-                eq(mailAddresses.id, input.baseAddressId),
-                eq(mailAddresses.namespaceUserId, input.userId),
-                inArray(mailAddresses.kind, ["mailbox", "folder"]),
-                eq(mailAddresses.status, "active"),
-            ),
-        )
-        .limit(1);
-    if (!base) {
-        throw new AppError(ErrorCode.NOT_FOUND, "Address not found", 404);
-    }
-    const baseLocalPart = decryptText(base.localPart);
-    const label = input.label?.trim() ? input.label.trim().slice(0, 100) : null;
-    let created: { id: string } | null = null;
-    await db.transaction(async (tx) => {
-        for (let attempt = 0; attempt < 5 && !created; attempt++) {
-            created = await claimFirstFree(
-                tx,
-                [secretLocalPart(baseLocalPart)],
-                {
-                    kind: "secret",
-                    namespaceUserId: input.userId,
-                    baseAddressId: base.id,
-                    createdByUserId: input.userId,
-                    label: label ? encryptText(label) : null,
-                },
-            );
+    const id = await db.transaction(async (tx) => {
+        const base = await ownBaseAddress(
+            tx,
+            input.userId,
+            input.baseAddressId,
+        );
+        if (!base) {
+            throw new AppError(ErrorCode.NOT_FOUND, "Address not found", 404);
         }
+        return insertSecretInTx(tx, {
+            userId: input.userId,
+            baseAddressId: base.id,
+            baseLocalPart: base.localPart,
+            label: cleanLabel(input.label),
+        });
     });
-    const id = (created as { id: string } | null)?.id;
-    const [row] = id
-        ? await db
-              .select(addressColumns())
-              .from(mailAddresses)
-              .where(eq(mailAddresses.id, id))
-              .limit(1)
-        : [];
+    const row = await loadAddress(db, id);
     if (!row) {
         throw new AppError(
             ErrorCode.INTERNAL_ERROR,
@@ -504,7 +543,58 @@ export async function createSecretAddress(input: {
             500,
         );
     }
-    return toRow(row);
+    return row;
+}
+
+/**
+ * Replaces one of the user's secret addresses with a new token for the same
+ * target and label; the old one stops working at once.
+ */
+export async function rotateSecretAddress(input: {
+    userId: string;
+    addressId: string;
+}): Promise<MailAddressRow> {
+    const id = await db.transaction(async (tx) => {
+        const [secret] = await tx
+            .select(addressColumns())
+            .from(mailAddresses)
+            .where(
+                and(
+                    eq(mailAddresses.id, input.addressId),
+                    eq(mailAddresses.kind, "secret"),
+                    eq(mailAddresses.createdByUserId, input.userId),
+                    ne(mailAddresses.status, "blocked"),
+                ),
+            )
+            .for("update")
+            .limit(1);
+        const base = secret?.baseAddressId
+            ? await ownBaseAddress(tx, input.userId, secret.baseAddressId)
+            : null;
+        if (!secret || !base) {
+            throw new AppError(ErrorCode.NOT_FOUND, "Address not found", 404);
+        }
+        const now = new Date();
+        await tx
+            .update(mailAddresses)
+            .set({ status: "blocked", blockedAt: now, updatedAt: now })
+            .where(eq(mailAddresses.id, secret.id));
+        return insertSecretInTx(tx, {
+            userId: input.userId,
+            baseAddressId: base.id,
+            baseLocalPart: base.localPart,
+            label: secret.label ? decryptText(secret.label) : null,
+        });
+    });
+    const row = await loadAddress(db, id);
+    if (!row) {
+        throw new AppError(
+            ErrorCode.INTERNAL_ERROR,
+            "Address not created",
+            500,
+        );
+    }
+    return row;
 }
 
 /**
@@ -545,7 +635,7 @@ export async function labelAddress(input: {
     addressId: string;
     label: string | null;
 }): Promise<void> {
-    const label = input.label?.trim() ? input.label.trim().slice(0, 100) : null;
+    const label = cleanLabel(input.label);
     const updated = await db
         .update(mailAddresses)
         .set({
@@ -563,6 +653,64 @@ export async function labelAddress(input: {
     if (updated.length === 0) {
         throw new AppError(ErrorCode.NOT_FOUND, "Address not found", 404);
     }
+}
+
+/**
+ * The live addresses of the folders `folderIds`, each folder's current one
+ * first. The caller has checked the viewer may see the folders.
+ */
+export async function listFolderAddresses(
+    folderIds: readonly string[],
+): Promise<MailAddressRow[]> {
+    if (folderIds.length === 0) return [];
+    const rows = await db
+        .select(addressColumns())
+        .from(mailAddresses)
+        .where(
+            and(
+                inArray(mailAddresses.folderId, [...folderIds]),
+                eq(mailAddresses.kind, "folder"),
+                ne(mailAddresses.status, "blocked"),
+            ),
+        )
+        .orderBy(
+            sql`${mailAddresses.primary} desc`,
+            asc(mailAddresses.createdAt),
+        );
+    return rows.map(toRow);
+}
+
+/**
+ * Blocks a folder's secondary address for good, and the secret addresses
+ * extending it. The caller has checked the actor may change the folder.
+ */
+export async function removeFolderSecondaryAddress(input: {
+    folderId: string;
+    addressId: string;
+}): Promise<void> {
+    await db.transaction(async (tx) => {
+        const now = new Date();
+        const blocked = await tx
+            .update(mailAddresses)
+            .set({ status: "blocked", blockedAt: now, updatedAt: now })
+            .where(
+                and(
+                    eq(mailAddresses.id, input.addressId),
+                    eq(mailAddresses.folderId, input.folderId),
+                    eq(mailAddresses.kind, "folder"),
+                    eq(mailAddresses.primary, false),
+                    ne(mailAddresses.status, "blocked"),
+                ),
+            )
+            .returning({ id: mailAddresses.id });
+        if (blocked.length === 0) {
+            throw new AppError(ErrorCode.NOT_FOUND, "Address not found", 404);
+        }
+        await blockSecretsOfInTx(
+            tx,
+            blocked.map((row) => row.id),
+        );
+    });
 }
 
 /** Notes that mail came through an address. */

@@ -26,6 +26,7 @@ import {
     mailPendingShares,
     recordingFolderAssignments,
     recordingFolders,
+    recordingTasks,
     users,
 } from "@/db/schema";
 import {
@@ -97,9 +98,18 @@ vi.mock("@/lib/folder-exports/jobs", () => ({
 import { POST as ingestRoute } from "@/app/api/internal/mail/ingest/route";
 import { POST as precheckRoute } from "@/app/api/internal/mail/precheck/route";
 import { decryptBuffer } from "@/lib/encryption";
-import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
+import {
+    decryptJsonField,
+    decryptText,
+    encryptText,
+} from "@/lib/encryption/fields";
 import { buildAndUploadExportArchive } from "@/lib/export/build-archive";
-import { createFolder, ensureRootFolders } from "@/lib/folders/folders";
+import {
+    addRecordingToFolder,
+    createFolder,
+    ensureRootFolders,
+    removeRecordingFromFolder,
+} from "@/lib/folders/folders";
 import { ensureMailbox, findFolderAddress } from "@/lib/mail/addresses";
 import { collectArchivedMail } from "@/lib/mail/archive";
 import { loadMailDetail } from "@/lib/mail/detail";
@@ -107,6 +117,7 @@ import { authenticateMessage } from "@/lib/mail/dkim";
 import { ingestMail, precheckMail } from "@/lib/mail/ingest";
 import { loadMailListRows } from "@/lib/mail/list";
 import { deleteMail, shareMail } from "@/lib/mail/manage";
+import { loadDeliveryLog } from "@/lib/mail/views";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { LocalStorage } from "@/lib/storage/local-storage";
 import type { StorageProvider } from "@/lib/storage/types";
@@ -467,6 +478,120 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         expect(detail?.pendingShares).toEqual([]);
     });
 
+    it("files a mail like a recording: personal folders freely, the Organization through the gate", async () => {
+        const raw = await signMessage(
+            rawMessage(
+                headers("jan@company.example", "jan@klepna.example"),
+                "A note to file later.",
+            ),
+            company,
+        );
+        await deliver(raw, ["jan@klepna.example"]);
+        const [message] = await db()
+            .select({ id: mailMessages.id })
+            .from(mailMessages)
+            .where(eq(mailMessages.sizeBytes, raw.length));
+        const itemId = message?.id ?? "";
+        const assigned = async () =>
+            (
+                await db()
+                    .select({ folderId: recordingFolderAssignments.folderId })
+                    .from(recordingFolderAssignments)
+                    .where(eq(recordingFolderAssignments.itemId, itemId))
+            )
+                .map((row) => row.folderId)
+                .sort();
+
+        await addRecordingToFolder({
+            userId: "u-jan",
+            recordingId: itemId,
+            folderId: weeklyFolderId,
+        });
+        expect(await assigned()).toEqual([weeklyFolderId]);
+        // Only its owner shares it.
+        await expect(
+            addRecordingToFolder({
+                userId: "u-eva",
+                recordingId: itemId,
+                folderId: orgWeeklyFolderId,
+            }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+
+        const [task] = await db()
+            .insert(recordingTasks)
+            .values({
+                itemId,
+                userId: "u-jan",
+                status: "proposed",
+                source: "riffado",
+                text: encryptText("Answer by Friday"),
+            })
+            .returning({ id: recordingTasks.id });
+        await expect(
+            addRecordingToFolder({
+                userId: "u-jan",
+                recordingId: itemId,
+                folderId: orgWeeklyFolderId,
+            }),
+        ).rejects.toMatchObject({
+            statusCode: 409,
+            details: {
+                problems: [{ kind: "tasks_unreviewed", proposals: 1 }],
+            },
+        });
+        expect(await assigned()).toEqual([weeklyFolderId]);
+
+        await db()
+            .update(recordingTasks)
+            .set({ status: "open" })
+            .where(eq(recordingTasks.id, task?.id ?? ""));
+        await addRecordingToFolder({
+            userId: "u-jan",
+            recordingId: itemId,
+            folderId: orgWeeklyFolderId,
+        });
+        expect(await assigned()).toEqual(
+            [weeklyFolderId, orgWeeklyFolderId].sort(),
+        );
+
+        await expect(
+            removeRecordingFromFolder({
+                userId: "u-jan",
+                recordingId: itemId,
+                folderId: orgWeeklyFolderId,
+            }),
+        ).rejects.toMatchObject({ statusCode: 409 });
+        await removeRecordingFromFolder({
+            userId: "u-jan",
+            recordingId: itemId,
+            folderId: orgWeeklyFolderId,
+            withdraw: true,
+        });
+        expect(await assigned()).toEqual([weeklyFolderId]);
+    });
+
+    it("shows the owner their delivery log, decrypted, and nobody else's", async () => {
+        const entries = await loadDeliveryLog("u-jan");
+        expect(entries.length).toBeGreaterThan(0);
+        const refused = entries.find(
+            (entry) => entry.reason === "sender_mismatch",
+        );
+        expect(refused).toMatchObject({
+            address: "jan@klepna.example",
+            senderDomain: "company.example",
+            outcome: "refused",
+            itemId: null,
+        });
+        const accepted = entries.find((entry) => entry.outcome === "accepted");
+        expect(accepted?.itemId).toEqual(expect.any(String));
+        const times = entries.map((entry) => Date.parse(entry.at));
+        expect([...times].sort((a, b) => b - a)).toEqual(times);
+        const evas = await loadDeliveryLog("u-eva");
+        expect(
+            evas.every((entry) => entry.address !== "jan@klepna.example"),
+        ).toBe(true);
+    });
+
     it("backs up mail: the owner's own, and the Organization's shared ones", async () => {
         const mine = await collectArchivedMail({
             kind: "personal",
@@ -595,14 +720,19 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         expect(precheck.accepted).toEqual([]);
     });
 
-    it("leaves no raw file behind for refused mail", () => {
+    it("leaves no raw file behind for refused mail", async () => {
         const files = readdirSync(join(storageDir, "mail"), {
             recursive: true,
         });
-        // Three stored messages: the folder mail, the retried one, the Organization one.
+        const stored = await db()
+            .select({ path: mailMessages.rawStoragePath })
+            .from(mailMessages);
         expect(
-            files.filter((name) => String(name).endsWith(".eml.enc")),
-        ).toHaveLength(3);
+            files
+                .filter((name) => String(name).endsWith(".eml.enc"))
+                .map((name) => `mail/${String(name)}`)
+                .sort(),
+        ).toEqual(stored.map((row) => row.path).sort());
     });
 
     describe("the receiver's endpoints", () => {

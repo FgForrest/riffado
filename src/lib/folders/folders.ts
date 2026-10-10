@@ -23,10 +23,12 @@ import {
 } from "@/lib/knowledge/share-knowledge";
 import { blockFolderAddressesInTx } from "@/lib/mail/address-blocking";
 import { ensureFolderAddress } from "@/lib/mail/addresses";
+import { shareMailInTx } from "@/lib/mail/share-gate";
 import {
     assertOrgScopeWritable,
     getOrgUserId,
     isOrgAccount,
+    isOrgScopeEnabled,
 } from "@/lib/org/config";
 import { notifyOrgChange } from "@/lib/org/events";
 import { recordingJobSubject } from "@/lib/sharing/access";
@@ -233,6 +235,33 @@ async function resolveFolder(
     return null;
 }
 
+/**
+ * The custom folder `folderId` and its subfolders as `userId` reaches them,
+ * or null when they cannot; `writable` is whether they may change it now.
+ */
+export async function reachableCustomFolder(
+    userId: string,
+    folderId: string,
+): Promise<{
+    folderId: string;
+    ownerId: string;
+    scope: FolderScope;
+    subtreeIds: string[];
+    writable: boolean;
+} | null> {
+    const orgUserId = await getOrgUserId();
+    const target = await resolveFolder(db, userId, folderId, orgUserId);
+    if (!target || target.folder.kind !== "custom") return null;
+    const folders = await listTreeFolders(db, target.ownerId);
+    return {
+        folderId: target.folder.id,
+        ownerId: target.ownerId,
+        scope: target.scope,
+        subtreeIds: [...subtreeIds(folders, target.folder.id)],
+        writable: target.scope !== "org" || isOrgScopeEnabled(),
+    };
+}
+
 /** Changes to the Organization tree need the scope to be writable. */
 function assertWritable(target: AccessibleFolder): void {
     if (target.scope === "org") assertOrgScopeWritable();
@@ -254,13 +283,20 @@ export async function lockOrgTree(tx: Tx): Promise<void> {
 
 /**
  * Lock the recording row, as the content upserts do, so an Organization run
- * that is about to commit and an unshare cannot pass each other.
+ * that is about to commit and an unshare cannot pass each other. A mail has
+ * no recording row: its item row is locked instead.
  */
 async function lockRecording(tx: Tx, recordingId: string): Promise<void> {
-    await tx
+    const locked = await tx
         .select({ id: recordings.id })
         .from(recordings)
         .where(eq(recordings.id, recordingId))
+        .for("update");
+    if (locked.length > 0) return;
+    await tx
+        .select({ id: chatterItems.id })
+        .from(chatterItems)
+        .where(eq(chatterItems.id, recordingId))
         .for("update");
 }
 
@@ -788,29 +824,31 @@ export async function deleteFolder(
     }
 }
 
+/** The caller's live item `recordingId`, by kind; 404 when there is none. */
 async function requireOwnedRecording(
     executor: Pick<typeof db, "select">,
     userId: string,
     recordingId: string,
-): Promise<void> {
-    const [recording] = await executor
-        .select({ id: recordings.id })
-        .from(recordings)
+): Promise<"audio" | "mail"> {
+    const [item] = await executor
+        .select({ kind: chatterItems.kind })
+        .from(chatterItems)
         .where(
             and(
-                eq(recordings.id, recordingId),
-                eq(recordings.userId, userId),
-                isNull(recordings.deletedAt),
+                eq(chatterItems.id, recordingId),
+                eq(chatterItems.userId, userId),
+                isNull(chatterItems.deletedAt),
             ),
         )
         .limit(1);
-    if (!recording) {
+    if (!item) {
         throw new AppError(
             ErrorCode.NOT_FOUND,
             "Recording or folder not found",
             404,
         );
     }
+    return item.kind;
 }
 
 /** Drop assignments to ancestors of another assignment in the same tree. */
@@ -917,7 +955,24 @@ export async function addRecordingToFolder(input: {
             }
             await lockRecording(tx, input.recordingId);
             // Deleted, or given away, since the check above.
-            await requireOwnedRecording(tx, input.userId, input.recordingId);
+            const kind = await requireOwnedRecording(
+                tx,
+                input.userId,
+                input.recordingId,
+            );
+            if (target.scope === "org" && kind === "mail") {
+                await shareMailInTx(tx, {
+                    ownerUserId: input.userId,
+                    itemId: input.recordingId,
+                    folderId: target.folder.id,
+                });
+                await pruneRedundantAssignments(
+                    tx,
+                    target.ownerId,
+                    input.recordingId,
+                );
+                return;
+            }
             const wasShared =
                 target.scope === "org" &&
                 (await isRecordingShared(
@@ -1147,12 +1202,12 @@ async function requireMayWithdraw(
         // Only a recording it can see: one that is shared now. Checked again
         // under the locks.
         const [recording] = await db
-            .select({ id: recordings.id })
-            .from(recordings)
+            .select({ id: chatterItems.id })
+            .from(chatterItems)
             .where(
                 and(
-                    eq(recordings.id, recordingId),
-                    isNull(recordings.deletedAt),
+                    eq(chatterItems.id, recordingId),
+                    isNull(chatterItems.deletedAt),
                 ),
             )
             .limit(1);
@@ -1178,10 +1233,13 @@ async function requireRecordingOwnerForSharing(
     recordingId: string,
 ): Promise<void> {
     const [recording] = await db
-        .select({ userId: recordings.userId })
-        .from(recordings)
+        .select({ userId: chatterItems.userId })
+        .from(chatterItems)
         .where(
-            and(eq(recordings.id, recordingId), isNull(recordings.deletedAt)),
+            and(
+                eq(chatterItems.id, recordingId),
+                isNull(chatterItems.deletedAt),
+            ),
         )
         .limit(1);
     if (!recording) {
@@ -1256,9 +1314,9 @@ async function endSharingIfUnfiled(
         );
 
     const [owner] = await tx
-        .select({ userId: recordings.userId })
-        .from(recordings)
-        .where(eq(recordings.id, recordingId))
+        .select({ userId: chatterItems.userId })
+        .from(chatterItems)
+        .where(eq(chatterItems.id, recordingId))
         .limit(1);
     if (!owner) return new Set();
     return withdrawKnowledgeInTx(tx, {

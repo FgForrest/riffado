@@ -86,8 +86,15 @@ import {
     mailUserByEmail,
     removeAddress,
     resolveLocalPart,
+    rotateSecretAddress,
     setFolderAddress,
 } from "@/lib/mail/addresses";
+import {
+    loadFolderAddresses,
+    removeFolderAlias,
+    setFolderAlias,
+} from "@/lib/mail/folder-addresses";
+import { loadMailSettings } from "@/lib/mail/views";
 import { ensureOrgAccount } from "@/lib/org/account";
 
 const testDatabaseUrl = getTestDatabaseUrl();
@@ -305,6 +312,138 @@ describeWithDatabase("mail addresses (PostgreSQL)", () => {
         await expect(
             removeAddress({ userId: "u-jan", addressId: mailbox.id }),
         ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it("rotates a secret address: a new token, the label kept, the old one gone", async () => {
+        const mailbox = await resolveLocalPart("jan");
+        if (!mailbox) throw new Error("no mailbox");
+        const secret = await createSecretAddress({
+            userId: "u-jan",
+            baseAddressId: mailbox.id,
+            label: "Newsletter",
+        });
+        const rotated = await rotateSecretAddress({
+            userId: "u-jan",
+            addressId: secret.id,
+        });
+        expect(rotated.id).not.toBe(secret.id);
+        expect(rotated.localPart).toMatch(/^jan\.[a-z2-7]{10}$/);
+        expect(rotated.localPart).not.toBe(secret.localPart);
+        expect(rotated).toMatchObject({
+            label: "Newsletter",
+            baseAddressId: mailbox.id,
+            status: "active",
+        });
+        expect(await resolveLocalPart(secret.localPart)).toMatchObject({
+            status: "blocked",
+        });
+        await expect(
+            rotateSecretAddress({ userId: "u-jan2", addressId: rotated.id }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        await expect(
+            rotateSecretAddress({ userId: "u-jan", addressId: secret.id }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+    });
+
+    it("lists the user's live addresses for Settings, blocked ones left out", async () => {
+        const view = await loadMailSettings("u-jan");
+        expect(view).toMatchObject({
+            domain: "klepna.example",
+            eligible: true,
+            receiving: true,
+        });
+        const addresses = view.addresses.map((address) => address.address);
+        expect(addresses).toContain("jan@klepna.example");
+        expect(
+            addresses.every((address) => address.endsWith("@klepna.example")),
+        ).toBe(true);
+        const blocked = await db()
+            .select({ localPart: mailAddresses.localPart })
+            .from(mailAddresses)
+            .where(eq(mailAddresses.status, "blocked"));
+        for (const row of blocked) {
+            expect(addresses).not.toContain(
+                `${decryptText(row.localPart)}@klepna.example`,
+            );
+        }
+        expect(await loadMailSettings("u-mallory")).toMatchObject({
+            eligible: false,
+            receiving: false,
+            addresses: [],
+        });
+    });
+
+    it("shows a folder's addresses to whoever reaches it, and lets them change them", async () => {
+        const personal = await createFolder({
+            userId: "u-jan",
+            parentId: await rootOf("u-jan"),
+            name: "Steering",
+        });
+        expect(await loadFolderAddresses("u-jan2", personal.id)).toBeNull();
+        await expect(
+            setFolderAlias({
+                userId: "u-jan2",
+                folderId: personal.id,
+                alias: "mine",
+            }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+
+        const org = await createFolder({
+            userId: "u-jan",
+            parentId: await rootOf(orgUserId),
+            name: "Suppliers",
+        });
+        const child = await createFolder({
+            userId: "u-jan",
+            parentId: org.id,
+            name: "Steel",
+        });
+        // Another member edits the Organization folder's address.
+        const edited = await setFolderAlias({
+            userId: "u-jan2",
+            folderId: org.id,
+            alias: "vendors",
+        });
+        expect(edited.address).toBe("acme-vendors@klepna.example");
+        const listed = await loadFolderAddresses("u-jan2", org.id);
+        expect(listed?.writable).toBe(true);
+        expect(
+            listed?.addresses.map((address) => [
+                address.address,
+                address.primary,
+            ]),
+        ).toEqual([
+            ["acme-vendors@klepna.example", true],
+            ["acme-suppliers@klepna.example", false],
+        ]);
+        const subtree = await loadFolderAddresses("u-jan", org.id, {
+            subtree: true,
+        });
+        expect(
+            subtree?.addresses.map((address) => address.folderId).sort(),
+        ).toEqual([org.id, org.id, child.id].sort());
+
+        const secondary = listed?.addresses.find((address) => !address.primary);
+        await expect(
+            removeFolderAlias({
+                userId: "u-jan",
+                folderId: org.id,
+                addressId: edited.id,
+            }),
+        ).rejects.toMatchObject({ statusCode: 404 });
+        await removeFolderAlias({
+            userId: "u-jan",
+            folderId: org.id,
+            addressId: secondary?.id ?? "",
+        });
+        expect(
+            (await loadFolderAddresses("u-jan", org.id))?.addresses.map(
+                (address) => address.address,
+            ),
+        ).toEqual(["acme-vendors@klepna.example"]);
+        expect(await resolveLocalPart("acme-suppliers")).toMatchObject({
+            status: "blocked",
+        });
     });
 
     it("refuses a secret address on an Organization address", async () => {

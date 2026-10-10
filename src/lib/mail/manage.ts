@@ -2,17 +2,15 @@ import { and, count, eq } from "drizzle-orm";
 import { db } from "@/db";
 import {
     chatterItems,
-    learnRuns,
     mailMessages,
     mailPendingShares,
     recordingFolderAssignments,
     recordingFolders,
-    recordingTasks,
 } from "@/db/schema";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { lockOrgTree, orgTreeChanged } from "@/lib/folders/folders";
-import { learnRunOpen } from "@/lib/learn/learn-open";
 import { deleteRawMail } from "@/lib/mail/raw-storage";
+import { shareMailInTx } from "@/lib/mail/share-gate";
 import { getOrgUserId } from "@/lib/org/config";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -132,57 +130,7 @@ export async function shareMail(input: {
             )
             .limit(1);
         if (!pending) throw mailNotFound();
-        const [openRuns] = await tx
-            .select({ n: count() })
-            .from(learnRuns)
-            .where(and(eq(learnRuns.itemId, input.itemId), learnRunOpen()));
-        const [proposals] = await tx
-            .select({ n: count() })
-            .from(recordingTasks)
-            .where(
-                and(
-                    eq(recordingTasks.itemId, input.itemId),
-                    eq(recordingTasks.status, "proposed"),
-                ),
-            );
-        if ((openRuns?.n ?? 0) > 0 || (proposals?.n ?? 0) > 0) {
-            throw new AppError(
-                ErrorCode.SHARE_REQUIREMENTS_UNMET,
-                "Finish the review before sharing",
-                409,
-                {
-                    problems: [
-                        ...((openRuns?.n ?? 0) > 0
-                            ? [{ kind: "learn_unfinished", runs: openRuns?.n }]
-                            : []),
-                        ...((proposals?.n ?? 0) > 0
-                            ? [
-                                  {
-                                      kind: "tasks_unreviewed",
-                                      proposals: proposals?.n,
-                                  },
-                              ]
-                            : []),
-                    ],
-                },
-            );
-        }
-        await tx
-            .insert(recordingFolderAssignments)
-            .values({
-                userId: input.ownerUserId,
-                itemId: input.itemId,
-                folderId: input.folderId,
-            })
-            .onConflictDoNothing();
-        await tx
-            .delete(mailPendingShares)
-            .where(
-                and(
-                    eq(mailPendingShares.itemId, input.itemId),
-                    eq(mailPendingShares.folderId, input.folderId),
-                ),
-            );
+        await shareMailInTx(tx, input);
     });
     await orgTreeChanged();
 }

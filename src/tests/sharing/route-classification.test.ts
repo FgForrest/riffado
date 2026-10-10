@@ -92,6 +92,20 @@ const CLASSIFIED: Record<string, Record<string, Rule>> = {
         DELETE: "owner",
     },
     "folders/[id]/synchronize/route.ts": { POST: "owner" },
+    // A folder's mail addresses: seen by whoever reaches the folder, changed
+    // by whoever may rename it.
+    "folders/[id]/mail-addresses/route.ts": { GET: "folders", PUT: "folders" },
+    "folders/[id]/mail-addresses/[addressId]/route.ts": { DELETE: "folders" },
+    // Mail is its owner's alone: a shared mail is read through its folder.
+    "mail/[id]/route.ts": { GET: "owner", DELETE: "owner" },
+    "mail/[id]/html/route.ts": { GET: "owner" },
+    "mail/[id]/raw/route.ts": { GET: "owner" },
+    "mail/[id]/attachments/[index]/route.ts": { GET: "owner" },
+    "mail/[id]/share/route.ts": { POST: "owner" },
+    "mail/addresses/route.ts": { GET: "owner", POST: "owner" },
+    "mail/addresses/[id]/route.ts": { PATCH: "owner", DELETE: "owner" },
+    "mail/addresses/[id]/rotate/route.ts": { POST: "owner" },
+    "mail/delivery-log/route.ts": { GET: "owner" },
     "people/route.ts": { GET: "people", POST: "people" },
     "people/[id]/route.ts": {
         GET: "people",
@@ -102,7 +116,13 @@ const CLASSIFIED: Record<string, Record<string, Rule>> = {
 };
 
 const API_ROOT = join(__dirname, "../../app/api");
-const GUARDED_DIRECTORIES = ["recordings/[id]", "jobs", "folders", "people"];
+const GUARDED_DIRECTORIES = [
+    "recordings/[id]",
+    "jobs",
+    "folders",
+    "people",
+    "mail",
+];
 const METHOD = /export const (GET|POST|PUT|PATCH|DELETE)\b/g;
 
 function routeFiles(directory: string): string[] {
