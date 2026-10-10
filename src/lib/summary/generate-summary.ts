@@ -40,6 +40,7 @@ import {
     resolveTaskProposals,
 } from "@/lib/tasks/proposals";
 import { upsertEnhancement } from "@/lib/transcription/persist";
+import { generateMailSummary } from "./generate-mail-summary";
 import type { MultiPassProgress } from "./multi-pass";
 import { runSummary, summaryModelFor } from "./summary-model";
 
@@ -160,6 +161,7 @@ export async function generateSummaryForRecording(
         actorUserId,
         recordingId,
         opts.view ?? "private",
+        { kinds: ["audio", "mail"] },
     );
     if (!ctx) {
         throw new AppError(
@@ -167,6 +169,20 @@ export async function generateSummaryForRecording(
             "Recording not found",
             404,
         );
+    }
+    const [item] = await db
+        .select({ kind: chatterItems.kind })
+        .from(chatterItems)
+        .where(
+            and(
+                eq(chatterItems.id, recordingId),
+                eq(chatterItems.userId, ctx.ownerUserId),
+                isNull(chatterItems.deletedAt),
+            ),
+        )
+        .limit(1);
+    if (item?.kind === "mail") {
+        return generateMailSummary(ctx, recordingId, opts);
     }
     const orgView = ctx.view === "org";
     // The owner's rows in either view: a shared recording is one recording.

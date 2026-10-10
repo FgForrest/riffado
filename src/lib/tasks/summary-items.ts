@@ -14,7 +14,10 @@ export interface SummaryTaskDue {
 
 export interface SummaryTaskItem {
     text: string;
-    /** A transcript label (`speaker_N`) of the person who has to do it. */
+    /**
+     * Who has to do it: a transcript label (`speaker_N`), or a mail
+     * participant's reference (`pN`).
+     */
     speaker: string | null;
     /** A name heard for someone who does not speak. */
     assignee: string | null;
@@ -37,6 +40,7 @@ const MAX_FIELD = 200;
 const MAX_ITEMS = 60;
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const SPEAKER_LABEL = /^speaker[_ -]?(\d+)$/i;
+const PARTICIPANT_REF = /^p(\d{1,3})$/i;
 const LEADING_SPEAKER = /^\s*\[Speaker (\d+)\]\(#speaker-\1\)\s*/;
 const SPEAKER_PLACEHOLDER = /^\[?Speaker (\d+)\]?(?:\(#speaker-\1\))?$/i;
 
@@ -62,10 +66,15 @@ export function isoDateOrNull(value: unknown): string | null {
         : null;
 }
 
-/** `speaker_N` from what a model wrote for a speaker; null otherwise. */
+/**
+ * `speaker_N` from what a model wrote for a speaker, or `pN` for a mail
+ * participant; null otherwise.
+ */
 export function speakerLabelOf(value: unknown): string | null {
     const text = cleanString(value, MAX_FIELD);
     if (!text) return null;
+    const participant = PARTICIPANT_REF.exec(text);
+    if (participant) return `p${Number(participant[1])}`;
     const label = SPEAKER_LABEL.exec(text) ?? SPEAKER_PLACEHOLDER.exec(text);
     return label ? `speaker_${label[1]}` : null;
 }

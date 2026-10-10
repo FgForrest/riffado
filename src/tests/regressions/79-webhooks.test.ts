@@ -26,6 +26,17 @@ import { db } from "@/db";
 import { webhookDeliveries } from "@/db/schema";
 import { emitEvent } from "@/lib/webhooks/emit";
 
+/** The item is a recording: webhooks speak of nothing else. */
+function mockRecordingExists() {
+    (db.select as Mock).mockReturnValueOnce({
+        from: vi.fn().mockReturnValue({
+            where: vi.fn().mockReturnValue({
+                limit: vi.fn().mockResolvedValue([{ id: "rec-1" }]),
+            }),
+        }),
+    });
+}
+
 describe("Issue #79 — webhook emission", () => {
     beforeEach(() => {
         vi.clearAllMocks();
@@ -37,6 +48,7 @@ describe("Issue #79 — webhook emission", () => {
                 where: vi.fn().mockResolvedValue([{ id: "wh-1" }]),
             }),
         });
+        mockRecordingExists();
 
         const valuesSpy = vi.fn().mockResolvedValue(undefined);
         (db.insert as Mock).mockImplementation((table: unknown) => {
@@ -74,6 +86,7 @@ describe("Issue #79 — webhook emission", () => {
                 where: vi.fn().mockResolvedValue([{ id: "wh-1" }]),
             }),
         });
+        mockRecordingExists();
 
         const valuesSpy = vi.fn().mockResolvedValue(undefined);
         (db.insert as Mock).mockReturnValue({
@@ -89,5 +102,24 @@ describe("Issue #79 — webhook emission", () => {
         expect(values[0].event).toBe("recording.deleted");
         expect(values[0].payload.event).toBe("recording.deleted");
         expect(values[0].payload.recording_id).toBe("rec-1");
+    });
+
+    it("sends nothing for an item that is not a recording", async () => {
+        (db.select as Mock).mockReturnValueOnce({
+            from: vi.fn().mockReturnValue({
+                where: vi.fn().mockResolvedValue([{ id: "wh-1" }]),
+            }),
+        });
+        (db.select as Mock).mockReturnValueOnce({
+            from: vi.fn().mockReturnValue({
+                where: vi.fn().mockReturnValue({
+                    limit: vi.fn().mockResolvedValue([]),
+                }),
+            }),
+        });
+
+        await emitEvent("summary.completed", "user-79", "mail-1");
+
+        expect(db.insert).not.toHaveBeenCalled();
     });
 });

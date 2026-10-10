@@ -4,6 +4,7 @@ import { recordingItemJoin, touchRecording } from "@/db/items";
 import {
     aiEnhancements,
     asyncJobs,
+    type ChatterItemKind,
     chatterItems,
     recordings,
     transcriptions,
@@ -87,8 +88,10 @@ export interface UpsertEnhancementArgs {
     /** The recording's owner, who owns its content rows. */
     userId: string;
     recordingId: string;
-    /** Transcript row this summary was generated from. */
-    transcriptionId: string;
+    /** The item's kind; a recording unless said otherwise. */
+    kind?: ChatterItemKind;
+    /** Transcript row this summary was generated from; null for mail. */
+    transcriptionId: string | null;
     /** Plaintext summary; this helper encrypts it at rest. */
     summary: string;
     keyPoints: string[];
@@ -381,23 +384,41 @@ export async function upsertEnhancement(
     // Before the transaction; see `sharingOrgUserId`.
     const orgUserId = await sharingOrgUserId();
 
+    const isMail = args.kind === "mail";
+
     try {
         await db.transaction(async (tx) => {
-            const [stillActive] = await tx
-                .select({
-                    deletedAt: recordings.deletedAt,
-                    summaryReapedAt: chatterItems.summaryReapedAt,
-                })
-                .from(recordings)
-                .innerJoin(chatterItems, recordingItemJoin)
-                .where(
-                    and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
-                    ),
-                )
-                .for("update")
-                .limit(1);
+            const [stillActive] = isMail
+                ? await tx
+                      .select({
+                          deletedAt: chatterItems.deletedAt,
+                          summaryReapedAt: chatterItems.summaryReapedAt,
+                      })
+                      .from(chatterItems)
+                      .where(
+                          and(
+                              eq(chatterItems.id, recordingId),
+                              eq(chatterItems.userId, userId),
+                              eq(chatterItems.kind, "mail"),
+                          ),
+                      )
+                      .for("update")
+                      .limit(1)
+                : await tx
+                      .select({
+                          deletedAt: recordings.deletedAt,
+                          summaryReapedAt: chatterItems.summaryReapedAt,
+                      })
+                      .from(recordings)
+                      .innerJoin(chatterItems, recordingItemJoin)
+                      .where(
+                          and(
+                              eq(recordings.id, recordingId),
+                              eq(recordings.userId, userId),
+                          ),
+                      )
+                      .for("update")
+                      .limit(1);
 
             if (
                 !stillActive ||
@@ -486,7 +507,7 @@ export async function upsertEnhancement(
             }
 
             const now = new Date();
-            await touchRecording(tx, recordingId, userId, now);
+            if (!isMail) await touchRecording(tx, recordingId, userId, now);
             await tx
                 .update(chatterItems)
                 .set({ updatedAt: now, summaryReapedAt: null })

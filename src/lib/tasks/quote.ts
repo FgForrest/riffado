@@ -43,6 +43,78 @@ export function locateQuote(
     return best?.startMs ?? null;
 }
 
+interface QuoteSegment {
+    index: number;
+    text: string;
+}
+
+/** A located quote: the segment and the range of its text. */
+export interface TextQuoteRange {
+    segmentIndex: number;
+    charStart: number;
+    charEnd: number;
+}
+
+function positionedWords(
+    text: string,
+): { word: string; start: number; end: number }[] {
+    return [...text.matchAll(/[\p{L}\p{N}]+/gu)].map((match) => ({
+        word: match[0].toLocaleLowerCase().normalize("NFC"),
+        start: match.index ?? 0,
+        end: (match.index ?? 0) + match[0].length,
+    }));
+}
+
+/**
+ * Where in a mail's text a quote was copied from: the segment and the
+ * range from its first to its last word there. The quote whole, word for
+ * word, wins; else the segment holding most of its words.
+ */
+export function locateTextQuote(
+    segments: readonly QuoteSegment[] | null | undefined,
+    quote: string | null | undefined,
+): TextQuoteRange | null {
+    if (!segments?.length || !quote) return null;
+    const wanted = words(quote);
+    if (wanted.length === 0) return null;
+    let best: (TextQuoteRange & { share: number }) | null = null;
+    for (const segment of segments) {
+        const found = positionedWords(segment.text);
+        for (let i = 0; i + wanted.length <= found.length; i++) {
+            if (wanted.every((word, j) => found[i + j]?.word === word)) {
+                return {
+                    segmentIndex: segment.index,
+                    charStart: found[i]?.start ?? 0,
+                    charEnd: found[i + wanted.length - 1]?.end ?? 0,
+                };
+            }
+        }
+        const wantedSet = new Set(wanted);
+        const hits = found.filter((entry) => wantedSet.has(entry.word));
+        const share =
+            wanted.filter((word) => hits.some((hit) => hit.word === word))
+                .length / wanted.length;
+        const [first] = hits;
+        const last = hits.at(-1);
+        if (
+            first &&
+            last &&
+            share >= MIN_OVERLAP &&
+            (!best || share > best.share)
+        ) {
+            best = {
+                segmentIndex: segment.index,
+                charStart: first.start,
+                charEnd: last.end,
+                share,
+            };
+        }
+    }
+    if (!best) return null;
+    const { share: _share, ...range } = best;
+    return range;
+}
+
 /**
  * A task's text as compared for "the same task": case, punctuation, speaker
  * references and spacing folded away.

@@ -300,6 +300,8 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
     it("scopes summary transcription lookup by user and bumps updatedAt on create", async () => {
         let transcriptionWhere: unknown;
         (db.select as Mock)
+            // Which kind of item it is: a recording.
+            .mockReturnValueOnce(selectRows([{ kind: "audio" }]))
             .mockReturnValueOnce(
                 selectRows([{ id: recordingId, deletedAt: null }]),
             )
@@ -374,6 +376,8 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
 
     it("scopes summary update by user and bumps recording updatedAt", async () => {
         (db.select as Mock)
+            // Which kind of item it is: a recording.
+            .mockReturnValueOnce(selectRows([{ kind: "audio" }]))
             .mockReturnValueOnce(
                 selectRows([{ id: recordingId, deletedAt: null }]),
             )

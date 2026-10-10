@@ -1,6 +1,6 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { webhookDeliveries, webhookEndpoints } from "@/db/schema";
+import { recordings, webhookDeliveries, webhookEndpoints } from "@/db/schema";
 import { createStoredWebhookPayload } from "@/lib/webhooks/payload";
 import { signalWebhookWorker } from "@/lib/webhooks/worker";
 
@@ -39,6 +39,13 @@ export async function emitEvent(
             );
 
         if (endpoints.length === 0) return;
+        // Webhooks speak of recordings only: a mail's summary sends none.
+        const [recording] = await db
+            .select({ id: recordings.id })
+            .from(recordings)
+            .where(eq(recordings.id, recordingId))
+            .limit(1);
+        if (!recording) return;
 
         const payload = createStoredWebhookPayload(event, recordingId, options);
 

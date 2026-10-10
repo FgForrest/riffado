@@ -43,6 +43,20 @@ export interface ProposedTask {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    /** Where in a mail the quote is: a range of one segment's text. */
+    evidenceText?: TextEvidence | null;
+    /**
+     * The quote is in a quoted part of a mail, or by a sender nothing
+     * verified: the proposal then starts unticked.
+     */
+    evidenceProvenance?: "quoted" | "unverified" | null;
+}
+
+/** A range of one segment of a mail's content. */
+export interface TextEvidence {
+    segmentIndex: number;
+    charStart: number;
+    charEnd: number;
 }
 
 export interface ProposedTaskUpdate {
@@ -52,6 +66,8 @@ export interface ProposedTaskUpdate {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    evidenceText?: TextEvidence | null;
+    evidenceProvenance?: "quoted" | "unverified" | null;
 }
 
 /** What one summary proposes, ready to store. */
@@ -205,8 +221,12 @@ export async function writeTaskProposalsInTx(
             duePhrase: encryptText(task.duePhrase),
             quote: encryptText(task.quote),
             evidenceStartMs: task.evidenceStartMs,
+            evidenceSegmentIndex: task.evidenceText?.segmentIndex ?? null,
+            evidenceCharStart: task.evidenceText?.charStart ?? null,
+            evidenceCharEnd: task.evidenceText?.charEnd ?? null,
+            evidenceProvenance: task.evidenceProvenance ?? null,
             source: proposals.source,
-            ticked: !task.assigneeCheck,
+            ticked: !task.assigneeCheck && !task.evidenceProvenance,
             position,
             createdByUserId: actorUserId,
         });
@@ -229,6 +249,11 @@ export async function writeTaskProposalsInTx(
                     duePhrase: encryptText(update.duePhrase),
                     quote: encryptText(update.quote),
                     evidenceStartMs: update.evidenceStartMs,
+                    evidenceSegmentIndex:
+                        update.evidenceText?.segmentIndex ?? null,
+                    evidenceCharStart: update.evidenceText?.charStart ?? null,
+                    evidenceCharEnd: update.evidenceText?.charEnd ?? null,
+                    evidenceProvenance: update.evidenceProvenance ?? null,
                 })),
             )
             .onConflictDoNothing();

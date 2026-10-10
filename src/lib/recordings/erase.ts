@@ -379,8 +379,22 @@ export async function allowManualArtifactGeneration(
             and(eq(recordings.id, recordingId), eq(recordings.userId, userId)),
         )
         .limit(1);
-    if (!recording || recording.deletedAt) return false;
-    if (!recording.marker) return true;
+    // A mail has no recording row: its item carries the markers.
+    const [item] = recording
+        ? [recording]
+        : await db
+              .select({ marker, deletedAt: chatterItems.deletedAt })
+              .from(chatterItems)
+              .where(
+                  and(
+                      eq(chatterItems.id, recordingId),
+                      eq(chatterItems.userId, userId),
+                      eq(chatterItems.kind, "mail"),
+                  ),
+              )
+              .limit(1);
+    if (!item || item.deletedAt) return false;
+    if (!item.marker) return true;
     return manual;
 }
 

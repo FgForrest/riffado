@@ -1,6 +1,7 @@
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { recordings, recordingTasks } from "@/db/schema";
+import type { ItemContent } from "@/lib/content/types";
 import { decryptText } from "@/lib/encryption/fields";
 import { getTranscriptSpeakers } from "@/lib/knowledge/attribution";
 import { findByName, knowledgeView } from "@/lib/knowledge/knowledge-loader";
@@ -18,7 +19,11 @@ import {
     recordingOffsetMinutes,
     type TasksContextTask,
 } from "@/lib/tasks/directive";
-import { locateQuote, normalizeTaskText } from "@/lib/tasks/quote";
+import {
+    locateQuote,
+    locateTextQuote,
+    normalizeTaskText,
+} from "@/lib/tasks/quote";
 import type {
     ProposedTask,
     ProposedTaskUpdate,
@@ -95,11 +100,14 @@ export async function loadTasksPromptContext({
     transcriptionId,
     orgView,
     reviewer,
+    noun,
 }: {
     recording: RecordingRow;
-    transcriptionId: string;
+    /** The transcript its speakers are confirmed on; null for a mail. */
+    transcriptionId: string | null;
     orgView: boolean;
     reviewer: TaskViewer;
+    noun?: "recording" | "mail";
 }): Promise<TasksPromptContext> {
     const decidedRows = await db
         .select({ text: recordingTasks.text })
@@ -114,11 +122,9 @@ export async function loadTasksPromptContext({
         .orderBy(recordingTasks.position, recordingTasks.createdAt)
         .limit(MAX_DECIDED_IN_PROMPT);
 
-    const speakers = await confirmedSpeakers(
-        recording.userId,
-        transcriptionId,
-        orgView,
-    );
+    const speakers = transcriptionId
+        ? await confirmedSpeakers(recording.userId, transcriptionId, orgView)
+        : new Map<string, { label: string; personId: string; name: string }>();
     const labelOf = new Map(
         [...speakers.values()].map((speaker) => [
             speaker.personId,
@@ -166,6 +172,7 @@ export async function loadTasksPromptContext({
 
     return {
         text: buildTasksContext({
+            noun,
             recordedAt: recording.occurredAt,
             offsetMinutes: recordingOffsetMinutes(
                 recording.timezone,
@@ -183,6 +190,8 @@ export async function loadTasksPromptContext({
  * confirmed on it, a heard name the one person of the Almanac it fully
  * names (marked for a check when only a first name was heard), speaker
  * references in the text become names, and a quote its place in the audio.
+ * On a mail a participant reference becomes their name to look up, and a
+ * quote its place in the text, with its provenance.
  */
 export async function resolveTaskProposals({
     source,
@@ -195,6 +204,7 @@ export async function resolveTaskProposals({
     language,
     orgView,
     summaryText,
+    mail = null,
 }: {
     source: "riffado" | "plaud";
     items: readonly SummaryTaskItem[];
@@ -207,7 +217,16 @@ export async function resolveTaskProposals({
     orgView: boolean;
     /** The summary's Markdown, to tell how its speaker numbers count. */
     summaryText: string;
+    /** The content of the mail the summary is of. */
+    mail?: ItemContent | null;
 }): Promise<TaskProposals> {
+    const participantName = (ref: string) =>
+        mail?.participants.find((participant) => participant.ref === ref)
+            ?.displayName ?? null;
+    const evidence = (quote: string | null) =>
+        mail
+            ? mailEvidence(mail, quote)
+            : { evidenceStartMs: locateQuote(turns, quote) };
     const speakers = transcriptionId
         ? await confirmedSpeakers(ownerUserId, transcriptionId, orgView)
         : new Map<string, { label: string; personId: string; name: string }>();
@@ -218,7 +237,11 @@ export async function resolveTaskProposals({
         (turns ?? []).map((turn) => turn.speaker),
     );
 
-    const needsLookup = items.some((item) => !item.speaker && item.assignee);
+    const needsLookup = items.some(
+        (item) =>
+            (!item.speaker && item.assignee) ||
+            (mail && item.speaker && participantName(item.speaker)),
+    );
     const view = needsLookup
         ? await knowledgeView({
               kind: "recording",
@@ -238,7 +261,23 @@ export async function resolveTaskProposals({
         let assigneePersonId: string | null = null;
         let assigneeHint: string | null = null;
         let assigneeCheck = false;
-        if (item.speaker) {
+        const heard = mail
+            ? (item.assignee ??
+              (item.speaker ? participantName(item.speaker) : null))
+            : null;
+        if (mail) {
+            const person =
+                heard && view ? matchPerson(view, heard, language) : null;
+            if (person) {
+                assigneePersonId = person.id;
+                assigneeCheck = heardIsFirstNameOnly(heard ?? "", {
+                    name: person.name,
+                    aliases: person.aliases,
+                });
+            } else {
+                assigneeHint = heard;
+            }
+        } else if (item.speaker) {
             const speaker = speakers.get(
                 speakerAnchorId(offsetSpeakerLabel(item.speaker, offset)),
             );
@@ -268,7 +307,7 @@ export async function resolveTaskProposals({
             dueDate: item.due?.date ?? null,
             duePhrase: item.due?.phrase ?? null,
             quote: item.quote,
-            evidenceStartMs: locateQuote(turns, item.quote),
+            ...evidence(item.quote),
         });
     }
 
@@ -282,7 +321,7 @@ export async function resolveTaskProposals({
             dueDate: update.due?.date ?? null,
             duePhrase: update.due?.phrase ?? null,
             quote: update.quote,
-            evidenceStartMs: locateQuote(turns, update.quote),
+            ...evidence(update.quote),
         });
     }
 
@@ -291,6 +330,45 @@ export async function resolveTaskProposals({
         tasks,
         updates: proposedUpdates,
         fingerprintOf: taskFingerprint,
+    };
+}
+
+/**
+ * Where in a mail a quote is, and how far to trust it: a quoted part was
+ * written by someone else earlier, and a sender nothing verified may not be
+ * who they say.
+ */
+function mailEvidence(
+    mail: ItemContent,
+    quote: string | null,
+): Pick<
+    ProposedTask,
+    "evidenceStartMs" | "evidenceText" | "evidenceProvenance"
+> {
+    const range = locateTextQuote(
+        mail.segments.filter(
+            (segment) => !segment.knownItemId && segment.role !== "disclaimer",
+        ),
+        quote,
+    );
+    const segment = range
+        ? mail.segments.find((item) => item.index === range.segmentIndex)
+        : undefined;
+    const author = segment?.participantRef
+        ? mail.participants.find(
+              (participant) => participant.ref === segment.participantRef,
+          )
+        : undefined;
+    const provenance =
+        segment?.role === "quoted" || segment?.role === "quoted_signature"
+            ? "quoted"
+            : segment && !author?.authenticated
+              ? "unverified"
+              : null;
+    return {
+        evidenceStartMs: null,
+        evidenceText: range,
+        evidenceProvenance: provenance,
     };
 }
 
