@@ -177,12 +177,18 @@ export async function loadMailDetail(
         authenticated: participant.authenticated,
     }));
     const subject = decryptText(row.title);
+    const attachments =
+        decryptJsonField<AttachmentMeta[]>(row.attachments) ?? [];
     const mask = isOwn
         ? (text: string) => text
         : await secretAddressMasker([
               subject,
-              ...people.map((person) => person.address ?? ""),
+              ...people.flatMap((person) => [
+                  person.name ?? "",
+                  person.address ?? "",
+              ]),
               ...segments.map((segment) => segment.text),
+              ...attachments.map((attachment) => attachment.filename ?? ""),
           ]);
     return {
         id: row.id,
@@ -200,6 +206,7 @@ export async function loadMailDetail(
         hasRaw: isOwn && row.rawStoragePath !== null,
         participants: people.map((person) => ({
             ...person,
+            name: person.name ? mask(person.name) : null,
             address: person.address ? mask(person.address) : null,
         })),
         segments: segments.map((segment) => ({
@@ -207,7 +214,10 @@ export async function loadMailDetail(
             text: mask(segment.text),
             at: segment.at ? new Date(segment.at).toISOString() : null,
         })),
-        attachments: decryptJsonField<AttachmentMeta[]>(row.attachments) ?? [],
+        attachments: attachments.map((attachment) => ({
+            ...attachment,
+            filename: attachment.filename ? mask(attachment.filename) : null,
+        })),
         auth: decryptJsonField<MailAuth>(row.auth),
         pendingShares: pendingFolders.map((folder) => ({
             folderId: folder.id,

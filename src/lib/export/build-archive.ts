@@ -352,6 +352,11 @@ export async function buildAndUploadExportArchive(input: {
             subject: string;
             occurredAt: string;
             path: string;
+            /**
+             * Whether message.eml is in the archive: a restore needs it. When
+             * it could not be read, why, as for a recording's audio.
+             */
+            raw: { included: boolean; reason?: string };
         }[];
     } = {
         version: "2.2",
@@ -714,6 +719,10 @@ export async function buildAndUploadExportArchive(input: {
             occurredAt: new Date(mail.occurredAt),
         })}`;
         const { rawStoragePath, ...meta } = mail;
+        let raw: { included: boolean; reason?: string } = {
+            included: false,
+            reason: "The message was not kept",
+        };
         if (rawStoragePath) {
             try {
                 archive.append(
@@ -722,11 +731,15 @@ export async function buildAndUploadExportArchive(input: {
                     ),
                     { name: `${directory}/message.eml` },
                 );
+                raw = { included: true };
             } catch (error) {
+                const reason =
+                    error instanceof Error ? error.message : String(error);
                 console.error(
                     `[export] could not read the raw message of mail ${mail.id}:`,
-                    error instanceof Error ? error.message : error,
+                    reason,
                 );
+                raw = { included: false, reason };
             }
         }
         archive.append(Buffer.from(JSON.stringify(meta, null, 2)), {
@@ -738,6 +751,7 @@ export async function buildAndUploadExportArchive(input: {
             subject: mail.subject,
             occurredAt: mail.occurredAt,
             path: directory,
+            raw,
         });
     }
 

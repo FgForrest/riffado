@@ -598,8 +598,10 @@ export async function rotateSecretAddress(input: {
 }
 
 /**
- * Blocks one of the user's secondary or secret addresses for good. A
- * mailbox and a folder's current address are not removable this way.
+ * Blocks one of the user's secret addresses, or a secondary address of one
+ * of their own folders, for good. A mailbox and a folder's current address
+ * are not removable; an Organization folder's old addresses go through the
+ * folder, by whoever may change it (`removeFolderSecondaryAddress`).
  */
 export async function removeAddress(input: {
     userId: string;
@@ -614,8 +616,7 @@ export async function removeAddress(input: {
                 and(
                     eq(mailAddresses.id, input.addressId),
                     ne(mailAddresses.status, "blocked"),
-                    sql`(${mailAddresses.kind} = 'secret' or (${mailAddresses.kind} = 'folder' and not ${mailAddresses.primary}))`,
-                    sql`(${mailAddresses.namespaceUserId} = ${input.userId} or ${mailAddresses.createdByUserId} = ${input.userId})`,
+                    sql`((${mailAddresses.kind} = 'secret' and ${mailAddresses.createdByUserId} = ${input.userId}) or (${mailAddresses.kind} = 'folder' and not ${mailAddresses.primary} and ${mailAddresses.namespaceUserId} = ${input.userId}))`,
                 ),
             )
             .returning({ id: mailAddresses.id });

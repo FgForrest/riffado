@@ -41,31 +41,54 @@ async function lockMailInTx(
 }
 
 /**
- * Deletes the owner's mail for good: the item and everything on it (its
- * participants, segments, folder assignments, pending shares) in one
- * transaction, then the encrypted raw message.
+ * Deletes the owner's mail for good. The encrypted raw message goes first,
+ * as a recording's audio does: when storage fails nothing else changed and
+ * the owner can retry, and no message is left behind without its row. Then
+ * the item and everything on it (participants, segments, folder
+ * assignments, pending shares) in one transaction.
  */
 export async function deleteMail(
     ownerUserId: string,
     itemId: string,
 ): Promise<void> {
-    let rawPath: string | null = null;
+    const [message] = await db
+        .select({ path: mailMessages.rawStoragePath })
+        .from(mailMessages)
+        .innerJoin(
+            chatterItems,
+            and(
+                eq(chatterItems.id, mailMessages.id),
+                eq(chatterItems.userId, mailMessages.userId),
+            ),
+        )
+        .where(
+            and(
+                eq(mailMessages.id, itemId),
+                eq(mailMessages.userId, ownerUserId),
+            ),
+        )
+        .limit(1);
+    if (!message) throw mailNotFound();
+    if (message.path) {
+        try {
+            await deleteRawMail(ownerUserId, message.path);
+        } catch (error) {
+            console.error(
+                `[mail] could not delete the raw message of mail ${itemId}:`,
+                error instanceof Error ? error.message : error,
+            );
+            throw new AppError(
+                ErrorCode.STORAGE_ERROR,
+                "The mail could not be deleted from storage. Please retry.",
+                500,
+            );
+        }
+    }
     let wasShared = false;
     const orgUserId = await getOrgUserId();
     await db.transaction(async (tx) => {
         if (orgUserId) await lockOrgTree(tx);
         await lockMailInTx(tx, ownerUserId, itemId);
-        const [message] = await tx
-            .select({ path: mailMessages.rawStoragePath })
-            .from(mailMessages)
-            .where(
-                and(
-                    eq(mailMessages.id, itemId),
-                    eq(mailMessages.userId, ownerUserId),
-                ),
-            )
-            .limit(1);
-        rawPath = message?.path ?? null;
         if (orgUserId) {
             const [shared] = await tx
                 .select({ n: count() })
@@ -94,7 +117,6 @@ export async function deleteMail(
                 ),
             );
     });
-    if (rawPath) await deleteRawMail(ownerUserId, rawPath);
     if (wasShared) await orgTreeChanged();
 }
 

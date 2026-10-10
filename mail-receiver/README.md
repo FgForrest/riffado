@@ -61,6 +61,18 @@ services:
       - "25:2525"
 ```
 
+## The app's internal endpoints
+
+`/api/internal/mail/precheck` and `/api/internal/mail/ingest` answer only a
+request carrying `MAIL_INGEST_SECRET` as a bearer token (failures are rate
+limited per client), and 404 on the admin host or while mail is off. The
+app cannot tell the receiver's requests from public ones by their route, so
+keep them off the internet as well:
+
+- the receiver reaches the app over the compose network (`http://app:3000`);
+- the public reverse proxy routes nothing under `/api/internal/` to the app;
+- the app's port is not published to the internet when a proxy fronts it.
+
 ## DNS and mail-system settings (company admins)
 
 - `MX` record of the mail domain pointing at `MAIL_HOSTNAME`, and its `A`

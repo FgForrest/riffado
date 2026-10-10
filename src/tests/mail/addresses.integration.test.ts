@@ -424,6 +424,10 @@ describeWithDatabase("mail addresses (PostgreSQL)", () => {
         ).toEqual([org.id, org.id, child.id].sort());
 
         const secondary = listed?.addresses.find((address) => !address.primary);
+        // Its creator cannot stop it past the folder's own permission check.
+        await expect(
+            removeAddress({ userId: "u-jan", addressId: secondary?.id ?? "" }),
+        ).rejects.toMatchObject({ statusCode: 404 });
         await expect(
             removeFolderAlias({
                 userId: "u-jan",

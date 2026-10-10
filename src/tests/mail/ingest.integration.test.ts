@@ -650,6 +650,9 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
             )?.toString() ?? "{}",
         );
         expect(manifest.mail).toHaveLength(mine.length);
+        for (const entry of manifest.mail as { raw: unknown }[]) {
+            expect(entry.raw).toEqual({ included: true });
+        }
         const first = directory.files.find((entry) => entry.path === emls[0]);
         const eml = (await first?.buffer())?.toString() ?? "";
         expect(eml).toContain("From:");
@@ -754,9 +757,16 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         const secretAddress = `${secret.localPart}@klepna.example`;
         const raw = await signMessage(
             rawMessage(
-                headers("jan@company.example", "jan@klepna.example", [
-                    `Cc: ${secretAddress}`,
-                ]),
+                [
+                    "From: Jan Novotny <jan@company.example>",
+                    "To: jan@klepna.example",
+                    `Cc: "Archive ${secretAddress}" <${secretAddress}>`,
+                    `Subject: Filed under ${secretAddress}`,
+                    "Date: Fri, 09 Oct 2026 14:02:00 +0200",
+                    "Message-ID: <shared-1@company.example>",
+                    "MIME-Version: 1.0",
+                    "Content-Type: text/plain; charset=utf-8",
+                ],
                 `For the record. Copies go to ${secretAddress} too.`,
             ),
             company,
@@ -799,10 +809,12 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         );
 
         const library = await loadSharedMailRows("u-eva", orgUserId);
-        expect(library.find((row) => row.id === itemId)).toMatchObject({
+        const listed = library.find((row) => row.id === itemId);
+        expect(listed).toMatchObject({
             kind: "mail",
             view: "org",
             isOwn: false,
+            filename: "Filed under jan.•••@klepna.example",
         });
         expect(
             (await loadSharedMailRows("u-jan", orgUserId)).find(
