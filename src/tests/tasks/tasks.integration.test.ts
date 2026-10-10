@@ -809,10 +809,16 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
         expect(await recordingsAwaitingTaskReview(alice)).toEqual([
             {
                 recordingId: LATER,
+                kind: "audio",
                 title: `Recording ${LATER}`,
                 proposals: 3,
             },
-            { recordingId: REC, title: `Recording ${REC}`, proposals: 1 },
+            {
+                recordingId: REC,
+                kind: "audio",
+                title: `Recording ${REC}`,
+                proposals: 1,
+            },
         ]);
         expect(await recordingsAwaitingTaskReview(bob)).toEqual([]);
         expect(await recordingsAwaitingTaskReview(org)).toEqual([]);
@@ -829,11 +835,17 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
         await propose(LATER, "Draft the pricing page");
 
         expect(await recordingsAwaitingTaskReview(org)).toEqual([
-            { recordingId: REC, title: `Recording ${REC}`, proposals: 2 },
+            {
+                recordingId: REC,
+                kind: "audio",
+                title: `Recording ${REC}`,
+                proposals: 2,
+            },
         ]);
         expect(await recordingsAwaitingTaskReview(alice)).toEqual([
             {
                 recordingId: LATER,
+                kind: "audio",
                 title: `Recording ${LATER}`,
                 proposals: 1,
             },

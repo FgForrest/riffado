@@ -1119,9 +1119,14 @@ async function requireTaskView(
  * Recordings with proposals or follow-ups waiting for the viewer's review,
  * newest first, with how many.
  */
-export async function recordingsAwaitingTaskReview(
-    viewer: TaskViewer,
-): Promise<{ recordingId: string; title: string; proposals: number }[]> {
+export async function recordingsAwaitingTaskReview(viewer: TaskViewer): Promise<
+    {
+        recordingId: string;
+        kind: "audio" | "mail";
+        title: string;
+        proposals: number;
+    }[]
+> {
     const proposals = db
         .select({
             recordingId: recordingTasks.itemId,
@@ -1156,6 +1161,7 @@ export async function recordingsAwaitingTaskReview(
     const rows = await db
         .select({
             recordingId: chatterItems.id,
+            kind: chatterItems.kind,
             title: chatterItems.title,
             proposals: sql<number>`sum(${waiting.waiting})::int`,
         })
@@ -1171,6 +1177,7 @@ export async function recordingsAwaitingTaskReview(
         .orderBy(desc(chatterItems.occurredAt));
     return rows.map((row) => ({
         recordingId: row.recordingId,
+        kind: row.kind,
         title: decryptText(row.title),
         proposals: row.proposals,
     }));

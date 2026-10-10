@@ -115,7 +115,9 @@ export default async function ReviewQueuePage() {
                                         href={
                                             organization
                                                 ? "/dashboard"
-                                                : `/recordings/${row.recordingId}`
+                                                : row.kind === "mail"
+                                                  ? `/dashboard?recording=${encodeURIComponent(row.recordingId)}`
+                                                  : `/recordings/${row.recordingId}`
                                         }
                                         className="text-primary hover:underline"
                                     >

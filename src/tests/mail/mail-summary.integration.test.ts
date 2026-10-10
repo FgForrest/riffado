@@ -113,6 +113,8 @@ import { authenticateMessage } from "@/lib/mail/dkim";
 import { ingestMail, precheckMail } from "@/lib/mail/ingest";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
+import { parseSummaryJobPayload } from "@/lib/summary/summary-job";
+import { summaryJobHandler } from "@/lib/summary/summary-job-handler";
 import { taskViewerById } from "@/lib/tasks/access";
 import { tasksForArchive } from "@/lib/tasks/archive";
 import {
@@ -459,6 +461,67 @@ describeWithDatabase("summaries of mail (PostgreSQL)", () => {
             ["jan@klepna.example"],
         );
         expect(await queued(off)).toHaveLength(0);
+    });
+
+    it("runs a queued mail summary on the worker's path", async () => {
+        await db()
+            .update(userSettings)
+            .set({ mailAutoProcess: true })
+            .where(eq(userSettings.userId, "u-jan"));
+        const itemId = await deliver(
+            await signMessage(
+                rawMessage(headers("Worker"), "Please confirm the date."),
+                company,
+            ),
+            ["jan@klepna.example"],
+        );
+        const [job] = (
+            await db()
+                .select()
+                .from(asyncJobs)
+                .where(
+                    and(
+                        eq(asyncJobs.kind, "summary"),
+                        eq(asyncJobs.userId, "u-jan"),
+                    ),
+                )
+        ).filter(
+            (row) =>
+                (row.payload as { recordingId?: string }).recordingId ===
+                itemId,
+        );
+        if (!job) throw new Error("no queued job");
+        // As the worker claims it.
+        await db()
+            .update(asyncJobs)
+            .set({ status: "processing" })
+            .where(eq(asyncJobs.id, job.id));
+        createCompletion.mockReset();
+        createCompletion.mockResolvedValueOnce(
+            reply({
+                summary: "Jan asks for the date to be confirmed.",
+                keyPoints: [],
+                actionItems: [],
+                taskUpdates: [],
+            }),
+        );
+        const result = await summaryJobHandler.run({
+            jobId: job.id,
+            userId: "u-jan",
+            attempt: 1,
+            maxAttempts: 3,
+            payload: parseSummaryJobPayload(job.payload),
+            signal: new AbortController().signal,
+            reportProgress: () => undefined,
+        });
+        expect(result).toMatchObject({ promptId: "mail" });
+        const [stored] = await db()
+            .select({ summary: aiEnhancements.summary })
+            .from(aiEnhancements)
+            .where(eq(aiEnhancements.itemId, itemId));
+        expect(decryptText(stored?.summary ?? "")).toBe(
+            "Jan asks for the date to be confirmed.",
+        );
     });
 
     it("never summarizes mail sent by machines", async () => {
