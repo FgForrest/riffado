@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
+    aiEnhancements,
     chatterItems,
     mailContents,
     mailMessages,
@@ -34,6 +35,16 @@ export interface ArchivedMail {
         authenticated: boolean;
     }[];
     segments: unknown[];
+    /** Its summaries, one per source. */
+    summaries: {
+        source: string;
+        summary: string | null;
+        keyPoints: unknown;
+        actionItems: unknown;
+        provider: string;
+        model: string;
+        createdAt: string;
+    }[];
     /** Where its raw message is stored, encrypted; null once reaped. */
     rawStoragePath: string | null;
 }
@@ -82,7 +93,7 @@ export async function collectArchivedMail(
         .orderBy(asc(chatterItems.occurredAt), asc(chatterItems.id));
     if (rows.length === 0) return [];
     const ids = rows.map((row) => row.id);
-    const [participants, contents] = await Promise.all([
+    const [participants, contents, summaries] = await Promise.all([
         db
             .select()
             .from(mailParticipants)
@@ -95,6 +106,26 @@ export async function collectArchivedMail(
             })
             .from(mailContents)
             .where(inArray(mailContents.itemId, ids)),
+        db
+            .select({
+                itemId: aiEnhancements.itemId,
+                source: aiEnhancements.source,
+                summary: aiEnhancements.summary,
+                keyPoints: aiEnhancements.keyPoints,
+                actionItems: aiEnhancements.actionItems,
+                provider: aiEnhancements.provider,
+                model: aiEnhancements.model,
+                createdAt: aiEnhancements.createdAt,
+            })
+            .from(aiEnhancements)
+            .innerJoin(
+                chatterItems,
+                and(
+                    eq(chatterItems.id, aiEnhancements.itemId),
+                    eq(chatterItems.userId, aiEnhancements.userId),
+                ),
+            )
+            .where(inArray(aiEnhancements.itemId, ids)),
     ]);
     const segmentsOf = new Map(
         contents.map((content) => [
@@ -127,6 +158,17 @@ export async function collectArchivedMail(
                 authenticated: participant.authenticated,
             })),
         segments: segmentsOf.get(row.id) ?? [],
+        summaries: summaries
+            .filter((summary) => summary.itemId === row.id)
+            .map((summary) => ({
+                source: summary.source,
+                summary: summary.summary ? decryptText(summary.summary) : null,
+                keyPoints: decryptJsonField(summary.keyPoints) ?? [],
+                actionItems: decryptJsonField(summary.actionItems) ?? [],
+                provider: summary.provider,
+                model: summary.model,
+                createdAt: summary.createdAt.toISOString(),
+            })),
         rawStoragePath: row.rawStoragePath,
     }));
 }

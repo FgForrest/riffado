@@ -712,13 +712,19 @@ export async function buildAndUploadExportArchive(input: {
     // Mail rides along: the raw message as it arrived (decrypted), and what
     // was read from it.
     const archivedMail = await collectArchivedMail(scope);
+    const mailTasks = await tasksForArchive(
+        scope,
+        archivedMail.map((mail) => mail.id),
+        { proposals: true },
+    );
     for (const mail of archivedMail) {
         onProgress?.();
         const directory = `mail/${folderName({
             id: mail.id,
             occurredAt: new Date(mail.occurredAt),
         })}`;
-        const { rawStoragePath, ...meta } = mail;
+        const { rawStoragePath, ...rest } = mail;
+        const meta = { ...rest, tasks: mailTasks.get(mail.id) ?? [] };
         let raw: { included: boolean; reason?: string } = {
             included: false,
             reason: "The message was not kept",

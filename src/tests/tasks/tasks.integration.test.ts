@@ -21,7 +21,6 @@ import {
     aiEnhancements,
     people,
     recordingFolders,
-    recordings,
     recordingTaskRejections,
     recordingTasks,
     taskUpdateProposals,
@@ -89,6 +88,7 @@ vi.mock("@/lib/webhooks/emit", () => ({
     emitEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
+import { markRecordingDeleted } from "@/db/items";
 import { deleteSummaryForRecording } from "@/db/queries/retention";
 import { encryptText } from "@/lib/encryption/fields";
 import { addRecordingToFolder } from "@/lib/folders/folders";
@@ -800,10 +800,11 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
         await followUp(closed.id, LATER);
         await addRecording("rec-gone", "2026-10-09T10:00:00Z");
         await propose("rec-gone", "Gone with its recording");
-        await db()
-            .update(recordings)
-            .set({ deletedAt: new Date() })
-            .where(eq(recordings.id, "rec-gone"));
+        await markRecordingDeleted(db(), {
+            id: "rec-gone",
+            userId: ALICE,
+            at: new Date(),
+        });
 
         expect(await recordingsAwaitingTaskReview(alice)).toEqual([
             {

@@ -6,6 +6,7 @@ import {
     gt,
     gte,
     inArray,
+    isNotNull,
     isNull,
     lt,
     lte,
@@ -15,7 +16,6 @@ import {
     sql,
 } from "drizzle-orm";
 import { db } from "@/db";
-import { recordingItemJoin } from "@/db/items";
 import {
     chatterItems,
     people,
@@ -36,6 +36,7 @@ import { folderCondition } from "@/lib/folders/condition";
 import { assertOrgScopeWritable } from "@/lib/org/config";
 import { notifyIfShared } from "@/lib/sharing/notify";
 import {
+    ANY_TASK_ITEM,
     assignedToViewer,
     type TaskViewer,
     taskClosable,
@@ -68,6 +69,14 @@ export interface TaskView {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    /** Where in a mail the quote is: a range of one segment's text. */
+    evidenceText: {
+        segmentIndex: number;
+        charStart: number;
+        charEnd: number;
+    } | null;
+    /** The quote is from a quoted part, or from an unverified sender. */
+    evidenceProvenance: "quoted" | "unverified" | null;
     source: "riffado" | "plaud" | "manual";
     ticked: boolean;
     version: number;
@@ -168,6 +177,10 @@ const taskColumns = {
     duePhrase: recordingTasks.duePhrase,
     quote: recordingTasks.quote,
     evidenceStartMs: recordingTasks.evidenceStartMs,
+    evidenceSegmentIndex: recordingTasks.evidenceSegmentIndex,
+    evidenceCharStart: recordingTasks.evidenceCharStart,
+    evidenceCharEnd: recordingTasks.evidenceCharEnd,
+    evidenceProvenance: recordingTasks.evidenceProvenance,
     source: recordingTasks.source,
     ticked: recordingTasks.ticked,
     version: recordingTasks.version,
@@ -203,6 +216,17 @@ function toView(
         duePhrase: decryptOptional(row.duePhrase),
         quote: decryptOptional(row.quote),
         evidenceStartMs: row.evidenceStartMs,
+        evidenceText:
+            row.evidenceSegmentIndex !== null &&
+            row.evidenceCharStart !== null &&
+            row.evidenceCharEnd !== null
+                ? {
+                      segmentIndex: row.evidenceSegmentIndex,
+                      charStart: row.evidenceCharStart,
+                      charEnd: row.evidenceCharEnd,
+                  }
+                : null,
+        evidenceProvenance: row.evidenceProvenance ?? null,
         source: row.source as TaskView["source"],
         ticked: row.ticked === true,
         version: row.version ?? 0,
@@ -230,15 +254,15 @@ export async function listRecordingTasks(
 ): Promise<RecordingTasks | null> {
     const [recording] = await db
         .select({
-            id: recordings.id,
-            canEdit: sql<boolean>`${taskEditable(viewer)}`,
+            id: chatterItems.id,
+            canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
         })
-        .from(recordings)
+        .from(chatterItems)
         .where(
             and(
-                eq(recordings.id, recordingId),
-                isNull(recordings.deletedAt),
-                taskVisible(viewer),
+                eq(chatterItems.id, recordingId),
+                isNull(chatterItems.deletedAt),
+                taskVisible(viewer, ANY_TASK_ITEM),
             ),
         )
         .limit(1);
@@ -247,17 +271,17 @@ export async function listRecordingTasks(
     const rows = await db
         .select({
             ...taskColumns,
-            canEdit: sql<boolean>`${taskEditable(viewer)}`,
-            canClose: sql<boolean>`${taskClosable(viewer)}`,
+            canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
+            canClose: sql<boolean>`${taskClosable(viewer, ANY_TASK_ITEM)}`,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
         .leftJoin(people, assigneeJoin())
         .where(
             and(
                 eq(recordingTasks.itemId, recordingId),
                 // Again here: the recording may be withdrawn meanwhile.
-                taskVisible(viewer),
+                taskVisible(viewer, ANY_TASK_ITEM),
                 recording.canEdit
                     ? undefined
                     : ne(recordingTasks.status, "proposed"),
@@ -316,14 +340,13 @@ async function listUpdateProposals(
             recordingTasks,
             eq(recordingTasks.id, taskUpdateProposals.taskId),
         )
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
-        .innerJoin(chatterItems, recordingItemJoin)
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
         .leftJoin(people, assigneeJoin())
         .where(
             and(
                 eq(taskUpdateProposals.itemId, recordingId),
-                isNull(recordings.deletedAt),
-                taskVisible(viewer),
+                isNull(chatterItems.deletedAt),
+                taskVisible(viewer, ANY_TASK_ITEM),
             ),
         )
         .orderBy(asc(taskUpdateProposals.createdAt));
@@ -371,6 +394,9 @@ async function lockTask(
     taskId: string,
 ): Promise<LockedTask> {
     if (viewer.isOrg) assertOrgScopeWritable();
+    if ((await taskItemKind(tx, taskId)) === "mail") {
+        return lockMailTask(tx, viewer, taskId);
+    }
     const [row] = await tx
         .select({
             id: recordingTasks.id,
@@ -395,6 +421,54 @@ async function lockTask(
     return { ...row, text: decryptText(row.text) };
 }
 
+/** What kind of item a task is on. */
+async function taskItemKind(
+    tx: Tx,
+    taskId: string,
+): Promise<"audio" | "mail" | null> {
+    const [row] = await tx
+        .select({ kind: chatterItems.kind })
+        .from(recordingTasks)
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
+        .where(eq(recordingTasks.id, taskId))
+        .limit(1);
+    return row?.kind ?? null;
+}
+
+/**
+ * `lockTask` for a task on a mail: a mail has no recording row, so its item
+ * row is the one locked, as sharing and withdrawal lock it.
+ */
+async function lockMailTask(
+    tx: Tx,
+    viewer: TaskViewer,
+    taskId: string,
+): Promise<LockedTask> {
+    const [row] = await tx
+        .select({
+            id: recordingTasks.id,
+            recordingId: recordingTasks.itemId,
+            ownerUserId: chatterItems.userId,
+            status: recordingTasks.status,
+            text: recordingTasks.text,
+            version: recordingTasks.version,
+            visible: sql<boolean>`${taskVisible(viewer, ANY_TASK_ITEM)}`,
+            canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
+            canClose: sql<boolean>`${taskClosable(viewer, ANY_TASK_ITEM)}`,
+            shared: sql<boolean>`${taskRecordingShared(viewer, ANY_TASK_ITEM)}`,
+        })
+        .from(recordingTasks)
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
+        .where(
+            and(eq(recordingTasks.id, taskId), isNull(chatterItems.deletedAt)),
+        )
+        .for("update", { of: chatterItems })
+        .limit(1);
+    if (!row?.visible) throw notFound();
+    if (row.status === "proposed" && !row.canEdit) throw notFound();
+    return { ...row, text: decryptText(row.text) };
+}
+
 /** Lock a recording the viewer reviews, refusing anyone else. */
 async function lockRecordingForEdit(
     tx: Tx,
@@ -402,7 +476,7 @@ async function lockRecordingForEdit(
     recordingId: string,
 ): Promise<{ ownerUserId: string; shared: boolean }> {
     if (viewer.isOrg) assertOrgScopeWritable();
-    const [row] = await tx
+    const [recordingRow] = await tx
         .select({
             ownerUserId: recordings.userId,
             visible: sql<boolean>`${taskVisible(viewer)}`,
@@ -415,6 +489,26 @@ async function lockRecordingForEdit(
         )
         .for("update")
         .limit(1);
+    // A mail has no recording row: its item row is locked instead.
+    const [row] = recordingRow
+        ? [recordingRow]
+        : await tx
+              .select({
+                  ownerUserId: chatterItems.userId,
+                  visible: sql<boolean>`${taskVisible(viewer, ANY_TASK_ITEM)}`,
+                  canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
+                  shared: sql<boolean>`${taskRecordingShared(viewer, ANY_TASK_ITEM)}`,
+              })
+              .from(chatterItems)
+              .where(
+                  and(
+                      eq(chatterItems.id, recordingId),
+                      eq(chatterItems.kind, "mail"),
+                      isNull(chatterItems.deletedAt),
+                  ),
+              )
+              .for("update")
+              .limit(1);
     if (!row?.visible) {
         throw new AppError(
             ErrorCode.RECORDING_NOT_FOUND,
@@ -1004,13 +1098,18 @@ async function requireTaskView(
     const [row] = await db
         .select({
             ...taskColumns,
-            canEdit: sql<boolean>`${taskEditable(viewer)}`,
-            canClose: sql<boolean>`${taskClosable(viewer)}`,
+            canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
+            canClose: sql<boolean>`${taskClosable(viewer, ANY_TASK_ITEM)}`,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
         .leftJoin(people, assigneeJoin())
-        .where(and(eq(recordingTasks.id, taskId), taskVisible(viewer)))
+        .where(
+            and(
+                eq(recordingTasks.id, taskId),
+                taskVisible(viewer, ANY_TASK_ITEM),
+            ),
+        )
         .limit(1);
     if (!row) throw notFound();
     return toView(row);
@@ -1056,15 +1155,19 @@ export async function recordingsAwaitingTaskReview(
     const waiting = proposals.unionAll(followUps).as("waiting");
     const rows = await db
         .select({
-            recordingId: recordings.id,
+            recordingId: chatterItems.id,
             title: chatterItems.title,
             proposals: sql<number>`sum(${waiting.waiting})::int`,
         })
         .from(waiting)
-        .innerJoin(recordings, eq(recordings.id, waiting.recordingId))
-        .innerJoin(chatterItems, recordingItemJoin)
-        .where(and(isNull(recordings.deletedAt), taskEditable(viewer)))
-        .groupBy(recordings.id, chatterItems.id)
+        .innerJoin(chatterItems, eq(chatterItems.id, waiting.recordingId))
+        .where(
+            and(
+                isNull(chatterItems.deletedAt),
+                taskEditable(viewer, ANY_TASK_ITEM),
+            ),
+        )
+        .groupBy(chatterItems.id)
         .orderBy(desc(chatterItems.occurredAt));
     return rows.map((row) => ({
         recordingId: row.recordingId,
@@ -1095,6 +1198,8 @@ export interface TaskListItem extends TaskView {
         startTime: string;
         /** The view the viewer opens it in. */
         view: "private" | "org";
+        /** What the item is: a recording or a mail. */
+        kind: "audio" | "mail";
     };
 }
 
@@ -1115,18 +1220,18 @@ export async function listTasks(
 ): Promise<TaskListItem[]> {
     const conditions: (SQL | undefined)[] = [
         ne(recordingTasks.status, "proposed"),
-        isNull(recordings.deletedAt),
+        isNull(chatterItems.deletedAt),
     ];
     const mine = assignedToViewer(viewer);
     if (query.tab === "mine") {
         if (viewer.isOrg) return [];
-        conditions.push(mine, taskVisible(viewer));
+        conditions.push(mine, taskVisible(viewer, ANY_TASK_ITEM));
     } else {
         conditions.push(
             viewer.isOrg
-                ? taskRecordingShared(viewer)
+                ? taskRecordingShared(viewer, ANY_TASK_ITEM)
                 : and(
-                      eq(recordings.userId, viewer.userId),
+                      eq(chatterItems.userId, viewer.userId),
                       eq(recordingTasks.userId, viewer.userId),
                   ),
             not(mine),
@@ -1136,7 +1241,9 @@ export async function listTasks(
         conditions.push(eq(recordingTasks.status, query.state));
     }
     if (query.folderId) {
-        conditions.push(await folderCondition(viewer.userId, query.folderId));
+        conditions.push(
+            await folderCondition(viewer.userId, query.folderId, ANY_TASK_ITEM),
+        );
     }
     if (query.due === "none") {
         conditions.push(isNull(recordingTasks.dueDate));
@@ -1184,6 +1291,8 @@ export interface CallerTaskQuery {
 function callerTaskConditions(viewer: TaskViewer): SQL[] {
     return [
         ne(recordingTasks.status, "proposed"),
+        // Recordings only, until callers may read mail (`mail:read`).
+        isNotNull(recordings.id),
         isNull(recordings.deletedAt),
         taskListed(viewer),
     ];
@@ -1254,15 +1363,17 @@ async function loadTaskListItems(
     const rows = await db
         .select({
             ...taskColumns,
-            canEdit: sql<boolean>`${taskEditable(viewer)}`,
-            canClose: sql<boolean>`${taskClosable(viewer)}`,
-            recordingOwner: recordings.userId,
+            canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
+            canClose: sql<boolean>`${taskClosable(viewer, ANY_TASK_ITEM)}`,
+            recordingOwner: chatterItems.userId,
             recordingTitle: chatterItems.title,
             recordingStart: chatterItems.occurredAt,
+            recordingKind: chatterItems.kind,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
-        .innerJoin(chatterItems, recordingItemJoin)
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
+        // Conditions over `recordings` (the MCP tools') keep to recordings.
+        .leftJoin(recordings, eq(recordings.id, recordingTasks.itemId))
         .leftJoin(people, assigneeJoin())
         .where(and(...conditions))
         .orderBy(...order)
@@ -1275,6 +1386,7 @@ async function loadTaskListItems(
             title: decryptText(row.recordingTitle),
             startTime: row.recordingStart.toISOString(),
             view: row.recordingOwner === viewer.userId ? "private" : "org",
+            kind: row.recordingKind,
         },
     }));
 }
@@ -1290,15 +1402,15 @@ export async function countNewTasks(viewer: TaskViewer): Promise<number> {
     const [row] = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
         .where(
             and(
                 eq(recordingTasks.status, "open"),
-                isNull(recordings.deletedAt),
+                isNull(chatterItems.deletedAt),
                 assignedToViewer(viewer),
-                taskVisible(viewer),
+                taskVisible(viewer, ANY_TASK_ITEM),
                 // Their own recording's tasks are not news to them.
-                ne(recordings.userId, viewer.userId),
+                ne(chatterItems.userId, viewer.userId),
                 settings?.seen
                     ? gt(recordingTasks.assignedAt, settings.seen)
                     : undefined,

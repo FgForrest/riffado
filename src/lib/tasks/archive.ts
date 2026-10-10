@@ -1,15 +1,15 @@
 import { and, eq, inArray, ne, or, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
+    chatterItems,
     people,
-    recordings,
     recordingTasks,
     taskUpdateProposals,
 } from "@/db/schema";
 import { decryptText } from "@/lib/encryption/fields";
 import {
     type ArchiveScope,
-    archivedRecordingCondition,
+    archivedItemCondition,
 } from "@/lib/export/archive-scope";
 
 /** One task as a backup archive carries it. */
@@ -23,6 +23,13 @@ export interface ArchivedTask {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    /** On a mail: the segment and range of its text the quote is in. */
+    evidenceText?: {
+        segmentIndex: number;
+        charStart: number;
+        charEnd: number;
+    };
+    evidenceProvenance?: "quoted" | "unverified";
     source: string;
     createdAt: string;
     acceptedAt: string | null;
@@ -61,7 +68,7 @@ export type TaskArchiveScope = ArchiveScope | { kind: "owner"; userId: string };
 // The Organization's: every task of the shared recordings it carries.
 function archivedTaskCondition(scope: TaskArchiveScope): SQL | undefined {
     if (scope.kind === "organization") {
-        return archivedRecordingCondition(scope);
+        return archivedItemCondition(scope);
     }
     if (scope.kind === "owner") return eq(recordingTasks.userId, scope.userId);
     return and(
@@ -99,6 +106,10 @@ export async function tasksForArchive(
             duePhrase: recordingTasks.duePhrase,
             quote: recordingTasks.quote,
             evidenceStartMs: recordingTasks.evidenceStartMs,
+            evidenceSegmentIndex: recordingTasks.evidenceSegmentIndex,
+            evidenceCharStart: recordingTasks.evidenceCharStart,
+            evidenceCharEnd: recordingTasks.evidenceCharEnd,
+            evidenceProvenance: recordingTasks.evidenceProvenance,
             source: recordingTasks.source,
             ticked: recordingTasks.ticked,
             createdAt: recordingTasks.createdAt,
@@ -107,10 +118,10 @@ export async function tasksForArchive(
         })
         .from(recordingTasks)
         .innerJoin(
-            recordings,
+            chatterItems,
             and(
-                eq(recordings.id, recordingTasks.itemId),
-                eq(recordings.userId, recordingTasks.userId),
+                eq(chatterItems.id, recordingTasks.itemId),
+                eq(chatterItems.userId, recordingTasks.userId),
             ),
         )
         .leftJoin(people, eq(people.id, recordingTasks.assigneePersonId))
@@ -141,6 +152,20 @@ export async function tasksForArchive(
             duePhrase: optional(row.duePhrase),
             quote: optional(row.quote),
             evidenceStartMs: row.evidenceStartMs,
+            ...(row.evidenceSegmentIndex !== null &&
+            row.evidenceCharStart !== null &&
+            row.evidenceCharEnd !== null
+                ? {
+                      evidenceText: {
+                          segmentIndex: row.evidenceSegmentIndex,
+                          charStart: row.evidenceCharStart,
+                          charEnd: row.evidenceCharEnd,
+                      },
+                  }
+                : {}),
+            ...(row.evidenceProvenance
+                ? { evidenceProvenance: row.evidenceProvenance }
+                : {}),
             source: row.source,
             createdAt: row.createdAt.toISOString(),
             acceptedAt: row.acceptedAt?.toISOString() ?? null,
@@ -188,17 +213,17 @@ export async function taskUpdatesForArchive(
         })
         .from(taskUpdateProposals)
         .innerJoin(
-            recordings,
+            chatterItems,
             and(
-                eq(recordings.id, taskUpdateProposals.itemId),
-                eq(recordings.userId, taskUpdateProposals.userId),
+                eq(chatterItems.id, taskUpdateProposals.itemId),
+                eq(chatterItems.userId, taskUpdateProposals.userId),
             ),
         )
         .where(
             and(
                 scope.kind === "personal"
                     ? eq(taskUpdateProposals.userId, scope.userId)
-                    : archivedRecordingCondition(scope),
+                    : archivedItemCondition(scope),
                 inArray(taskUpdateProposals.itemId, [...recordingIds]),
             ),
         )

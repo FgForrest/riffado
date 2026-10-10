@@ -104,10 +104,19 @@ import { encrypt } from "@/lib/encryption";
 import { decryptText } from "@/lib/encryption/fields";
 import { ensureRootFolders } from "@/lib/folders/folders";
 import { ensureMailbox } from "@/lib/mail/addresses";
+import { collectArchivedMail } from "@/lib/mail/archive";
 import { authenticateMessage } from "@/lib/mail/dkim";
 import { ingestMail, precheckMail } from "@/lib/mail/ingest";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { generateSummaryForRecording } from "@/lib/summary/generate-summary";
+import { taskViewerById } from "@/lib/tasks/access";
+import { tasksForArchive } from "@/lib/tasks/archive";
+import {
+    acceptReview,
+    listRecordingTasks,
+    listTasks,
+    recordingsAwaitingTaskReview,
+} from "@/lib/tasks/tasks";
 import {
     rawMessage,
     signMessage,
@@ -338,6 +347,64 @@ describeWithDatabase("summaries of mail (PostgreSQL)", () => {
                 samples?.evidenceCharEnd ?? 0,
             ),
         ).toBe("deliver the samples to your warehouse next week");
+    });
+
+    it("reviews a mail's tasks like a recording's, and backs them up with its summary", async () => {
+        const viewer = await taskViewerById("u-jan");
+        const waiting = await recordingsAwaitingTaskReview(viewer);
+        const [entry] = waiting.filter(
+            (row) => row.title === "Contract and samples",
+        );
+        expect(entry?.proposals).toBe(2);
+        const itemId = entry?.recordingId ?? "";
+
+        const listed = await listRecordingTasks(viewer, itemId);
+        expect(listed?.canEdit).toBe(true);
+        expect(listed?.proposals).toHaveLength(2);
+        const quoted = listed?.proposals.find(
+            (task) => task.evidenceProvenance === "quoted",
+        );
+        expect(quoted?.evidenceText).toMatchObject({ segmentIndex: 2 });
+
+        const result = await acceptReview(viewer, itemId);
+        expect(result).toMatchObject({ accepted: 1, rejected: 1 });
+        const tasks = await listTasks(viewer, {
+            tab: "tracked",
+            state: "open",
+            folderId: null,
+            due: null,
+            today: null,
+            sort: "created",
+        });
+        const contract = tasks.find(
+            (task) => task.text === "Send the signed contract",
+        );
+        expect(contract?.recording).toMatchObject({
+            id: itemId,
+            kind: "mail",
+            view: "private",
+            title: "Contract and samples",
+        });
+        expect(
+            await listRecordingTasks(await taskViewerById("u-other"), itemId),
+        ).toBeNull();
+
+        const [archived] = (
+            await collectArchivedMail({ kind: "personal", userId: "u-jan" })
+        ).filter((mail) => mail.id === itemId);
+        expect(archived?.summaries[0]?.summary).toBe(
+            "Jan asks Eva for the signed contract by Friday.",
+        );
+        const archivedTasks = await tasksForArchive(
+            { kind: "personal", userId: "u-jan" },
+            [itemId],
+            { proposals: true },
+        );
+        expect(archivedTasks.get(itemId)?.[0]).toMatchObject({
+            text: "Send the signed contract",
+            status: "open",
+            evidenceText: { segmentIndex: 0 },
+        });
     });
 
     it("never summarizes mail sent by machines", async () => {
