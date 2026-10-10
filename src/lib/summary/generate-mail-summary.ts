@@ -22,6 +22,7 @@ import { renderMailForModel } from "@/lib/content/render-mail";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { exportRecordingSidecarsIfEnabled } from "@/lib/export/document-sidecars";
+import { maskedContentForModel, secretAddressMasker } from "@/lib/mail/redact";
 import { captureServerEvent } from "@/lib/posthog-server";
 import { notifyIfShared } from "@/lib/sharing/notify";
 import type { ContentRunContext } from "@/lib/sharing/run-context";
@@ -106,10 +107,11 @@ export async function generateMailSummary(
     if (mail.unreadable) {
         throw mailNotSummarized("This mail's content is not readable.");
     }
-    const content = await readItemContent(ctx.ownerUserId, itemId);
-    if (!content || content.segments.length === 0) {
+    const stored = await readItemContent(ctx.ownerUserId, itemId);
+    if (!stored || stored.segments.length === 0) {
         throw mailNotSummarized("This mail has no text to summarize.");
     }
+    const content = await maskedContentForModel(stored);
     const sentAt = mail.sentAt ?? mail.occurredAt;
 
     const tasksContext = await loadTasksPromptContext({
@@ -167,7 +169,8 @@ export async function generateMailSummary(
     const summaryModel = await summaryModelFor(ctx.actorUserId);
     const { credentials, model } = summaryModel;
 
-    const subject = decryptText(mail.title);
+    const title = decryptText(mail.title);
+    const subject = (await secretAddressMasker([title]))(title);
     const mailText = renderMailForModel(content, { subject, sentAt });
     const outputLanguage = resolveAiOutputLanguage(
         userSettingsRow?.aiOutputLanguage,

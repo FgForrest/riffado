@@ -80,6 +80,7 @@ import {
     type ReviewCandidate,
     validateLearnOutput,
 } from "@/lib/learn/validate";
+import { maskedContentForModel } from "@/lib/mail/redact";
 import { contentWriterRefusal, sharingOrgUserId } from "@/lib/sharing/writer";
 import { readTranscriptTurns } from "@/lib/transcription/read-turns";
 
@@ -967,11 +968,13 @@ async function runMailLearnJob(
     if (claimed.length === 0) return { skipped: "claimed" };
 
     try {
-        const content = await readItemContent(run.userId, run.itemId);
-        if (!content || content.kind !== "mail") {
+        const stored = await readItemContent(run.userId, run.itemId);
+        if (!stored || stored.kind !== "mail") {
             await setStatus(run.id, "cancelled");
             return { skipped: "gone" };
         }
+        // Lengths kept: what the model quotes is found where it was.
+        const content = await maskedContentForModel(stored);
         if (content.revision !== run.transcriptRevision) {
             await setStatus(run.id, "superseded");
             return { skipped: "superseded" };

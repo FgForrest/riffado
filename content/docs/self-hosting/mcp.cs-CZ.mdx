@@ -16,8 +16,8 @@ Server je pouze pro čtení, s výjimkou jedné věci: stav a zadání úkolu.
 
 ## Co server poskytuje
 
-Pět klientských rolí na resource klientovi (viz níže `riffado-mcp`) zpřístupňuje
-pět oblastí. Volající vidí pouze nástroje, které jeho role dovolují;
+Šest klientských rolí na resource klientovi (viz níže `riffado-mcp`) zpřístupňuje
+šest oblastí. Volající vidí pouze nástroje, které jeho role dovolují;
 jakýkoliv jiný nástroj odpoví "Unknown tool" – stejně jako neexistující
 název.
 
@@ -28,6 +28,7 @@ název.
 | `summaries:read`   | `get_summary`, `search_summaries`                                                                  |
 | `tasks:read`       | `list_tasks`, `search_tasks`                                                                       |
 | `tasks:write`      | `update_task` (pouze stav a zadání)                                                            |
+| `mail:read`        | `list_mail`, `get_mail`                                                                            |
 
 `list_folders` a `list_recordings` jsou dostupné spolu s některou z
 `transcripts:read`, `summaries:read` nebo `tasks:read`.
@@ -42,11 +43,23 @@ název.
 - **Shrnutí** (`summaries:read`): text shrnutí a klíčové body.
 - **Úkoly** (`tasks:read`): otevřené, dokončené a zrušené úkoly.
   Návrhy čekající na kontrolu se nikdy nevypisují.
+- **Pošta** (`mail:read`, kde instance [přijímá poštu](../user-guide/mail)): e-maily
+  v hromádce, jejich účastníci, text po částech (citované zprávy s
+  uváděným autorem), přílohy podle názvu a velikosti a se
+  `summaries:read` jejich souhrn. Každý výsledek s poštou nese
+  `untrusted: true`: poštu píšou lidé zvenčí. Tajné adresy jsou skryté,
+  i pro jejich vlastníka.
 
 Role se kombinují a některá pole vyžadují dvě role:
 
 - Důkaz faktu (až tři citace s nahrávkou a pozicí)
-  vyžaduje `transcripts:read` i `knowledge:read`.
+  vyžaduje `transcripts:read` i `knowledge:read`; důkaz v e-mailu
+  vyžaduje místo toho `mail:read`.
+- Úkoly a fakta naučená z pošty se vypisují se samotnými `tasks:read` a
+  `knowledge:read`, označené `kind: "mail"` (úkoly) nebo
+  `origin: "mail"` (fakta). Jejich citace, slovní termín a e-mail (název
+  a odkaz) přicházejí jen s `mail:read` a bez ní vyhledávání nikdy
+  nenajde slova e-mailu.
 - Akční položky shrnutí v `get_summary` a v tom, co
   `search_summaries` vyhledává, vyžadují `tasks:read`.
 - Filtr `entity` u nástrojů nad nahrávkami vyžaduje `knowledge:read`.
@@ -93,8 +106,9 @@ stejného issuer pro Riffado i klienty, kteří získávají tokeny.
    `riffado-mcp` (hodnota `MCP_AUDIENCE`).
 2. **Client authentication:** vypnuto. Vypněte veškeré autentizační toky:
    do tohoto klienta se nikdo nepřihlašuje; nese pouze role.
-3. **Roles → Create role**, pětkrát: `knowledge:read`,
-   `transcripts:read`, `summaries:read`, `tasks:read`, `tasks:write`.
+3. **Roles → Create role**, šestkrát: `knowledge:read`,
+   `transcripts:read`, `summaries:read`, `tasks:read`, `tasks:write`,
+   `mail:read`.
 4. Přiřaďte role uživatelům či skupinám, kteří mohou danou oblast využívat
    (**Role mapping → Assign role → Filter by clients**).
 
@@ -123,7 +137,7 @@ přístupovém logu.
 
 Token pak obsahuje role, které má uživatel **a zároveň** které povoluje účel klienta.
 Například poznámková aplikace, která má vyhledávat pouze v
-shrnutích, dostane pouze `summaries:read`, i když uživatel vlastní všech pět rolí.
+shrnutích, dostane pouze `summaries:read`, i když uživatel vlastní všech šest rolí.
 
 </details>
 
@@ -227,15 +241,15 @@ curl -s https://riffado.example.com/api/mcp \
 
 Účty nejsou nikdy vytvořeny z tokenu: člověk se musí nejdřív alespoň
 jednou přihlásit do Riffada, než jeho AI klient může server volat.
-Pozastavený účet, token bez některé z pěti rolí, klient mimo
+Pozastavený účet, token bez některé ze šesti rolí, klient mimo
 `MCP_ALLOWED_CLIENTS` a servisní účet bez zapnuté Organizace dostanou 403
 "Forbidden".
 
 **Úkoly** kopírují logiku stránky Úkoly:
 
-- Uživatel vidí úkoly u svých nahrávek a u nahrávek sdílených
+- Uživatel vidí úkoly u svých nahrávek a e-mailů a u sdílených
   Organizací ty, které jsou mu přiřazeny. Servisní účet vidí úkoly
-  všech sdílených nahrávek.
+  všech sdílených nahrávek a e-mailů.
 - S `tasks:write` může `update_task` nastavit úkol jako hotový, znovu otevřený nebo
   zrušený, či změnit jeho zadání. Dokončení a znovuotevření úkolu vyžaduje `can_close`
   (majitel nahrávky, přiřazený uživatel u sdílené nahrávky nebo Organizace).

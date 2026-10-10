@@ -1,8 +1,11 @@
-import { and, eq, isNull, or, type SQL } from "drizzle-orm";
-import { recordings } from "@/db/schema";
+import { and, eq, inArray, isNull, or, type SQL } from "drizzle-orm";
+import { type ChatterItemKind, chatterItems, recordings } from "@/db/schema";
 import type { ReadContext } from "@/lib/knowledge/scope";
 import type { McpCaller } from "@/lib/mcp/caller";
-import { sharedRecordingCondition } from "@/lib/sharing/shared";
+import {
+    sharedItemCondition,
+    sharedRecordingCondition,
+} from "@/lib/sharing/shared";
 import type { RecordingView } from "@/lib/sharing/view";
 import {
     type TaskViewer,
@@ -27,6 +30,41 @@ export function mcpRecordingCondition(caller: McpCaller): SQL {
               ? or(eq(recordings.userId, caller.userId), shared)
               : eq(recordings.userId, caller.userId);
     return and(isNull(recordings.deletedAt), visible) as SQL;
+}
+
+/** Whether the caller may read mail, its content and what quotes it (D8). */
+export function mayReadMail(caller: McpCaller): boolean {
+    return caller.roles.has("mail:read");
+}
+
+/**
+ * SQL over `chatter_items`: the items of `kinds` this caller may read, as
+ * {@link mcpRecordingCondition} reads recordings. Mail only for a caller
+ * holding `mail:read`, whatever `kinds` asks for.
+ */
+export function mcpItemCondition(
+    caller: McpCaller,
+    kinds: readonly ChatterItemKind[],
+): SQL {
+    const allowed = kinds.filter(
+        (kind) => kind !== "mail" || mayReadMail(caller),
+    );
+    const shared = caller.orgUserId
+        ? sharedItemCondition(caller.orgUserId, chatterItems.id)
+        : undefined;
+    const visible =
+        caller.kind === "service"
+            ? shared
+            : shared
+              ? or(eq(chatterItems.userId, caller.userId), shared)
+              : eq(chatterItems.userId, caller.userId);
+    return and(
+        isNull(chatterItems.deletedAt),
+        allowed.length > 0
+            ? inArray(chatterItems.kind, [...allowed])
+            : eq(chatterItems.id, ""),
+        visible ?? eq(chatterItems.id, ""),
+    ) as SQL;
 }
 
 /**

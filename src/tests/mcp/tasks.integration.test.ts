@@ -452,6 +452,7 @@ describeWithDatabase("MCP task tools (PostgreSQL)", () => {
                 due_phrase: "by Friday",
                 quote: "Petra needs the pricing page ready by Friday",
                 start_ms: 12_000,
+                kind: "audio",
                 version: 0,
                 can_edit: false,
                 can_close: false,

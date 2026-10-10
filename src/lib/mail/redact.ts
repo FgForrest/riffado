@@ -1,3 +1,4 @@
+import type { ItemContent } from "@/lib/content/types";
 import { resolveLocalPart } from "@/lib/mail/addresses";
 import { mailDomain } from "@/lib/mail/config";
 
@@ -12,10 +13,15 @@ function addressPattern(): RegExp {
     );
 }
 
-/** A secret address with its token hidden: `jan.•••@klepna.example`. */
+/**
+ * A secret address with its token hidden, as long as it was
+ * (`jan.••••••••••@klepna.example`), so places in a text stay where they
+ * were.
+ */
 function masked(localPart: string): string {
     const dot = localPart.lastIndexOf(".");
-    return `${dot > 0 ? localPart.slice(0, dot) : ""}.•••@${mailDomain()}`;
+    const kept = dot > 0 ? localPart.slice(0, dot + 1) : "";
+    return `${kept}${"•".repeat(localPart.length - kept.length)}@${mailDomain()}`;
 }
 
 /**
@@ -43,4 +49,24 @@ export async function secretAddressMasker(
         text.replace(addressPattern(), (whole, localPart: string) =>
             secrets.has(localPart.toLowerCase()) ? masked(localPart) : whole,
         );
+}
+
+/**
+ * A mail's content with every secret address masked, for a model to read:
+ * a token a summary repeated would reach whoever reads the summary. Same
+ * lengths, so a quote the model gives back is found at the same place.
+ */
+export async function maskedContentForModel<
+    T extends Pick<ItemContent, "segments">,
+>(content: T): Promise<T> {
+    const mask = await secretAddressMasker(
+        content.segments.map((segment) => segment.text),
+    );
+    return {
+        ...content,
+        segments: content.segments.map((segment) => ({
+            ...segment,
+            text: mask(segment.text),
+        })),
+    };
 }

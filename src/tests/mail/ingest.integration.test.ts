@@ -807,7 +807,7 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
         expect(seen?.pendingShares).toEqual([]);
         const shown = JSON.stringify(seen);
         expect(shown).not.toContain(secret.localPart);
-        expect(shown).toContain("jan.•••@klepna.example");
+        expect(shown).toMatch(/jan\.•{10}@klepna\.example/);
         expect((await mailRawFor("u-eva", itemId))?.access.role).toBe("member");
 
         const own = await loadMailDetail("u-jan", itemId);
@@ -823,7 +823,9 @@ describeWithDatabase("inbound mail (PostgreSQL)", () => {
             kind: "mail",
             view: "org",
             isOwn: false,
-            filename: "Filed under jan.•••@klepna.example",
+            filename: expect.stringMatching(
+                /^Filed under jan\.•{10}@klepna\.example$/,
+            ),
         });
         expect(
             (await loadSharedMailRows("u-jan", orgUserId)).find(

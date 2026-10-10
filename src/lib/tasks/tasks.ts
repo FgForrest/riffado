@@ -6,7 +6,6 @@ import {
     gt,
     gte,
     inArray,
-    isNotNull,
     isNull,
     lt,
     lte,
@@ -1296,27 +1295,30 @@ export interface CallerTaskQuery {
     recordingId: string | null;
     /** `YYYY-MM-DD`: due strictly before this day; undated tasks drop out. */
     dueBefore: string | null;
-    /** SQL over `recordings` the task's recording must also pass. */
+    /**
+     * SQL over `recordings` the task's recording must also pass: a task on
+     * a mail then drops out.
+     */
     recordingCondition: SQL | null;
     /** Continue after this position of the newest-first order. */
     after: Keyset | null;
     limit: number;
 }
 
+// A task on a mail is listed like one on a recording (D8: tasks learned
+// from mail stay visible under their own role; callers redact the mail).
 function callerTaskConditions(viewer: TaskViewer): SQL[] {
     return [
         ne(recordingTasks.status, "proposed"),
-        // Recordings only, until callers may read mail (`mail:read`).
-        isNotNull(recordings.id),
-        isNull(recordings.deletedAt),
-        taskListed(viewer),
+        isNull(chatterItems.deletedAt),
+        taskListed(viewer, ANY_TASK_ITEM),
     ];
 }
 
 /**
  * Every task in the viewer's lists (the Tasks page's tabs together; never
- * a proposal, never on a deleted recording) that passes the query, newest
- * first (`createdAt`, then `id`), `limit` at most after `after`.
+ * a proposal, never on a deleted recording or mail) that passes the query,
+ * newest first (`createdAt`, then `id`), `limit` at most after `after`.
  */
 export async function listCallerTasks(
     viewer: TaskViewer,
