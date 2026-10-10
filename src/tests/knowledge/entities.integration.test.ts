@@ -22,7 +22,6 @@ import {
     knowledgeEntityNotes,
     knowledgeEntityTypes,
     people,
-    recordings,
     transcriptCorrections,
     transcriptions,
     users,
@@ -114,6 +113,7 @@ import {
 import { ensureOrgAccount } from "@/lib/org/account";
 import { upsertTranscription } from "@/lib/transcription/persist";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -177,23 +177,21 @@ describeWithDatabase("entities and aliases (PostgreSQL)", () => {
             ]);
         orgUserId = (await ensureOrgAccount()) ?? "";
         await seedCoreVocabulary();
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: ALICE,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 5_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:00:05Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${ALICE}/rec.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: ALICE,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 5_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:00:05Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${ALICE}/rec.mp3`,
+            plaudVersion: "1",
+        });
         const [transcript] = await db()
             .insert(transcriptions)
             .values({

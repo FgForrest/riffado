@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { OpenAI } from "openai";
 import { db } from "@/db";
 import { apiCredentials, userSettings } from "@/db/schema";
+import { CONTENT_IS_DATA_DIRECTIVE } from "@/lib/ai/content-directive";
 import { decrypt } from "@/lib/encryption";
 import { decryptJsonField } from "@/lib/encryption/fields";
 import { buildChatCompletionParams } from "./chat-completion-params";
@@ -110,7 +111,7 @@ export async function generateTitleFromTranscription(
 
         const baseSystem =
             "You are a helpful assistant that generates concise, descriptive titles for audio recordings based on transcriptions. Always follow the rules strictly.";
-        const systemContent = `${baseSystem} ${languageDirective}`;
+        const systemContent = `${baseSystem} ${CONTENT_IS_DATA_DIRECTIVE} ${languageDirective}`;
 
         const response = await openai.chat.completions.create(
             buildChatCompletionParams({

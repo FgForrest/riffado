@@ -127,17 +127,19 @@ function mountSelectChain(
     (db.select as Mock)
         .mockReturnValueOnce({
             from: vi.fn().mockReturnValue({
-                where: vi.fn().mockReturnValue({
-                    limit: vi.fn().mockResolvedValue([
-                        {
-                            id: "rec-1",
-                            userId: "user-1",
-                            plaudFileId: "plaud-1",
-                            filename: "Original Title",
-                            storagePath: "test.mp3",
-                            deletedAt: null,
-                        },
-                    ]),
+                innerJoin: vi.fn().mockReturnValue({
+                    where: vi.fn().mockReturnValue({
+                        limit: vi.fn().mockResolvedValue([
+                            {
+                                id: "rec-1",
+                                userId: "user-1",
+                                plaudFileId: "plaud-1",
+                                title: "Original Title",
+                                storagePath: "test.mp3",
+                                deletedAt: null,
+                            },
+                        ]),
+                    }),
                 }),
             }),
         })
@@ -191,11 +193,13 @@ function mountInsertTransaction() {
             .fn()
             .mockReturnValueOnce({
                 from: vi.fn().mockReturnValue({
-                    where: vi.fn().mockReturnValue({
-                        for: vi.fn().mockReturnValue({
-                            limit: vi
-                                .fn()
-                                .mockResolvedValue([{ deletedAt: null }]),
+                    innerJoin: vi.fn().mockReturnValue({
+                        where: vi.fn().mockReturnValue({
+                            for: vi.fn().mockReturnValue({
+                                limit: vi
+                                    .fn()
+                                    .mockResolvedValue([{ deletedAt: null }]),
+                            }),
                         }),
                     }),
                 }),

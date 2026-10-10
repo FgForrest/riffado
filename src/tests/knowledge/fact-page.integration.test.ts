@@ -21,7 +21,6 @@ import {
 import {
     people,
     recordingFolders,
-    recordings,
     transcriptions,
     transcriptSpeakers,
     users,
@@ -89,6 +88,7 @@ import {
 import { seedCoreVocabulary } from "@/lib/knowledge/vocabulary";
 import { ensureOrgAccount } from "@/lib/org/account";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -130,23 +130,21 @@ describeWithDatabase("facts on the pages (PostgreSQL)", () => {
     }, 30_000);
 
     async function recordingWithJan(id: string): Promise<string> {
-        await db()
-            .insert(recordings)
-            .values({
-                id,
-                userId: ALICE,
-                deviceSn: "SN-1",
-                plaudFileId: `plaud-${id}`,
-                filename: encryptText(`Meeting ${id}`),
-                duration: 30_000,
-                startTime: new Date("2026-03-03T12:04:00Z"),
-                endTime: new Date("2026-03-03T12:04:30Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${ALICE}/${id}.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id,
+            userId: ALICE,
+            deviceSn: "SN-1",
+            plaudFileId: `plaud-${id}`,
+            filename: encryptText(`Meeting ${id}`),
+            duration: 30_000,
+            startTime: new Date("2026-03-03T12:04:00Z"),
+            endTime: new Date("2026-03-03T12:04:30Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${ALICE}/${id}.mp3`,
+            plaudVersion: "1",
+        });
         const [transcript] = await db()
             .insert(transcriptions)
             .values({

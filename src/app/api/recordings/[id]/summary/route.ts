@@ -2,8 +2,9 @@ import { and, eq, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import { getActiveJob } from "@/db/queries/async-jobs";
-import { aiEnhancements, recordings } from "@/db/schema";
+import { aiEnhancements, chatterItems, recordings } from "@/db/schema";
 import { requireApiSession } from "@/lib/auth-server";
+import { ALL_ITEM_KINDS } from "@/lib/content/item-kinds";
 import { DEMO_SUMMARIES, isDemoRecordingId } from "@/lib/demo/fixtures";
 import { AppError, apiHandler, ErrorCode } from "@/lib/errors";
 import { removeRecordingSidecar } from "@/lib/export/document-sidecars";
@@ -99,7 +100,9 @@ export const POST = apiHandler<IdContext>(async (request, context) => {
     // Checked here rather than left to the handler: a recording that does not
     // exist should be a 404 on the spot, not a job that is queued, claimed and
     // then fails a second later with nobody having learned anything sooner.
-    const access = await requireRecordingView(userId, id, view);
+    const access = await requireRecordingView(userId, id, view, {
+        kinds: ALL_ITEM_KINDS,
+    });
     assertMayChange(access, userId);
 
     const { job } = await enqueueSummaryJob({
@@ -325,7 +328,9 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
     }
 
     const view = requestedRecordingView(request);
-    const access = await requireRecordingView(session.user.id, id, view);
+    const access = await requireRecordingView(session.user.id, id, view, {
+        kinds: ALL_ITEM_KINDS,
+    });
 
     // Reported alongside the summary so a page opened while a summary is
     // being generated -- in another tab, by an automatic run, or by a worker
@@ -393,22 +398,40 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
     const { id } = await (context as IdContext).params;
     const source = requestedSummarySource(request);
     const view = requestedRecordingView(request);
-    const access = await requireRecordingView(session.user.id, id, view);
+    const access = await requireRecordingView(session.user.id, id, view, {
+        kinds: ALL_ITEM_KINDS,
+    });
 
     assertMayChange(access, session.user.id);
     const ownerUserId = access.ownerUserId;
+    const isMail = access.kind === "mail";
 
     await db.transaction(async (tx) => {
         // Under the lock sharing and withdrawal take, so the check below
         // holds until this commits.
-        const [locked] = await tx
-            .select({ deletedAt: recordings.deletedAt })
-            .from(recordings)
-            .where(
-                and(eq(recordings.id, id), eq(recordings.userId, ownerUserId)),
-            )
-            .for("update")
-            .limit(1);
+        const [locked] = isMail
+            ? await tx
+                  .select({ deletedAt: chatterItems.deletedAt })
+                  .from(chatterItems)
+                  .where(
+                      and(
+                          eq(chatterItems.id, id),
+                          eq(chatterItems.userId, ownerUserId),
+                      ),
+                  )
+                  .for("update")
+                  .limit(1)
+            : await tx
+                  .select({ deletedAt: recordings.deletedAt })
+                  .from(recordings)
+                  .where(
+                      and(
+                          eq(recordings.id, id),
+                          eq(recordings.userId, ownerUserId),
+                      ),
+                  )
+                  .for("update")
+                  .limit(1);
         if (!locked || locked.deletedAt) throw recordingGone();
         const refusal = await contentWriterRefusal(tx, {
             recordingId: id,
@@ -422,7 +445,7 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
             .delete(aiEnhancements)
             .where(
                 and(
-                    eq(aiEnhancements.recordingId, id),
+                    eq(aiEnhancements.itemId, id),
                     eq(aiEnhancements.userId, ownerUserId),
                     eq(aiEnhancements.source, source),
                 ),
@@ -433,7 +456,7 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
             recordingId: id,
             ownerUserId,
         });
-        if (deleted.length > 0) {
+        if (deleted.length > 0 && !isMail) {
             await tx
                 .update(recordings)
                 .set({ updatedAt: new Date() })

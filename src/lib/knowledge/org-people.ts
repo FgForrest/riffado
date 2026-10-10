@@ -58,7 +58,7 @@ export function recordingSharedCondition(recordingId: Column | SQL) {
         from ${recordingFolderAssignments}
         inner join ${recordingFolders}
             on ${recordingFolders.id} = ${recordingFolderAssignments.folderId}
-        where ${recordingFolderAssignments.recordingId} = ${recordingId}
+        where ${recordingFolderAssignments.itemId} = ${recordingId}
             and ${orgOwnedCondition(recordingFolders.userId)}
     )`;
 }
@@ -163,7 +163,7 @@ export async function lockRecordingsNaming(
                   )
             : [];
     const evidenced = await tx
-        .selectDistinct({ recordingId: knowledgeFactEvidence.recordingId })
+        .selectDistinct({ recordingId: knowledgeFactEvidence.itemId })
         .from(knowledgeFactEvidence)
         .where(
             inArray(

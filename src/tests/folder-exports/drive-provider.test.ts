@@ -402,5 +402,6 @@ describe("Google Drive export naming", () => {
         expect(driveContentType("audio.audio", "file")).toBe(
             "application/octet-stream",
         );
+        expect(driveContentType("message.eml", "file")).toBe("message/rfc822");
     });
 });

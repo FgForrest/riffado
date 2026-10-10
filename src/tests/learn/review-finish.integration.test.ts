@@ -24,7 +24,6 @@ import {
     learnDismissals,
     learnReviewItems,
     learnRuns,
-    recordings,
     transcriptCorrections,
     transcriptions,
     transcriptSpeakers,
@@ -119,6 +118,7 @@ import { seedCoreVocabulary } from "@/lib/knowledge/vocabulary";
 import { pendingReviewCount } from "@/lib/learn/pending";
 import { ensureOrgAccount } from "@/lib/org/account";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -169,23 +169,21 @@ describeWithDatabase("finishing a Learn review (PostgreSQL)", () => {
             .values([{ id: OWNER, email: "o@example.test" }]);
         orgUserId = (await ensureOrgAccount()) ?? "";
         await seedCoreVocabulary();
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 10_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:00:10Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/rec.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 10_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:00:10Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/rec.mp3`,
+            plaudVersion: "1",
+        });
         const [transcript] = await db()
             .insert(transcriptions)
             .values({
@@ -232,7 +230,7 @@ describeWithDatabase("finishing a Learn review (PostgreSQL)", () => {
             .values({
                 userId: OWNER,
                 scopeUserId: view === "org" ? orgUserId : OWNER,
-                recordingId: REC,
+                itemId: REC,
                 transcriptionId: transcriptId,
                 view,
                 actorUserId: view === "org" ? orgUserId : OWNER,
@@ -442,7 +440,7 @@ describeWithDatabase("finishing a Learn review (PostgreSQL)", () => {
             .values({
                 userId: OWNER,
                 scopeUserId: OWNER,
-                recordingId: REC,
+                itemId: REC,
                 transcriptionId: transcriptId,
                 view: "private",
                 actorUserId: OWNER,
@@ -461,30 +459,28 @@ describeWithDatabase("finishing a Learn review (PostgreSQL)", () => {
 
     it("forgets the rejections on this recording in this view, and nothing else", async () => {
         const other = "rec-other";
-        await db()
-            .insert(recordings)
-            .values({
-                id: other,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-2",
-                filename: encryptText("Other"),
-                duration: 10_000,
-                startTime: new Date("2026-09-02T10:00:00Z"),
-                endTime: new Date("2026-09-02T10:00:10Z"),
-                filesize: 11,
-                fileMd5: "1".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/other.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: other,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-2",
+            filename: encryptText("Other"),
+            duration: 10_000,
+            startTime: new Date("2026-09-02T10:00:00Z"),
+            endTime: new Date("2026-09-02T10:00:10Z"),
+            filesize: 11,
+            fileMd5: "1".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/other.mp3`,
+            plaudVersion: "1",
+        });
         await db()
             .insert(learnDismissals)
             .values([
-                { userId: OWNER, recordingId: REC, fingerprintHmac: "a" },
-                { userId: OWNER, recordingId: REC, fingerprintHmac: "b" },
-                { userId: OWNER, recordingId: other, fingerprintHmac: "a" },
-                { userId: orgUserId, recordingId: REC, fingerprintHmac: "a" },
+                { userId: OWNER, itemId: REC, fingerprintHmac: "a" },
+                { userId: OWNER, itemId: REC, fingerprintHmac: "b" },
+                { userId: OWNER, itemId: other, fingerprintHmac: "a" },
+                { userId: orgUserId, itemId: REC, fingerprintHmac: "a" },
             ]);
         const response = await deleteDismissalsRoute(
             new Request(
@@ -497,7 +493,7 @@ describeWithDatabase("finishing a Learn review (PostgreSQL)", () => {
         const left = await db()
             .select({
                 userId: learnDismissals.userId,
-                recordingId: learnDismissals.recordingId,
+                recordingId: learnDismissals.itemId,
             })
             .from(learnDismissals);
         expect(left).toHaveLength(2);
@@ -513,7 +509,7 @@ describeWithDatabase("finishing a Learn review (PostgreSQL)", () => {
         await db().insert(learnRuns).values({
             userId: OWNER,
             scopeUserId: OWNER,
-            recordingId: REC,
+            itemId: REC,
             transcriptionId: transcriptId,
             view: "private",
             actorUserId: OWNER,
@@ -925,7 +921,7 @@ describeWithDatabase("finishing a Learn review (PostgreSQL)", () => {
             .values({
                 userId: OWNER,
                 scopeUserId: OWNER,
-                recordingId: REC,
+                itemId: REC,
                 transcriptionId: plaud?.id ?? "",
                 view: "private",
                 actorUserId: OWNER,

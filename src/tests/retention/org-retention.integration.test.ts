@@ -20,6 +20,7 @@ import {
     vi,
 } from "vitest";
 import {
+    chatterItems,
     recordingFolders,
     recordings,
     transcriptions,
@@ -89,6 +90,7 @@ import { addRecordingToFolder, unshareRecording } from "@/lib/folders/folders";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { reapRecording } from "@/lib/retention/reap";
 import type { StorageProvider } from "@/lib/storage/types";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -148,23 +150,21 @@ describeWithDatabase("retention and the Organization (PostgreSQL)", () => {
             .from(recordingFolders)
             .where(eq(recordingFolders.userId, orgUserId));
         orgRootId = root?.id ?? "";
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: OWNER,
-                deviceSn: "local",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Old"),
-                duration: 60_000,
-                startTime: new Date(Date.now() - 60 * DAY),
-                endTime: new Date(Date.now() - 60 * DAY),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/old.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: OWNER,
+            deviceSn: "local",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Old"),
+            duration: 60_000,
+            startTime: new Date(Date.now() - 60 * DAY),
+            endTime: new Date(Date.now() - 60 * DAY),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/old.mp3`,
+            plaudVersion: "1",
+        });
         await db()
             .insert(transcriptions)
             .values({
@@ -218,9 +218,10 @@ describeWithDatabase("retention and the Organization (PostgreSQL)", () => {
         const [recording] = await db()
             .select({
                 audio: recordings.audioReapedAt,
-                transcript: recordings.transcriptReapedAt,
+                transcript: chatterItems.contentReapedAt,
             })
             .from(recordings)
+            .innerJoin(chatterItems, eq(chatterItems.id, recordings.id))
             .where(eq(recordings.id, REC));
         return {
             audio: recording?.audio !== null,

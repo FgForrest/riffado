@@ -88,6 +88,7 @@ import { encryptText } from "@/lib/encryption/fields";
 import { audioReplacedInTx } from "@/lib/knowledge/transcript-rewrite";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { upsertTranscription } from "@/lib/transcription/persist";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -136,23 +137,21 @@ describeWithDatabase("audio provenance on transcripts (PostgreSQL)", () => {
         await db().delete(users);
         await db().insert(users).values({ id: OWNER, email: "o@example.test" });
         await ensureOrgAccount();
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 9_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:00:09Z"),
-                filesize: 11,
-                fileMd5: "a".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/rec.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 9_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:00:09Z"),
+            filesize: 11,
+            fileMd5: "a".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/rec.mp3`,
+            plaudVersion: "1",
+        });
         await write();
         const [transcript] = await db()
             .select({ id: transcriptions.id })

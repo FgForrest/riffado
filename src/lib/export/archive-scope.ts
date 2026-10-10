@@ -1,6 +1,9 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { recordings } from "@/db/schema";
-import { sharedRecordingCondition } from "@/lib/sharing/shared";
+import { chatterItems, recordings } from "@/db/schema";
+import {
+    sharedItemCondition,
+    sharedRecordingCondition,
+} from "@/lib/sharing/shared";
 
 /**
  * Whose content a backup or an export carries: one person's own, or the
@@ -27,5 +30,15 @@ export function archivedRecordingCondition(scope: ArchiveScope) {
             ? eq(recordings.userId, scope.userId)
             : sharedRecordingCondition(scope.orgUserId),
         isNull(recordings.deletedAt),
+    );
+}
+
+/** `archivedRecordingCondition` on `chatter_items`: items of every kind. */
+export function archivedItemCondition(scope: ArchiveScope) {
+    return and(
+        scope.kind === "personal"
+            ? eq(chatterItems.userId, scope.userId)
+            : sharedItemCondition(scope.orgUserId),
+        isNull(chatterItems.deletedAt),
     );
 }

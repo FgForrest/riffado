@@ -63,6 +63,18 @@ services:
       MCP_AUDIENCE: ${MCP_AUDIENCE:-}
       MCP_ALLOWED_CLIENTS: ${MCP_ALLOWED_CLIENTS:-}
       MCP_AUDIT_RETENTION_DAYS: ${MCP_AUDIT_RETENTION_DAYS:-}
+      # Inbound mail (optional; see mail-receiver/README.md). Off unless
+      # MAIL_DOMAIN is set; requires single sign-on above, both secrets,
+      # and the mail-receiver service (profile `mail`).
+      MAIL_DOMAIN: ${MAIL_DOMAIN:-}
+      MAIL_ORG_NICKNAME: ${MAIL_ORG_NICKNAME:-}
+      MAIL_FORMER_ORG_NICKNAMES: ${MAIL_FORMER_ORG_NICKNAMES:-}
+      MAIL_ADDRESS_HASH_SECRET: ${MAIL_ADDRESS_HASH_SECRET:-}
+      MAIL_INGEST_SECRET: ${MAIL_INGEST_SECRET:-}
+      MAIL_MAX_SIGNATURE_AGE_HOURS: ${MAIL_MAX_SIGNATURE_AGE_HOURS:-}
+      MAIL_DAILY_LIMIT: ${MAIL_DAILY_LIMIT:-}
+      MAIL_MAX_MESSAGE_MB: ${MAIL_MAX_MESSAGE_MB:-}
+      MAIL_INACTIVE_DAYS: ${MAIL_INACTIVE_DAYS:-}
 
       # Encryption
       ENCRYPTION_KEY: ${ENCRYPTION_KEY}
@@ -168,6 +180,42 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+  # Optional. Inbound mail: an SMTP server for MAIL_DOMAIN that accepts mail
+  # from Google's sending servers only, never relays and never sends, and
+  # hands each message to the app (see mail-receiver/README.md). Opt in with
+  # `--profile mail`. It holds no database credentials and no encryption
+  # key. Port 25 is the deployment's to publish (an override mapping
+  # "25:2525"); the base file binds the container to loopback only.
+  mail-receiver:
+    profiles: ["mail"]
+    build:
+      context: .
+      dockerfile: mail-receiver/Dockerfile
+    container_name: riffado-mail-receiver
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      # Messages are spooled here while they are checked, never on disk.
+      - /spool:size=256m,mode=1777
+    environment:
+      MAIL_DOMAIN: ${MAIL_DOMAIN:-}
+      MAIL_HOSTNAME: ${MAIL_HOSTNAME:-}
+      MAIL_INGEST_URL: http://app:3000
+      MAIL_INGEST_SECRET: ${MAIL_INGEST_SECRET:-}
+      MAIL_MAX_MESSAGE_MB: ${MAIL_MAX_MESSAGE_MB:-36}
+      # `google` (Google's published sending ranges), CIDRs, or both.
+      MAIL_ALLOWED_SOURCES: ${MAIL_ALLOWED_SOURCES:-google}
+      MAIL_TLS_CERT_FILE: /tls/fullchain.pem
+      MAIL_TLS_KEY_FILE: /tls/privkey.pem
+    volumes:
+      - ${MAIL_TLS_DIR:-./mail-tls}:/tls:ro
+    ports:
+      - "127.0.0.1:2525:2525"
+    depends_on:
+      app:
+        condition: service_healthy
 
   # Optional. Embeddings for Learn: BAAI/bge-m3 served by Ollama on CPU,
   # about 1.3 GB of memory with the model loaded (Spike 0.2). Opt in with

@@ -184,7 +184,7 @@ describe("issue #101 — transcribeRecording sends chunking_strategy for diarize
             id: recordingId,
             userId,
             plaudFileId: "plaud-1",
-            filename: "Some Recording",
+            title: "Some Recording",
             storagePath: "rec-101.mp3",
             deletedAt: null,
         };
@@ -200,8 +200,10 @@ describe("issue #101 — transcribeRecording sends chunking_strategy for diarize
             // recording lookup
             .mockReturnValueOnce({
                 from: vi.fn().mockReturnValue({
-                    where: vi.fn().mockReturnValue({
-                        limit: vi.fn().mockResolvedValue([recordingRow]),
+                    innerJoin: vi.fn().mockReturnValue({
+                        where: vi.fn().mockReturnValue({
+                            limit: vi.fn().mockResolvedValue([recordingRow]),
+                        }),
                     }),
                 }),
             })
@@ -248,11 +250,15 @@ describe("issue #101 — transcribeRecording sends chunking_strategy for diarize
                 .fn()
                 .mockReturnValueOnce({
                     from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            for: vi.fn().mockReturnValue({
-                                limit: vi
-                                    .fn()
-                                    .mockResolvedValue([{ deletedAt: null }]),
+                        innerJoin: vi.fn().mockReturnValue({
+                            where: vi.fn().mockReturnValue({
+                                for: vi.fn().mockReturnValue({
+                                    limit: vi
+                                        .fn()
+                                        .mockResolvedValue([
+                                            { deletedAt: null },
+                                        ]),
+                                }),
                             }),
                         }),
                     }),

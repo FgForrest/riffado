@@ -3,7 +3,7 @@
  *
  * With automatic Learn on, a transcript with timings starts a Learn run by
  * itself, and the recording's title, summary and topics are held back
- * (`recordings.summaryDueAt`) so they are made from the transcript as the
+ * (`chatterItems.summaryDueAt`) so they are made from the transcript as the
  * person's review corrects it. The hold is released, once, when:
  * - no Learn run on the recording's private view is open (`learnRunOpen`:
  *   ready for review, or queued or running with its job alive): the review
@@ -41,8 +41,8 @@ import { enqueueJobInTx, getActiveJob } from "@/db/queries/async-jobs";
 import {
     aiEnhancements,
     asyncJobs,
+    chatterItems,
     learnRuns,
-    recordings,
     userSettings,
 } from "@/db/schema";
 import { env } from "@/lib/env";
@@ -122,16 +122,16 @@ export async function holdForAutoLearn(input: {
         // the hold with no run to wait for. A run that settled before the
         // hold was set found no hold to release: checked here instead.
         const [held] = await db
-            .update(recordings)
+            .update(chatterItems)
             .set({ summaryDueAt: new Date(Date.now() + AUTO_LEARN_HOLD_MS) })
             .where(
                 and(
-                    eq(recordings.id, recordingId),
-                    eq(recordings.userId, userId),
-                    isNull(recordings.deletedAt),
+                    eq(chatterItems.id, recordingId),
+                    eq(chatterItems.userId, userId),
+                    isNull(chatterItems.deletedAt),
                 ),
             )
-            .returning({ id: recordings.id });
+            .returning({ id: chatterItems.id });
         if (!held) return false;
         await releaseAutoLearnHold(recordingId);
         return true;
@@ -149,7 +149,7 @@ export async function holdForAutoLearn(input: {
  * queued or running, other than `exceptJobId` (the pass that asks).
  */
 function correctionPending(
-    recordingId: string | typeof recordings.id,
+    recordingId: string | typeof chatterItems.id,
     exceptJobId?: string,
 ) {
     return db
@@ -192,22 +192,22 @@ export async function releaseAutoLearnHold(
             .from(learnRuns)
             .where(
                 and(
-                    eq(learnRuns.recordingId, recordingId),
+                    eq(learnRuns.itemId, recordingId),
                     eq(learnRuns.view, "private"),
                     learnRunOpen(),
                 ),
             );
         const released = await db.transaction(async (tx) => {
             const [row] = await tx
-                .update(recordings)
+                .update(chatterItems)
                 .set({ summaryDueAt: null })
                 .where(
                     and(
-                        eq(recordings.id, recordingId),
-                        isNotNull(recordings.summaryDueAt),
+                        eq(chatterItems.id, recordingId),
+                        isNotNull(chatterItems.summaryDueAt),
                         // A renewed hold is not the one whose time was up.
                         expired
-                            ? lte(recordings.summaryDueAt, now)
+                            ? lte(chatterItems.summaryDueAt, now)
                             : and(
                                   notExists(open),
                                   notExists(
@@ -219,7 +219,7 @@ export async function releaseAutoLearnHold(
                               ),
                     ),
                 )
-                .returning({ userId: recordings.userId });
+                .returning({ userId: chatterItems.userId });
             if (!row) return false;
             await enqueueJobInTx(tx, {
                 userId: row.userId,
@@ -247,13 +247,13 @@ async function queueReleased(
     recordingId: string,
 ): Promise<JobResult> {
     const [recording] = await db
-        .select({ id: recordings.id })
-        .from(recordings)
+        .select({ id: chatterItems.id })
+        .from(chatterItems)
         .where(
             and(
-                eq(recordings.id, recordingId),
-                eq(recordings.userId, userId),
-                isNull(recordings.deletedAt),
+                eq(chatterItems.id, recordingId),
+                eq(chatterItems.userId, userId),
+                isNull(chatterItems.deletedAt),
             ),
         )
         .limit(1);
@@ -286,7 +286,7 @@ async function queueReleased(
             .from(aiEnhancements)
             .where(
                 and(
-                    eq(aiEnhancements.recordingId, recordingId),
+                    eq(aiEnhancements.itemId, recordingId),
                     eq(aiEnhancements.userId, userId),
                     eq(aiEnhancements.source, "riffado"),
                 ),
@@ -349,27 +349,27 @@ export async function sweepAutoLearnHolds(
         .from(learnRuns)
         .where(
             and(
-                eq(learnRuns.recordingId, recordings.id),
+                eq(learnRuns.itemId, chatterItems.id),
                 eq(learnRuns.view, "private"),
                 learnRunOpen(),
             ),
         );
     const held = await db
-        .select({ id: recordings.id, dueAt: recordings.summaryDueAt })
-        .from(recordings)
+        .select({ id: chatterItems.id, dueAt: chatterItems.summaryDueAt })
+        .from(chatterItems)
         .where(
             and(
-                isNotNull(recordings.summaryDueAt),
+                isNotNull(chatterItems.summaryDueAt),
                 or(
-                    lte(recordings.summaryDueAt, now),
+                    lte(chatterItems.summaryDueAt, now),
                     and(
                         notExists(open),
-                        notExists(correctionPending(recordings.id)),
+                        notExists(correctionPending(chatterItems.id)),
                     ),
                 ),
             ),
         )
-        .orderBy(recordings.summaryDueAt)
+        .orderBy(chatterItems.summaryDueAt)
         .limit(limit);
     let released = 0;
     for (const { id, dueAt } of held) {

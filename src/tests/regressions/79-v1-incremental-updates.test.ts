@@ -91,7 +91,12 @@ import {
     GET as getSummary,
 } from "@/app/api/recordings/[id]/summary/route";
 import { db } from "@/db";
-import { aiEnhancements, recordings, transcriptions } from "@/db/schema";
+import {
+    aiEnhancements,
+    chatterItems,
+    recordings,
+    transcriptions,
+} from "@/db/schema";
 import { auth } from "@/lib/auth";
 import { ErrorCode } from "@/lib/errors";
 // Generation is driven directly rather than through POST: the route now
@@ -145,31 +150,44 @@ function exprReferencesColumn(
 }
 
 function selectRows(rows: unknown[], captureWhere?: (expr: unknown) => void) {
+    const where = vi.fn((expr: unknown) => {
+        captureWhere?.(expr);
+        // Awaitable as well as `.limit()`-able: Drizzle query
+        // builders are thenable, and not every caller narrows
+        // with `.limit()`.
+        return Object.assign(Promise.resolve(rows), {
+            limit: vi.fn().mockResolvedValue(rows),
+        });
+    });
+    // A recording read with its item joins `chatterItems` first.
     return {
         from: vi.fn().mockReturnValue({
-            where: vi.fn((expr: unknown) => {
-                captureWhere?.(expr);
-                // Awaitable as well as `.limit()`-able: Drizzle query
-                // builders are thenable, and not every caller narrows
-                // with `.limit()`.
-                return Object.assign(Promise.resolve(rows), {
-                    limit: vi.fn().mockResolvedValue(rows),
-                });
-            }),
+            innerJoin: vi.fn().mockReturnValue({ where }),
+            where,
         }),
     };
 }
 
 function lockedRecordingRows(rows: unknown[]) {
+    const where = vi.fn().mockReturnValue({
+        for: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue(rows),
+        }),
+    });
     return {
         from: vi.fn().mockReturnValue({
-            where: vi.fn().mockReturnValue({
-                for: vi.fn().mockReturnValue({
-                    limit: vi.fn().mockResolvedValue(rows),
-                }),
-            }),
+            innerJoin: vi.fn().mockReturnValue({ where }),
+            where,
         }),
     };
+}
+
+/** Each `update(table)` whose `.set(values)` went through `set`, as `[table, values]`. */
+function writesThrough(update: Mock, set: Mock): [unknown, unknown][] {
+    const tables = update.mock.calls
+        .filter((_, i) => update.mock.results[i]?.value?.set === set)
+        .map(([table]) => table);
+    return set.mock.calls.map(([values], i) => [tables[i], values]);
 }
 
 describe("Issue #79 - v1 incremental update timestamps", () => {
@@ -210,7 +228,7 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
                     {
                         id: recordingId,
                         userId,
-                        filename: "Manual Recording",
+                        title: "Manual Recording",
                         storagePath: "recording.mp3",
                         deletedAt: null,
                     },
@@ -265,18 +283,25 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
         });
 
         expect(response.success).toBe(true);
-        expect(tx.update).toHaveBeenCalledWith(recordings);
-        expect(recordingBumpSet).toHaveBeenCalledWith({
-            updatedAt: expect.any(Date),
-            // Writing a transcript also clears any retention marker, so a
-            // row can never claim the transcript is gone while holding one.
-            transcriptReapedAt: null,
-        });
+        expect(writesThrough(tx.update, recordingBumpSet)).toEqual(
+            expect.arrayContaining([
+                [recordings, { updatedAt: expect.any(Date) }],
+                // Writing a transcript also clears any retention marker, so
+                // an item can never claim the transcript is gone while
+                // holding one.
+                [
+                    chatterItems,
+                    { updatedAt: expect.any(Date), contentReapedAt: null },
+                ],
+            ]),
+        );
     });
 
     it("scopes summary transcription lookup by user and bumps updatedAt on create", async () => {
         let transcriptionWhere: unknown;
         (db.select as Mock)
+            // Which kind of item it is: a recording.
+            .mockReturnValueOnce(selectRows([{ kind: "audio" }]))
             .mockReturnValueOnce(
                 selectRows([{ id: recordingId, deletedAt: null }]),
             )
@@ -337,16 +362,22 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
             exprReferencesColumn(transcriptionWhere, transcriptions.userId),
         ).toBe(true);
         expect(txInsertValues).toHaveBeenCalled();
-        expect(tx.update).toHaveBeenCalledWith(recordings);
-        expect(recordingBumpSet).toHaveBeenCalledWith({
-            updatedAt: expect.any(Date),
-            // A summary now exists, so any retention marker is stale.
-            summaryReapedAt: null,
-        });
+        expect(writesThrough(tx.update, recordingBumpSet)).toEqual(
+            expect.arrayContaining([
+                [recordings, { updatedAt: expect.any(Date) }],
+                // A summary now exists, so any retention marker is stale.
+                [
+                    chatterItems,
+                    { updatedAt: expect.any(Date), summaryReapedAt: null },
+                ],
+            ]),
+        );
     });
 
     it("scopes summary update by user and bumps recording updatedAt", async () => {
         (db.select as Mock)
+            // Which kind of item it is: a recording.
+            .mockReturnValueOnce(selectRows([{ kind: "audio" }]))
             .mockReturnValueOnce(
                 selectRows([{ id: recordingId, deletedAt: null }]),
             )
@@ -393,7 +424,7 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
             update: vi
                 .fn()
                 .mockReturnValueOnce({ set: enhancementUpdateSet })
-                .mockReturnValueOnce({ set: recordingBumpSet }),
+                .mockReturnValue({ set: recordingBumpSet }),
         };
         (db.transaction as Mock).mockImplementation(
             async (
@@ -411,12 +442,16 @@ describe("Issue #79 - v1 incremental update timestamps", () => {
         expect(
             exprReferencesColumn(enhancementUpdateWhere, aiEnhancements.userId),
         ).toBe(true);
-        expect(tx.update).toHaveBeenCalledWith(recordings);
-        expect(recordingBumpSet).toHaveBeenCalledWith({
-            updatedAt: expect.any(Date),
-            // A summary now exists, so any retention marker is stale.
-            summaryReapedAt: null,
-        });
+        expect(writesThrough(tx.update, recordingBumpSet)).toEqual(
+            expect.arrayContaining([
+                [recordings, { updatedAt: expect.any(Date) }],
+                // A summary now exists, so any retention marker is stale.
+                [
+                    chatterItems,
+                    { updatedAt: expect.any(Date), summaryReapedAt: null },
+                ],
+            ]),
+        );
     });
 
     it("bumps recording updatedAt when a summary row is deleted", async () => {

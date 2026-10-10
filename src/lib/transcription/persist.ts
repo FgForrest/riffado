@@ -1,8 +1,11 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
+import { recordingItemJoin, touchRecording } from "@/db/items";
 import {
     aiEnhancements,
     asyncJobs,
+    type ChatterItemKind,
+    chatterItems,
     recordings,
     transcriptions,
 } from "@/db/schema";
@@ -85,8 +88,10 @@ export interface UpsertEnhancementArgs {
     /** The recording's owner, who owns its content rows. */
     userId: string;
     recordingId: string;
-    /** Transcript row this summary was generated from. */
-    transcriptionId: string;
+    /** The item's kind; a recording unless said otherwise. */
+    kind?: ChatterItemKind;
+    /** Transcript row this summary was generated from; null for mail. */
+    transcriptionId: string | null;
     /** Plaintext summary; this helper encrypts it at rest. */
     summary: string;
     keyPoints: string[];
@@ -202,9 +207,10 @@ export async function upsertTranscription(
             const [stillActive] = await tx
                 .select({
                     deletedAt: recordings.deletedAt,
-                    transcriptReapedAt: recordings.transcriptReapedAt,
+                    transcriptReapedAt: chatterItems.contentReapedAt,
                 })
                 .from(recordings)
+                .innerJoin(chatterItems, recordingItemJoin)
                 .where(
                     and(
                         eq(recordings.id, recordingId),
@@ -295,7 +301,7 @@ export async function upsertTranscription(
                         .delete(aiEnhancements)
                         .where(
                             and(
-                                eq(aiEnhancements.recordingId, recordingId),
+                                eq(aiEnhancements.itemId, recordingId),
                                 eq(aiEnhancements.userId, userId),
                                 eq(
                                     aiEnhancements.source,
@@ -328,16 +334,15 @@ export async function upsertTranscription(
                 });
             }
 
+            const now = new Date();
+            await touchRecording(tx, recordingId, userId, now);
             await tx
-                .update(recordings)
-                .set({
-                    updatedAt: new Date(),
-                    transcriptReapedAt: null,
-                })
+                .update(chatterItems)
+                .set({ updatedAt: now, contentReapedAt: null })
                 .where(
                     and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
+                        eq(chatterItems.id, recordingId),
+                        eq(chatterItems.userId, userId),
                     ),
                 );
         });
@@ -379,22 +384,41 @@ export async function upsertEnhancement(
     // Before the transaction; see `sharingOrgUserId`.
     const orgUserId = await sharingOrgUserId();
 
+    const isMail = args.kind === "mail";
+
     try {
         await db.transaction(async (tx) => {
-            const [stillActive] = await tx
-                .select({
-                    deletedAt: recordings.deletedAt,
-                    summaryReapedAt: recordings.summaryReapedAt,
-                })
-                .from(recordings)
-                .where(
-                    and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
-                    ),
-                )
-                .for("update")
-                .limit(1);
+            const [stillActive] = isMail
+                ? await tx
+                      .select({
+                          deletedAt: chatterItems.deletedAt,
+                          summaryReapedAt: chatterItems.summaryReapedAt,
+                      })
+                      .from(chatterItems)
+                      .where(
+                          and(
+                              eq(chatterItems.id, recordingId),
+                              eq(chatterItems.userId, userId),
+                              eq(chatterItems.kind, "mail"),
+                          ),
+                      )
+                      .for("update")
+                      .limit(1)
+                : await tx
+                      .select({
+                          deletedAt: recordings.deletedAt,
+                          summaryReapedAt: chatterItems.summaryReapedAt,
+                      })
+                      .from(recordings)
+                      .innerJoin(chatterItems, recordingItemJoin)
+                      .where(
+                          and(
+                              eq(recordings.id, recordingId),
+                              eq(recordings.userId, userId),
+                          ),
+                      )
+                      .for("update")
+                      .limit(1);
 
             if (
                 !stillActive ||
@@ -419,7 +443,7 @@ export async function upsertEnhancement(
                 .from(aiEnhancements)
                 .where(
                     and(
-                        eq(aiEnhancements.recordingId, recordingId),
+                        eq(aiEnhancements.itemId, recordingId),
                         eq(aiEnhancements.userId, userId),
                         eq(aiEnhancements.source, source),
                     ),
@@ -460,7 +484,7 @@ export async function upsertEnhancement(
                     );
             } else {
                 await tx.insert(aiEnhancements).values({
-                    recordingId,
+                    itemId: recordingId,
                     userId,
                     transcriptionId,
                     summary: encryptedSummary,
@@ -482,16 +506,15 @@ export async function upsertEnhancement(
                 });
             }
 
+            const now = new Date();
+            if (!isMail) await touchRecording(tx, recordingId, userId, now);
             await tx
-                .update(recordings)
-                .set({
-                    updatedAt: new Date(),
-                    summaryReapedAt: null,
-                })
+                .update(chatterItems)
+                .set({ updatedAt: now, summaryReapedAt: null })
                 .where(
                     and(
-                        eq(recordings.id, recordingId),
-                        eq(recordings.userId, userId),
+                        eq(chatterItems.id, recordingId),
+                        eq(chatterItems.userId, userId),
                     ),
                 );
         });

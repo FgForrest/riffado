@@ -50,7 +50,11 @@ export default async function DemoDashboardPage() {
             initialSettings={DEMO_INITIAL_SETTINGS}
             plaudNeedsReconnect={false}
             isHosted={env.IS_HOSTED}
-            exportProviders={{ filesystem: false, googleDrive: false }}
+            exportProviders={{
+                filesystem: false,
+                googleDrive: false,
+                mail: false,
+            }}
             initialFolderOrganization={{
                 folders: [
                     {

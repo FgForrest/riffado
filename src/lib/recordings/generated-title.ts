@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { recordings } from "@/db/schema";
+import { recordingItemJoin, touchRecording } from "@/db/items";
+import { chatterItems, recordings } from "@/db/schema";
 import { encryptText } from "@/lib/encryption/fields";
 import { contentWriterRefusal, sharingOrgUserId } from "@/lib/sharing/writer";
 
@@ -42,19 +43,22 @@ export async function storeGeneratedTitle(
         ) {
             return false;
         }
+        const now = new Date();
         const stored = await tx
-            .update(recordings)
-            .set({ filename: encryptText(title), updatedAt: new Date() })
+            .update(chatterItems)
+            .set({ title: encryptText(title), updatedAt: now })
             .where(
                 and(
-                    eq(recordings.id, recordingId),
-                    eq(recordings.userId, userId),
-                    isNull(recordings.deletedAt),
-                    isNull(recordings.titleEditedAt),
+                    eq(chatterItems.id, recordingId),
+                    eq(chatterItems.userId, userId),
+                    isNull(chatterItems.deletedAt),
+                    isNull(chatterItems.titleEditedAt),
                 ),
             )
-            .returning({ id: recordings.id });
-        return stored.length > 0;
+            .returning({ id: chatterItems.id });
+        if (stored.length === 0) return false;
+        await touchRecording(tx, recordingId, userId, now);
+        return true;
     });
 }
 
@@ -68,8 +72,9 @@ export async function titleStillGenerated(
     recordingId: string,
 ): Promise<boolean> {
     const [row] = await db
-        .select({ titleEditedAt: recordings.titleEditedAt })
+        .select({ titleEditedAt: chatterItems.titleEditedAt })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(eq(recordings.id, recordingId), eq(recordings.userId, userId)),
         )

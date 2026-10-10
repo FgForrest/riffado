@@ -19,6 +19,7 @@ import { TrialBanner } from "@/components/dashboard/trial-banner";
 import { WorkstationDetailPane } from "@/components/dashboard/workstation-detail-pane";
 import { WorkstationEmptyState } from "@/components/dashboard/workstation-empty-state";
 import { WorkstationHeader } from "@/components/dashboard/workstation-header";
+import { MailDetailPane } from "@/components/mail/mail-detail-pane";
 import { OnboardingDialog } from "@/components/onboarding-dialog";
 import { SettingsDialog } from "@/components/settings-dialog";
 import { useAutoSync } from "@/hooks/use-auto-sync";
@@ -112,6 +113,8 @@ interface WorkstationProps {
      * hosted-mode behavior by forgetting to thread the value through.
      */
     isHosted: boolean;
+    /** The instance receives mail and the viewer may have addresses. */
+    mailEnabled?: boolean;
     exportProviders: ExportProvidersAvailability;
     initialFolderOrganization: FolderOrganization;
     /** Null when the Organization scope is not enabled. */
@@ -145,6 +148,7 @@ export function Workstation({
     initialSettings,
     plaudNeedsReconnect,
     isHosted,
+    mailEnabled = false,
     exportProviders,
     initialFolderOrganization,
     organizationLibrary = null,
@@ -416,7 +420,7 @@ export function Workstation({
         useTranscribeQueue({ onTranscribeComplete: refresh });
 
     useEffect(() => {
-        if (currentRecording) {
+        if (currentRecording && currentRecording.kind !== "mail") {
             void observeTranscriptionById(
                 currentRecording.id,
                 currentRecording.view,
@@ -985,6 +989,9 @@ export function Workstation({
                                 {libraryMode === "recent" ? (
                                     <RecordingList
                                         ref={listRef}
+                                        searchView={
+                                            isOrgAccount ? "org" : "private"
+                                        }
                                         recordings={visibleRecordings}
                                         transcriptions={libraryTranscriptions}
                                         currentRecording={currentRecording}
@@ -1004,6 +1011,9 @@ export function Workstation({
                                         }
                                         initialSortOrder={
                                             initialSettings.recordingListSortOrder
+                                        }
+                                        initialKindFilter={
+                                            initialSettings.chatterKindFilter
                                         }
                                         initialChunkSize={
                                             initialSettings.itemsPerPage
@@ -1046,6 +1056,7 @@ export function Workstation({
                                         onMoveRecording={
                                             handleMoveBetweenFolders
                                         }
+                                        mailEnabled={mailEnabled}
                                     />
                                 )}
                             </div>
@@ -1074,6 +1085,48 @@ export function Workstation({
                                         setMobileView("list")
                                     }
                                     exportProviders={exportProviders}
+                                    isOrgAccount={isOrgAccount}
+                                    mailEnabled={mailEnabled}
+                                />
+                            ) : selectedRecording?.kind === "mail" ? (
+                                <MailDetailPane
+                                    mail={selectedRecording}
+                                    dateTimeFormat={
+                                        initialSettings.dateTimeFormat
+                                    }
+                                    onBackToList={() => setMobileView("list")}
+                                    hiddenOnMobile={mobileView === "list"}
+                                    onChanged={refresh}
+                                    folders={folderOrganization.folders}
+                                    folderAssignments={
+                                        folderOrganization.assignments
+                                    }
+                                    onSelectFolder={(folder) => {
+                                        setLibraryMode("organize");
+                                        setSelectedFolderId(folder.id);
+                                    }}
+                                    onAddToFolder={(itemId, folderId) =>
+                                        handleFolderAssignment(
+                                            itemId,
+                                            folderId,
+                                            true,
+                                        )
+                                    }
+                                    onRemoveFromFolder={(
+                                        itemId,
+                                        folderId,
+                                        withdraw,
+                                    ) =>
+                                        handleFolderAssignment(
+                                            itemId,
+                                            folderId,
+                                            false,
+                                            withdraw,
+                                        )
+                                    }
+                                    onMoveBetweenFolders={
+                                        handleMoveBetweenFolders
+                                    }
                                     isOrgAccount={isOrgAccount}
                                 />
                             ) : (
@@ -1182,6 +1235,7 @@ export function Workstation({
                     const recording = visibleRecordings.find(
                         (candidate) => candidate.id === id,
                     );
+                    if (recording?.kind === "mail") return;
                     void transcribeById(id, undefined, recording?.view);
                 }}
             />
@@ -1196,6 +1250,7 @@ export function Workstation({
                 onOpenChange={setSettingsOpen}
                 initialProviders={providers}
                 isHosted={isHosted}
+                mailEnabled={mailEnabled}
                 onReRunOnboarding={() => {
                     setSettingsOpen(false);
                     setOnboardingOpen(true);

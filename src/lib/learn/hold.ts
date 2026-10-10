@@ -7,18 +7,18 @@
 
 import { and, eq, isNotNull } from "drizzle-orm";
 import { db } from "@/db";
-import { recordings, transcriptions } from "@/db/schema";
+import { chatterItems, transcriptions } from "@/db/schema";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export async function isHeldForLearn(recordingId: string): Promise<boolean> {
     const [held] = await db
-        .select({ id: recordings.id })
-        .from(recordings)
+        .select({ id: chatterItems.id })
+        .from(chatterItems)
         .where(
             and(
-                eq(recordings.id, recordingId),
-                isNotNull(recordings.summaryDueAt),
+                eq(chatterItems.id, recordingId),
+                isNotNull(chatterItems.summaryDueAt),
             ),
         )
         .limit(1);
@@ -35,12 +35,12 @@ export async function clearAutoLearnHoldInTx(
     recordingId: string,
 ): Promise<void> {
     await tx
-        .update(recordings)
+        .update(chatterItems)
         .set({ summaryDueAt: null })
         .where(
             and(
-                eq(recordings.id, recordingId),
-                isNotNull(recordings.summaryDueAt),
+                eq(chatterItems.id, recordingId),
+                isNotNull(chatterItems.summaryDueAt),
             ),
         );
 }

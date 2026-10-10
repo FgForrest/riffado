@@ -24,12 +24,16 @@
 import { and, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+    chatterItems,
     knowledgeEntities,
     knowledgeFacts,
     learnDismissals,
     learnReviewItems,
     learnRuns,
+    mailContents,
+    mailParticipants,
     people,
+    personEmails,
     transcriptions,
     transcriptSpeakers,
 } from "@/db/schema";
@@ -37,6 +41,7 @@ import {
     decryptJsonField,
     decryptText,
     encryptJsonField,
+    encryptText,
 } from "@/lib/encryption/fields";
 import { AppError, ErrorCode } from "@/lib/errors";
 import { nudge } from "@/lib/jobs/nudge";
@@ -51,9 +56,12 @@ import {
     createEntityInTx,
     findEntityByNameInTx,
 } from "@/lib/knowledge/entities";
-import { confirmFactFromRecordingInTx } from "@/lib/knowledge/facts";
+import {
+    confirmFactFromMailInTx,
+    confirmFactFromRecordingInTx,
+} from "@/lib/knowledge/facts";
 import { knowledgeView } from "@/lib/knowledge/knowledge-loader";
-import { domainLookupHash } from "@/lib/knowledge/lookup-hash";
+import { domainLookupHash, lookupHash } from "@/lib/knowledge/lookup-hash";
 import { matchNames } from "@/lib/knowledge/name-match";
 import { lockOrgPeopleShared } from "@/lib/knowledge/org-people";
 import { createPersonInTx } from "@/lib/knowledge/people";
@@ -75,6 +83,11 @@ import {
 import { releaseAutoLearnHold } from "@/lib/learn/auto-learn";
 import { queueCorrectionPassInTx } from "@/lib/learn/correction-pass-queue";
 import { settleDeadLearnRuns } from "@/lib/learn/learn-job";
+import type {
+    MailNewRecordPayload,
+    MailReviewCandidate,
+    MailTextAnchor,
+} from "@/lib/learn/mail-candidates";
 import {
     type RecordTarget,
     recordNameKey,
@@ -85,7 +98,12 @@ import type { ReviewCandidate } from "@/lib/learn/validate";
 import type { NewRecordPayload } from "@/lib/learn/validate-new-records";
 import { assertOwnScopeWritable, getOrgUserId } from "@/lib/org/config";
 import type { RecordingViewContext } from "@/lib/sharing/access";
-import { sharingOrgUserId } from "@/lib/sharing/writer";
+import {
+    contentWriterRefusal,
+    sharingOrgUserId,
+    writerRefusalError,
+} from "@/lib/sharing/writer";
+import type { TranscriptTurn } from "@/lib/transcription/turns";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type ItemKind = ReviewCandidate["kind"];
@@ -118,7 +136,8 @@ export interface ReviewView {
     run: {
         id: string;
         status: string;
-        transcriptionId: string;
+        /** The transcript a run on a recording read; null on other kinds. */
+        transcriptionId: string | null;
         createdAt: string;
         finishedAt: string | null;
         /** Why a failed run failed (`ErrorCode`). */
@@ -180,6 +199,21 @@ export function requestedReviewSource(
  * transcript of `source` when one is given (each transcript has its own).
  */
 async function latestRun(access: RecordingViewContext, source?: ReviewSource) {
+    if (access.kind === "mail") {
+        const [run] = await db
+            .select()
+            .from(learnRuns)
+            .where(
+                and(
+                    eq(learnRuns.itemId, access.recordingId),
+                    eq(learnRuns.view, access.view),
+                    isNull(learnRuns.transcriptionId),
+                ),
+            )
+            .orderBy(desc(learnRuns.createdAt))
+            .limit(1);
+        return run ?? null;
+    }
     const [row] = await db
         .select({ run: learnRuns })
         .from(learnRuns)
@@ -189,7 +223,7 @@ async function latestRun(access: RecordingViewContext, source?: ReviewSource) {
         )
         .where(
             and(
-                eq(learnRuns.recordingId, access.recordingId),
+                eq(learnRuns.itemId, access.recordingId),
                 eq(learnRuns.view, access.view),
                 source ? eq(transcriptions.source, source) : undefined,
             ),
@@ -353,7 +387,7 @@ export async function forgetDismissals(
         .where(
             and(
                 eq(learnDismissals.userId, scopeUserId),
-                eq(learnDismissals.recordingId, access.recordingId),
+                eq(learnDismissals.itemId, access.recordingId),
             ),
         )
         .returning({ id: learnDismissals.id });
@@ -717,8 +751,255 @@ export async function finishReview(
     return finished;
 }
 
+type LatestRun = NonNullable<Awaited<ReturnType<typeof latestRun>>>;
+
+/** A run on a recording: it read one of its transcripts. */
+type RecordingRun = LatestRun & { transcriptionId: string };
+
+function isRecordingRun(run: LatestRun): run is RecordingRun {
+    return run.transcriptionId !== null;
+}
+
+/** A fact as a finished review confirms it: where it was said or written. */
+interface FactPlace {
+    startMs?: number;
+    endMs?: number;
+    text?: MailTextAnchor;
+    speakerLabel: string | null;
+}
+
+/**
+ * What a review's finish reads and writes through, by what its run read:
+ * a recording's transcript, or a mail's content. Built under the lock that
+ * kind takes, with the writer rule checked there.
+ */
+interface ReviewSourceInTx {
+    revision: number;
+    turns: TranscriptTurn[] | null;
+    language: () => Promise<string | null>;
+    /** The person a speaker label (or a participant) stands for now. */
+    speakerPerson: (label: string) => Promise<string | null>;
+    confirm: (
+        sp: Tx,
+        args: {
+            relationKey: string;
+            subject: KnowledgeTarget;
+            object: Exclude<LearnObject, { newRef: string }>;
+            place: FactPlace;
+            expectedCurrentFactId: string | null;
+        },
+    ) => Promise<void>;
+}
+
+async function transcriptSourceInTx(
+    tx: Tx,
+    latest: RecordingRun,
+    writer: { actorUserId: string; orgUserId: string | null },
+): Promise<ReviewSourceInTx> {
+    const { revision, turns } = await lockTranscriptForChange(
+        tx,
+        { userId: latest.userId, transcriptionId: latest.transcriptionId },
+        writer,
+    );
+    return {
+        revision,
+        turns,
+        language: async () =>
+            (
+                await tx
+                    .select({ language: transcriptions.detectedLanguage })
+                    .from(transcriptions)
+                    .where(eq(transcriptions.id, latest.transcriptionId))
+            )[0]?.language ?? null,
+        speakerPerson: async (label) => {
+            const [row] = await tx
+                .select({ personId: transcriptSpeakers.personId })
+                .from(transcriptSpeakers)
+                .where(
+                    and(
+                        eq(
+                            transcriptSpeakers.transcriptionId,
+                            latest.transcriptionId,
+                        ),
+                        eq(transcriptSpeakers.label, label),
+                        eq(transcriptSpeakers.status, "confirmed"),
+                    ),
+                )
+                .limit(1);
+            return row?.personId ?? null;
+        },
+        confirm: async (sp, args) => {
+            await confirmFactFromRecordingInTx(sp, {
+                ...writer,
+                ownerUserId: latest.userId,
+                transcriptionId: latest.transcriptionId,
+                revision,
+                subject: args.subject,
+                relationKey: args.relationKey,
+                object: args.object,
+                startMs: args.place.startMs ?? -1,
+                endMs: args.place.endMs ?? -1,
+                speakerLabel: args.place.speakerLabel,
+                // Replaces only the value the item showed as current (none
+                // when it showed none): one changed since is the person's.
+                expectedCurrentFactId: args.expectedCurrentFactId,
+            });
+        },
+    };
+}
+
+/**
+ * A mail's review source: the item locked for update (as sharing and
+ * withdrawal lock it), the writer rule checked, its content revision read.
+ * A participant stands for the person their address is.
+ */
+async function mailSourceInTx(
+    tx: Tx,
+    latest: LatestRun,
+    writer: { actorUserId: string; orgUserId: string | null },
+): Promise<ReviewSourceInTx> {
+    const [item] = await tx
+        .select({ id: chatterItems.id })
+        .from(chatterItems)
+        .where(
+            and(
+                eq(chatterItems.id, latest.itemId),
+                eq(chatterItems.userId, latest.userId),
+                isNull(chatterItems.deletedAt),
+            ),
+        )
+        .for("update");
+    if (!item) throw reviewNotFound();
+    const refusal = await contentWriterRefusal(tx, {
+        recordingId: latest.itemId,
+        ownerUserId: latest.userId,
+        actorUserId: writer.actorUserId,
+        orgUserId: writer.orgUserId,
+    });
+    if (refusal) throw writerRefusalError(refusal);
+    const [content] = await tx
+        .select({
+            revision: mailContents.revision,
+            language: mailContents.language,
+        })
+        .from(mailContents)
+        .where(
+            and(
+                eq(mailContents.itemId, latest.itemId),
+                eq(mailContents.userId, latest.userId),
+            ),
+        )
+        .limit(1);
+    if (!content) throw reviewNotFound();
+    return {
+        revision: content.revision,
+        turns: null,
+        language: async () => content.language,
+        speakerPerson: async (label) => {
+            const [row] = await tx
+                .select({ personId: mailParticipants.personId })
+                .from(mailParticipants)
+                .where(
+                    and(
+                        eq(mailParticipants.itemId, latest.itemId),
+                        eq(mailParticipants.userId, latest.userId),
+                        eq(mailParticipants.ref, label),
+                    ),
+                )
+                .limit(1);
+            return row?.personId ?? null;
+        },
+        confirm: async (sp, args) => {
+            if (!args.place.text) throw recordMissing();
+            await confirmFactFromMailInTx(sp, {
+                actorUserId: writer.actorUserId,
+                ownerUserId: latest.userId,
+                itemId: latest.itemId,
+                revision: content.revision,
+                text: args.place.text,
+                subject: args.subject,
+                relationKey: args.relationKey,
+                object: args.object,
+                speakerLabel: args.place.speakerLabel,
+                expectedCurrentFactId: args.expectedCurrentFactId,
+            });
+        },
+    };
+}
+
+/**
+ * A mail's participant as the person a review added or found for them:
+ * linked on the mail, and their address the person's email when the person
+ * has none, another address of theirs otherwise. The address is known in
+ * the scope the review writes in: an Organization person a member's
+ * private mail names gets no address of the mail's, the member knows it
+ * as theirs (a correspondent reaches the Organization only by sharing).
+ */
+async function linkParticipantInTx(
+    tx: Tx,
+    run: LatestRun,
+    writerUserId: string,
+    link: { ref: string; personId: string; address: string | null },
+): Promise<void> {
+    const [participant] = await tx
+        .update(mailParticipants)
+        .set({ personId: link.personId })
+        .where(
+            and(
+                eq(mailParticipants.itemId, run.itemId),
+                eq(mailParticipants.userId, run.userId),
+                eq(mailParticipants.ref, link.ref),
+                isNull(mailParticipants.personId),
+            ),
+        )
+        .returning({ address: mailParticipants.address });
+    const email =
+        link.address ??
+        (participant?.address ? decryptText(participant.address) : null);
+    if (!email) return;
+    const hash = lookupHash(email);
+    try {
+        await tx.transaction(async (sp) => {
+            const [person] = await sp
+                .select({
+                    userId: people.userId,
+                    primaryEmailHash: people.primaryEmailHash,
+                })
+                .from(people)
+                .where(eq(people.id, link.personId))
+                .limit(1);
+            if (!person || person.primaryEmailHash === hash) return;
+            if (
+                person.userId === writerUserId &&
+                person.primaryEmailHash === null
+            ) {
+                await sp
+                    .update(people)
+                    .set({
+                        primaryEmail: encryptText(email),
+                        primaryEmailHash: hash,
+                    })
+                    .where(eq(people.id, link.personId));
+                return;
+            }
+            // Another address of theirs: what their next mail is known by.
+            await sp
+                .insert(personEmails)
+                .values({
+                    userId: writerUserId,
+                    personId: link.personId,
+                    emailHash: hash,
+                    email: encryptText(email),
+                })
+                .onConflictDoNothing();
+        });
+    } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+    }
+}
+
 function finishInTx(
-    latest: NonNullable<Awaited<ReturnType<typeof latestRun>>>,
+    latest: LatestRun,
     actorUserId: string,
     orgUserId: Awaited<ReturnType<typeof sharingOrgUserId>>,
     versions: Record<string, number>,
@@ -726,14 +1007,13 @@ function finishInTx(
 ): Promise<FinishedReview> {
     return db.transaction(async (tx) => {
         await lockOrgPeopleShared(tx);
-        const version = {
-            userId: latest.userId,
-            transcriptionId: latest.transcriptionId,
-        };
-        const { revision, turns } = await lockTranscriptForChange(tx, version, {
-            actorUserId,
-            orgUserId,
-        });
+        const source = isRecordingRun(latest)
+            ? await transcriptSourceInTx(tx, latest, {
+                  actorUserId,
+                  orgUserId,
+              })
+            : await mailSourceInTx(tx, latest, { actorUserId, orgUserId });
+        const { revision, turns } = source;
         const [run] = await tx
             .select()
             .from(learnRuns)
@@ -783,7 +1063,9 @@ function finishInTx(
             choice: row.choice
                 ? decryptJsonField<ReviewChoice>(row.choice)
                 : null,
-            payload: decryptJsonField<ReviewCandidate["payload"]>(row.payload),
+            payload: decryptJsonField<
+                ReviewCandidate["payload"] | MailReviewCandidate["payload"]
+            >(row.payload),
         }));
 
         const scopes = new Set<string>([actorUserId]);
@@ -826,11 +1108,6 @@ function finishInTx(
             skipped.push({ itemId, code, reason });
         };
         const writer = { actorUserId, orgUserId };
-        const transcript = {
-            userId: run.userId,
-            transcriptionId: run.transcriptionId,
-            revision,
-        };
 
         // New people and things first: the items that refer to one by its
         // ref are applied to the record it became.
@@ -913,12 +1190,7 @@ function finishInTx(
                 // What Learn heard becomes the record's nickname, so the
                 // next run finds it ("Honza" for Jan). A name it already
                 // has, or one the actor cannot name, is no loss.
-                language ??= (
-                    await tx
-                        .select({ language: transcriptions.detectedLanguage })
-                        .from(transcriptions)
-                        .where(eq(transcriptions.id, latest.transcriptionId))
-                )[0]?.language;
+                language ??= await source.language();
                 if (
                     nicknameWorthKeeping(payload.name, known, language ?? null)
                 ) {
@@ -995,6 +1267,26 @@ function finishInTx(
                 if (entry) entry.code = "already_exists";
             }
         }
+        // On a mail, a person added for a participant (or found as them)
+        // is that participant from now on, their address their email.
+        if (!isRecordingRun(latest)) {
+            for (const item of records) {
+                const payload = item.payload as MailNewRecordPayload;
+                const target = refs.get(payload.ref);
+                if (
+                    !payload.speakerLabel ||
+                    !target ||
+                    !("personId" in target)
+                ) {
+                    continue;
+                }
+                await linkParticipantInTx(tx, latest, actorUserId, {
+                    ref: payload.speakerLabel,
+                    personId: target.personId,
+                    address: payload.address ?? null,
+                });
+            }
+        }
         /** An item's payload on the records its refs became, or null. */
         const onRecords = <T>(payload: T): T | null =>
             replaceRefs(payload, (ref) => refs.get(ref));
@@ -1002,8 +1294,18 @@ function finishInTx(
             skip(itemId, "record_not_added", "A record it needs was not added");
 
         // Speakers next: the facts that depend on them read their answer.
+        // A mail has neither speakers nor corrections.
+        const transcript = isRecordingRun(latest)
+            ? {
+                  userId: run.userId,
+                  transcriptionId: latest.transcriptionId,
+                  revision,
+              }
+            : null;
         for (const item of items) {
-            if (item.kind !== "speaker" || !item.accepted) continue;
+            if (item.kind !== "speaker" || !item.accepted || !transcript) {
+                continue;
+            }
             const payload = item.payload as Extract<
                 ReviewCandidate,
                 { kind: "speaker" }
@@ -1044,7 +1346,7 @@ function finishInTx(
                     and(
                         eq(
                             transcriptSpeakers.transcriptionId,
-                            run.transcriptionId,
+                            transcript.transcriptionId,
                         ),
                         eq(transcriptSpeakers.label, payload.label),
                         or(
@@ -1077,7 +1379,9 @@ function finishInTx(
         }
 
         for (const item of items) {
-            if (item.kind !== "correction" || !item.accepted) continue;
+            if (item.kind !== "correction" || !item.accepted || !transcript) {
+                continue;
+            }
             const payload = onRecords(
                 item.payload as Extract<
                     ReviewCandidate,
@@ -1119,23 +1423,7 @@ function finishInTx(
         }
 
         /** Whom a fact's speaker-bound side names now, or null. */
-        const speakerPerson = async (label: string) => {
-            const [row] = await tx
-                .select({ personId: transcriptSpeakers.personId })
-                .from(transcriptSpeakers)
-                .where(
-                    and(
-                        eq(
-                            transcriptSpeakers.transcriptionId,
-                            run.transcriptionId,
-                        ),
-                        eq(transcriptSpeakers.label, label),
-                        eq(transcriptSpeakers.status, "confirmed"),
-                    ),
-                )
-                .limit(1);
-            return row?.personId ?? null;
-        };
+        const speakerPerson = (label: string) => source.speakerPerson(label);
         const resolveSubject = async (
             subject: LearnSubject,
         ): Promise<KnowledgeTarget | null> => {
@@ -1150,27 +1438,15 @@ function finishInTx(
             relationKey: string,
             subject: KnowledgeTarget,
             object: LearnObject,
-            fact: {
-                startMs: number;
-                endMs: number;
-                speakerLabel: string | null;
-            },
+            fact: FactPlace,
             expectedCurrentFactId: string | null,
         ) => {
             if ("newRef" in object) throw recordMissing();
-            await confirmFactFromRecordingInTx(sp, {
-                ...writer,
-                ownerUserId: run.userId,
-                transcriptionId: run.transcriptionId,
-                revision,
-                subject,
+            await source.confirm(sp, {
                 relationKey,
+                subject,
                 object,
-                startMs: fact.startMs,
-                endMs: fact.endMs,
-                speakerLabel: fact.speakerLabel,
-                // Replaces only the value the item showed as current (none
-                // when it showed none): one changed since is the person's.
+                place: fact,
                 expectedCurrentFactId,
             });
         };
@@ -1322,7 +1598,7 @@ function finishInTx(
                 .values(
                     rejected.map((item) => ({
                         userId: run.scopeUserId,
-                        recordingId: run.recordingId,
+                        itemId: run.itemId,
                         fingerprintHmac: item.fingerprintHmac,
                         // A new record the reviewer rejected is not
                         // proposed again on any recording; one merely left
@@ -1365,7 +1641,12 @@ function finishInTx(
         // Once, after every type the finish made (`createOwnTypeInTx`).
         if (typesCreated) await bumpVocabularyVersionInTx(tx);
         await bumpScopeInTx(tx, scopes);
-        const correcting = await queueCorrectionPassInTx(tx, run);
+        const correcting = isRecordingRun(latest)
+            ? await queueCorrectionPassInTx(tx, {
+                  ...run,
+                  transcriptionId: latest.transcriptionId,
+              })
+            : false;
         return {
             status: "finished",
             applied,

@@ -16,6 +16,7 @@ interface Props {
     activeSection: SettingsSection;
     onSectionChange: (section: SettingsSection) => void;
     isHosted: boolean;
+    mailEnabled?: boolean;
 }
 
 /**
@@ -27,11 +28,12 @@ export function SettingsNavMobile({
     activeSection,
     onSectionChange,
     isHosted,
+    mailEnabled = false,
 }: Props) {
     const i18n = useExtracted();
     const settingsNav = useMemo(
-        () => buildSettingsNav({ isHosted }),
-        [isHosted],
+        () => buildSettingsNav({ isHosted, mailEnabled }),
+        [isHosted, mailEnabled],
     );
     const activeNavItem = settingsNav.find((item) => item.id === activeSection);
     const sectionName = (section: SettingsSection) => {
@@ -68,6 +70,8 @@ export function SettingsNavMobile({
                 return i18n("Billing");
             case "google-account":
                 return i18n("Google Account");
+            case "mail":
+                return i18n("Mail");
             case "dev":
                 return i18n("Developer Tools");
         }

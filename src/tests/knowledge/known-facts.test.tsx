@@ -53,16 +53,20 @@ const relations: PageRelation[] = [
                 evidence: [
                     {
                         recordingId: "rec-2",
+                        kind: "audio",
                         title: "June sync",
                         recordedAt: "2026-06-14T09:00:00.000Z",
                         startMs: 125_000,
+                        quoted: false,
                         view: "org",
                     },
                     {
                         recordingId: "rec-1",
+                        kind: "audio",
                         title: "Weekly",
                         recordedAt: "2026-03-03T12:04:00.000Z",
                         startMs: 724_000,
+                        quoted: false,
                         view: "private",
                     },
                 ],
@@ -115,6 +119,60 @@ describe("KnownFacts", () => {
                 .getByRole("link", { name: /Weekly 12:04/ })
                 .getAttribute("href"),
         ).toBe("/recordings/rec-1");
+    });
+
+    it("links a mail to the pile, and marks words quoted from an earlier writer", () => {
+        render(
+            <KnownFacts
+                name="Jan"
+                relations={[
+                    {
+                        key: "has_role",
+                        label: "has role",
+                        facts: [
+                            {
+                                id: "f-3",
+                                direction: "subject",
+                                other: { kind: "literal", text: "CFO" },
+                                scope: "personal",
+                                origin: "mail",
+                                evidence: [
+                                    {
+                                        recordingId: "mail-1",
+                                        kind: "mail",
+                                        title: "Re: Budget",
+                                        recordedAt: "2026-06-20T08:00:00.000Z",
+                                        startMs: null,
+                                        quoted: true,
+                                        view: "private",
+                                    },
+                                    {
+                                        recordingId: "rec-1",
+                                        kind: "audio",
+                                        title: "Weekly",
+                                        recordedAt: "2026-03-03T12:04:00.000Z",
+                                        startMs: 724_000,
+                                        quoted: false,
+                                        view: "private",
+                                    },
+                                ],
+                            },
+                        ],
+                    },
+                ]}
+            />,
+        );
+        expect(
+            screen.getByText(/Supported by 1 recording and 1 mail/),
+        ).toBeDefined();
+        expect(
+            screen
+                .getByRole("link", { name: /Re: Budget/ })
+                .getAttribute("href"),
+        ).toBe("/dashboard?recording=mail-1");
+        expect(
+            screen.getByText("quoted from an earlier message"),
+        ).toBeDefined();
     });
 
     it("says when nothing is known", () => {

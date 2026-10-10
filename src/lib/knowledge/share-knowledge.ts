@@ -30,7 +30,19 @@
  * they touched for the caller to bump at its end.
  */
 
-import { and, asc, desc, eq, exists, inArray, isNull, lt } from "drizzle-orm";
+import {
+    and,
+    asc,
+    desc,
+    eq,
+    exists,
+    inArray,
+    isNotNull,
+    isNull,
+    lt,
+    or,
+    type SQL,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { db } from "@/db";
 import {
@@ -86,6 +98,25 @@ async function transcriptIdsOf(tx: Tx, recordingId: string) {
         .from(transcriptions)
         .where(eq(transcriptions.recordingId, recordingId));
     return rows.map((row) => row.id);
+}
+
+/**
+ * SQL on `knowledge_fact_evidence`: evidence on the item, in one of its
+ * transcripts (a recording) or in its text (a mail).
+ */
+function evidenceOnItem(itemId: string, transcriptIds: readonly string[]): SQL {
+    const inText = and(
+        eq(knowledgeFactEvidence.itemId, itemId),
+        isNotNull(knowledgeFactEvidence.segmentIndex),
+    ) as SQL;
+    return transcriptIds.length > 0
+        ? (or(
+              inArray(knowledgeFactEvidence.transcriptionId, [
+                  ...transcriptIds,
+              ]),
+              inText,
+          ) as SQL)
+        : inText;
 }
 
 /**
@@ -162,22 +193,28 @@ export async function publishKnowledgeInTx(
         scopes: new Set([ownerUserId, orgUserId]),
     };
     const transcriptIds = await transcriptIdsOf(tx, recordingId);
-    if (transcriptIds.length === 0) return result;
-
-    const corrections = await tx
-        .select({
-            id: transcriptCorrections.id,
-            kind: transcriptCorrections.kind,
-            targetPersonId: transcriptCorrections.targetPersonId,
-            targetEntityId: transcriptCorrections.targetEntityId,
-        })
-        .from(transcriptCorrections)
-        .where(
-            and(
-                inArray(transcriptCorrections.transcriptionId, transcriptIds),
-                eq(transcriptCorrections.userId, ownerUserId),
-            ),
-        );
+    const onItem = evidenceOnItem(recordingId, transcriptIds);
+    // A mail has no transcript, and so no corrections.
+    const corrections =
+        transcriptIds.length > 0
+            ? await tx
+                  .select({
+                      id: transcriptCorrections.id,
+                      kind: transcriptCorrections.kind,
+                      targetPersonId: transcriptCorrections.targetPersonId,
+                      targetEntityId: transcriptCorrections.targetEntityId,
+                  })
+                  .from(transcriptCorrections)
+                  .where(
+                      and(
+                          inArray(
+                              transcriptCorrections.transcriptionId,
+                              transcriptIds,
+                          ),
+                          eq(transcriptCorrections.userId, ownerUserId),
+                      ),
+                  )
+            : [];
     const facts = await tx
         .selectDistinct({
             id: knowledgeFacts.id,
@@ -197,10 +234,11 @@ export async function publishKnowledgeInTx(
             and(
                 eq(knowledgeFacts.userId, ownerUserId),
                 isNull(knowledgeFacts.replacedByFactId),
-                inArray(knowledgeFactEvidence.transcriptionId, transcriptIds),
+                onItem,
                 eq(knowledgeFactEvidence.status, "supported"),
             ),
         );
+    if (corrections.length === 0 && facts.length === 0) return result;
 
     // The owner's private types what it names needs become the
     // Organization's first (Johnny, 2026-09-29), so it all publishes.
@@ -283,7 +321,8 @@ export async function publishKnowledgeInTx(
         const shared = await publishFactInTx(tx, fact, {
             ownerUserId,
             orgUserId,
-            transcriptIds,
+            onItem,
+            origin: transcriptIds.length > 0 ? "recording" : "mail",
         });
         if (shared) result.facts++;
         else result.privateFacts++;
@@ -343,8 +382,15 @@ async function publishFactInTx(
     {
         ownerUserId,
         orgUserId,
-        transcriptIds,
-    }: { ownerUserId: string; orgUserId: string; transcriptIds: string[] },
+        onItem,
+        origin,
+    }: {
+        ownerUserId: string;
+        orgUserId: string;
+        /** `evidenceOnItem` of the item shared. */
+        onItem: SQL;
+        origin: "recording" | "mail";
+    },
 ): Promise<boolean> {
     const relationKey = await sharedRelationKeyInTx(
         tx,
@@ -422,7 +468,7 @@ async function publishFactInTx(
     const orgFactId = await confirmFactInTx(tx, {
         scopeUserId: orgUserId,
         actorUserId: ownerUserId,
-        origin: "recording",
+        origin,
         subject: sharedSubject,
         relationKey: relation.key,
         object: sharedObject,
@@ -434,7 +480,7 @@ async function publishFactInTx(
         .where(
             and(
                 eq(knowledgeFactEvidence.factId, fact.id),
-                inArray(knowledgeFactEvidence.transcriptionId, transcriptIds),
+                onItem,
                 eq(knowledgeFactEvidence.status, "supported"),
             ),
         );
@@ -469,7 +515,7 @@ export async function withdrawKnowledgeInTx(
         .delete(learnRuns)
         .where(
             and(
-                eq(learnRuns.recordingId, recordingId),
+                eq(learnRuns.itemId, recordingId),
                 eq(learnRuns.scopeUserId, orgUserId),
             ),
         );
@@ -477,19 +523,17 @@ export async function withdrawKnowledgeInTx(
         .delete(learnDismissals)
         .where(
             and(
-                eq(learnDismissals.recordingId, recordingId),
+                eq(learnDismissals.itemId, recordingId),
                 eq(learnDismissals.userId, orgUserId),
             ),
         );
 
     const transcriptIds = await transcriptIdsOf(tx, recordingId);
-    if (transcriptIds.length === 0) return scopes;
-
     const removed = await tx
         .delete(knowledgeFactEvidence)
         .where(
             and(
-                inArray(knowledgeFactEvidence.transcriptionId, transcriptIds),
+                evidenceOnItem(recordingId, transcriptIds),
                 eq(knowledgeFactEvidence.userId, orgUserId),
             ),
         )
@@ -497,6 +541,8 @@ export async function withdrawKnowledgeInTx(
     await pruneUnsupportedFactsInTx(tx, [
         ...new Set(removed.map((row) => row.factId)),
     ]);
+    // A mail has no transcript, and so no corrections to give back.
+    if (transcriptIds.length === 0) return scopes;
 
     // The owner's corrections that waited while shared give way where the
     // Organization's returning ones cover the same words (their heard-as

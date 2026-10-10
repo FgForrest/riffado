@@ -2,8 +2,16 @@ import { and, eq, inArray, isNull } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
 import {
+    audioItemColumns,
+    markItemDeleted,
+    recordingItemJoin,
+    setItemTitle,
+    toRecordingResponseRow,
+} from "@/db/items";
+import {
     aiEnhancements,
     asyncJobs,
+    chatterItems,
     learnDismissals,
     recordingFolderAssignments,
     recordingFolders,
@@ -54,9 +62,10 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
 
     const { id } = await (context as IdContext).params;
 
-    const [recording] = await db
-        .select()
+    const [row] = await db
+        .select(audioItemColumns)
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 eq(recordings.id, id),
@@ -65,6 +74,7 @@ export const GET = apiHandler<IdContext>(async (request, context) => {
             ),
         )
         .limit(1);
+    const recording = row ? toRecordingResponseRow(row) : undefined;
 
     if (!recording) {
         throw new AppError(
@@ -227,14 +237,10 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
             refused = writerRefusalError(shared);
             return undefined;
         }
+        const now = new Date();
         const [row] = await tx
             .update(recordings)
-            .set({
-                filename: encryptText(filename),
-                // A person chose this title; nothing generated replaces it.
-                titleEditedAt: new Date(),
-                updatedAt: new Date(),
-            })
+            .set({ updatedAt: now })
             .where(
                 and(
                     eq(recordings.id, id),
@@ -244,11 +250,19 @@ export const PATCH = apiHandler<IdContext>(async (request, context) => {
                     isNull(recordings.deletedAt),
                 ),
             )
-            .returning({
-                id: recordings.id,
-                filename: recordings.filename,
-            });
-        return row;
+            .returning({ id: recordings.id });
+        if (!row) return undefined;
+        const title = encryptText(filename);
+        // A person chose this title; nothing generated replaces it.
+        await setItemTitle(tx, {
+            id,
+            userId,
+            title,
+            editedAt: now,
+            at: now,
+            touch: false,
+        });
+        return { id: row.id, filename: title };
     });
 
     if (refused) {
@@ -417,15 +431,11 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
             .where(eq(transcriptions.recordingId, id));
         await pruneUnsupportedFactsInTx(tx, knowledge.factIds);
 
-        await tx
-            .delete(aiEnhancements)
-            .where(eq(aiEnhancements.recordingId, id));
+        await tx.delete(aiEnhancements).where(eq(aiEnhancements.itemId, id));
         await deleteRecordingTasksInTx(tx, id);
         // Learn runs and their items went with the transcripts; what was
         // dismissed has nothing left to answer for.
-        await tx
-            .delete(learnDismissals)
-            .where(eq(learnDismissals.recordingId, id));
+        await tx.delete(learnDismissals).where(eq(learnDismissals.itemId, id));
 
         if (orgUserId) {
             const orgFolderIds = tx
@@ -436,7 +446,7 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
                 .delete(recordingFolderAssignments)
                 .where(
                     and(
-                        eq(recordingFolderAssignments.recordingId, id),
+                        eq(recordingFolderAssignments.itemId, id),
                         inArray(
                             recordingFolderAssignments.folderId,
                             orgFolderIds,
@@ -465,8 +475,7 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
         // only want to emit `recording.deleted` for the winning request.
         const tombstoned = await tx
             .update(recordings)
-            // Nothing waits for Learn on a deleted recording.
-            .set({ deletedAt: now, updatedAt: now, summaryDueAt: null })
+            .set({ deletedAt: now, updatedAt: now })
             .where(
                 and(
                     eq(recordings.id, id),
@@ -475,6 +484,10 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
                 ),
             )
             .returning({ id: recordings.id });
+        if (tombstoned.length > 0) {
+            // Nothing waits for Learn on a deleted recording.
+            await markItemDeleted(tx, { id, userId, at: now });
+        }
 
         await bumpScopeInTx(tx, knowledge.scopes);
         return tombstoned.length > 0;

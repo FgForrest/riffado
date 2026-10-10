@@ -7,9 +7,9 @@
 
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { learnRuns, recordings } from "@/db/schema";
+import { chatterItems, learnRuns } from "@/db/schema";
 import { decryptText } from "@/lib/encryption/fields";
-import { sharedRecordingCondition } from "@/lib/sharing/shared";
+import { sharedItemCondition } from "@/lib/sharing/shared";
 
 function waitingFor(viewerUserId: string, viewerIsOrgAccount: boolean) {
     return viewerIsOrgAccount
@@ -27,7 +27,7 @@ export async function recordingsNeedingReview(
     viewerIsOrgAccount: boolean,
 ): Promise<Set<string>> {
     const rows = await db
-        .selectDistinct({ recordingId: learnRuns.recordingId })
+        .selectDistinct({ recordingId: learnRuns.itemId })
         .from(learnRuns)
         .where(waitingFor(viewerUserId, viewerIsOrgAccount));
     return new Set(rows.map((row) => row.recordingId));
@@ -40,7 +40,7 @@ export async function pendingReviewCount(
 ): Promise<number> {
     const [row] = await db
         .select({
-            count: sql<number>`count(distinct ${learnRuns.recordingId})::int`,
+            count: sql<number>`count(distinct ${learnRuns.itemId})::int`,
         })
         .from(learnRuns)
         .where(waitingFor(viewerUserId, viewerIsOrgAccount));
@@ -58,21 +58,21 @@ export async function reviewQueue(
 ): Promise<{ id: string; filename: string; startTime: Date }[]> {
     const rows = await db
         .selectDistinct({
-            id: recordings.id,
-            filename: recordings.filename,
-            startTime: recordings.startTime,
+            id: chatterItems.id,
+            filename: chatterItems.title,
+            startTime: chatterItems.occurredAt,
         })
         .from(learnRuns)
-        .innerJoin(recordings, eq(recordings.id, learnRuns.recordingId))
+        .innerJoin(chatterItems, eq(chatterItems.id, learnRuns.itemId))
         .where(
             and(
                 waitingFor(viewerUserId, viewerIsOrgAccount),
-                isNull(recordings.deletedAt),
+                isNull(chatterItems.deletedAt),
                 viewerIsOrgAccount
-                    ? sharedRecordingCondition(viewerUserId)
-                    : eq(recordings.userId, viewerUserId),
+                    ? sharedItemCondition(viewerUserId)
+                    : eq(chatterItems.userId, viewerUserId),
             ),
         )
-        .orderBy(desc(recordings.startTime));
+        .orderBy(desc(chatterItems.occurredAt));
     return rows.map((row) => ({ ...row, filename: decryptText(row.filename) }));
 }

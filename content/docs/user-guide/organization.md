@@ -49,4 +49,4 @@ The organization account is a shared login your administrator holds. Signed in a
 
 Its retention settings apply to shared recordings while they are shared.
 
-Next: [Exports, backups and retention](exports-backups-retention.md)
+Next: [Mail](mail.md)

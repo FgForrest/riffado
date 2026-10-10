@@ -8,7 +8,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { recordings, users } from "@/db/schema";
+import { users } from "@/db/schema";
 import {
     createMigratedTestDatabase,
     getTestDatabaseUrl,
@@ -63,7 +63,10 @@ vi.mock("@/lib/v1/rate-limit", () => ({
 }));
 
 import { GET } from "@/app/api/v1/recordings/route";
+import { setItemTitle } from "@/db/items";
 import { encryptText } from "@/lib/encryption/fields";
+import { storeGeneratedTitle } from "@/lib/recordings/generated-title";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -139,19 +142,17 @@ describeWithDatabase("v1 recordings pagination (PostgreSQL)", () => {
             ]);
         const tie = new Date("2026-10-07T12:00:00.123Z");
         const older = new Date("2026-10-06T12:00:00.000Z");
-        await db()
-            .insert(recordings)
-            .values([
-                recording("rec-a", ALICE, tie),
-                recording("rec-b", ALICE, tie),
-                recording("rec-c", ALICE, tie),
-                recording("rec-d", ALICE, tie),
-                recording("rec-e", ALICE, tie),
-                recording("rec-old", ALICE, older),
-                recording("rec-newest", ALICE, new Date("2026-10-08T00:00Z")),
-                recording("rec-deleted", ALICE, tie, new Date()),
-                recording("rec-bob", BOB, tie),
-            ]);
+        await insertRecordings(db(), [
+            recording("rec-a", ALICE, tie),
+            recording("rec-b", ALICE, tie),
+            recording("rec-c", ALICE, tie),
+            recording("rec-d", ALICE, tie),
+            recording("rec-e", ALICE, tie),
+            recording("rec-old", ALICE, older),
+            recording("rec-newest", ALICE, new Date("2026-10-08T00:00Z")),
+            recording("rec-deleted", ALICE, tie, new Date()),
+            recording("rec-bob", BOB, tie),
+        ]);
 
         const seen: string[] = [];
         let cursor: string | null = null;
@@ -171,5 +172,24 @@ describeWithDatabase("v1 recordings pagination (PostgreSQL)", () => {
             "rec-a",
             "rec-old",
         ]);
+    });
+
+    it("lists a recording whose title changed as changed, newest first", async () => {
+        // The title is the item's, but the v1 list pages by the
+        // recording's `updated_at`: a rename (`PATCH`) and a generated
+        // title both have to move it, or a client never sees them.
+        await setItemTitle(db(), {
+            id: "rec-old",
+            userId: ALICE,
+            title: encryptText("Renamed"),
+            editedAt: new Date(),
+        });
+        expect((await page(null)).data[0]?.id).toBe("rec-old");
+
+        expect(await storeGeneratedTitle(ALICE, "rec-a", "Generated")).toBe(
+            true,
+        );
+        const first = await page(null);
+        expect(first.data.map((row) => row.id)).toEqual(["rec-a", "rec-old"]);
     });
 });

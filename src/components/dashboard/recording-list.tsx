@@ -16,6 +16,7 @@ import {
     PendingUploadRow,
 } from "@/components/dashboard/pending-upload-row";
 import {
+    type KindFilter,
     RecordingListToolbar,
     type SortOrder,
 } from "@/components/dashboard/recording-list-toolbar";
@@ -26,7 +27,10 @@ import type { DateTimeFormat } from "@/types/common";
 import type { Recording } from "@/types/recording";
 
 export type { PendingUpload } from "@/components/dashboard/pending-upload-row";
-export type { SortOrder } from "@/components/dashboard/recording-list-toolbar";
+export type {
+    KindFilter,
+    SortOrder,
+} from "@/components/dashboard/recording-list-toolbar";
 
 interface TranscriptionData {
     text?: string;
@@ -45,8 +49,11 @@ interface RecordingListProps {
     onDelete: (recording: Recording) => Promise<void>;
     initialDateTimeFormat: DateTimeFormat;
     initialSortOrder: SortOrder;
+    initialKindFilter?: KindFilter;
     initialChunkSize: number;
     onOrganize: () => void;
+    /** The library the list shows, which the server search reads. */
+    searchView?: "private" | "org";
 }
 
 export interface RecordingListHandle {
@@ -88,15 +95,63 @@ export function RecordingList({
     onDelete,
     initialDateTimeFormat,
     initialSortOrder,
+    initialKindFilter = "all",
     initialChunkSize,
     onOrganize,
+    searchView = "private",
     ref,
 }: RecordingListProps & { ref?: React.Ref<RecordingListHandle> }) {
     const i18n = useExtracted();
     const locale = useLocale();
     const [dateTimeFormat] = useState<DateTimeFormat>(initialDateTimeFormat);
     const [sortOrder, setSortOrder] = useState<SortOrder>(initialSortOrder);
+    const [kindFilter, setKindFilter] = useState<KindFilter>(initialKindFilter);
+    // The filter shows once the pile holds more than recordings.
+    const hasMail = useMemo(
+        () => recordings.some((r) => r.kind === "mail"),
+        [recordings],
+    );
     const [query, setQuery] = useState("");
+    // What the server found for the query in what this page does not
+    // hold (a mail's text), with the words around each match.
+    const [serverHits, setServerHits] = useState<{
+        query: string;
+        hits: Map<string, string | null>;
+    } | null>(null);
+    useEffect(() => {
+        const q = query.trim();
+        if (q.length < 2) {
+            setServerHits(null);
+            return;
+        }
+        const controller = new AbortController();
+        const timer = setTimeout(async () => {
+            const hits = new Map<string, string | null>();
+            let before: string | null = null;
+            // A few bounded pages reach well back; a narrower query, further.
+            for (let page = 0; page < 5; page++) {
+                const params = new URLSearchParams({ q, view: searchView });
+                if (before) params.set("before", before);
+                const response = await fetch(`/api/items/search?${params}`, {
+                    signal: controller.signal,
+                }).catch(() => null);
+                if (!response?.ok) return;
+                const data = (await response.json()) as {
+                    hits: { id: string; snippet: string | null }[];
+                    complete: boolean;
+                    continueBefore: string | null;
+                };
+                for (const hit of data.hits) hits.set(hit.id, hit.snippet);
+                setServerHits({ query: q, hits: new Map(hits) });
+                if (data.complete || !data.continueBefore) return;
+                before = data.continueBefore;
+            }
+        }, 300);
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [query, searchView]);
     // Only the recordings a Learn review waits on.
     const [needsReviewOnly, setNeedsReviewOnly] = useState(false);
     const reviewCount = useMemo(
@@ -112,6 +167,10 @@ export function RecordingList({
         setSortOrder(next);
         persistSetting("recordingListSortOrder", next);
     }, []);
+    const setKindFilterPersisted = useCallback((next: KindFilter) => {
+        setKindFilter(next);
+        persistSetting("chatterKindFilter", next);
+    }, []);
 
     const registerRowRef = useCallback(
         (id: string, el: HTMLButtonElement | null) => {
@@ -123,13 +182,23 @@ export function RecordingList({
 
     const filtered = useMemo(() => {
         const q = query.trim().toLowerCase();
+        const ofKind =
+            !hasMail || kindFilter === "all"
+                ? recordings
+                : recordings.filter((r) => (r.kind ?? "audio") === kindFilter);
         const pool =
             needsReviewOnly && reviewCount > 0
-                ? recordings.filter((r) => r.needsReview)
-                : recordings;
+                ? ofKind.filter((r) => r.needsReview)
+                : ofKind;
+        const found =
+            serverHits && serverHits.query.toLowerCase() === q
+                ? serverHits.hits
+                : null;
         const base = q
             ? pool.filter((r) => {
+                  if (found?.has(r.id)) return true;
                   if (r.filename.toLowerCase().includes(q)) return true;
+                  if (r.mail?.from?.toLowerCase().includes(q)) return true;
                   // What people read, and the words as heard, both.
                   const t = transcriptions.get(r.id);
                   return [t?.readText, t?.text].some(
@@ -163,9 +232,12 @@ export function RecordingList({
         recordings,
         transcriptions,
         query,
+        serverHits,
         sortOrder,
         needsReviewOnly,
         reviewCount,
+        hasMail,
+        kindFilter,
     ]);
 
     const visible = filtered.slice(0, visibleCount);
@@ -286,6 +358,8 @@ export function RecordingList({
                     reviewCount={reviewCount}
                     needsReviewOnly={needsReviewOnly && reviewCount > 0}
                     onNeedsReviewOnlyChange={setNeedsReviewOnly}
+                    kindFilter={hasMail ? kindFilter : undefined}
+                    onKindFilterChange={setKindFilterPersisted}
                 />
 
                 {pendingUploads.length > 0 && (
@@ -322,12 +396,19 @@ export function RecordingList({
                                         inFlight={inFlightActions.get(
                                             recording.id,
                                         )}
-                                        snippet={transcriptSnippet(
-                                            transcriptions.get(recording.id)
-                                                ?.readText ??
+                                        snippet={
+                                            (query.trim() &&
+                                                serverHits?.hits.get(
+                                                    recording.id,
+                                                )) ||
+                                            transcriptSnippet(
                                                 transcriptions.get(recording.id)
-                                                    ?.text,
-                                        )}
+                                                    ?.readText ??
+                                                    transcriptions.get(
+                                                        recording.id,
+                                                    )?.text,
+                                            )
+                                        }
                                         isCompact={false}
                                         rowPadding={rowPadding}
                                         dateTimeFormat={dateTimeFormat}

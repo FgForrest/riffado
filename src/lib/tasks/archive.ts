@@ -1,15 +1,16 @@
 import { and, eq, inArray, ne, or, type SQL } from "drizzle-orm";
 import { db } from "@/db";
 import {
+    chatterItems,
+    type EvidenceProvenance,
     people,
-    recordings,
     recordingTasks,
     taskUpdateProposals,
 } from "@/db/schema";
 import { decryptText } from "@/lib/encryption/fields";
 import {
     type ArchiveScope,
-    archivedRecordingCondition,
+    archivedItemCondition,
 } from "@/lib/export/archive-scope";
 
 /** One task as a backup archive carries it. */
@@ -23,6 +24,13 @@ export interface ArchivedTask {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    /** On a mail: the segment and range of its text the quote is in. */
+    evidenceText?: {
+        segmentIndex: number;
+        charStart: number;
+        charEnd: number;
+    };
+    evidenceProvenance?: EvidenceProvenance;
     source: string;
     createdAt: string;
     acceptedAt: string | null;
@@ -41,6 +49,13 @@ export interface ArchivedTaskUpdate {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    /** As on a task of a mail. */
+    evidenceText?: {
+        segmentIndex: number;
+        charStart: number;
+        charEnd: number;
+    };
+    evidenceProvenance?: EvidenceProvenance;
     ticked: boolean;
     createdAt: string;
 }
@@ -61,7 +76,7 @@ export type TaskArchiveScope = ArchiveScope | { kind: "owner"; userId: string };
 // The Organization's: every task of the shared recordings it carries.
 function archivedTaskCondition(scope: TaskArchiveScope): SQL | undefined {
     if (scope.kind === "organization") {
-        return archivedRecordingCondition(scope);
+        return archivedItemCondition(scope);
     }
     if (scope.kind === "owner") return eq(recordingTasks.userId, scope.userId);
     return and(
@@ -88,7 +103,7 @@ export async function tasksForArchive(
     const rows = await db
         .select({
             id: recordingTasks.id,
-            recordingId: recordingTasks.recordingId,
+            recordingId: recordingTasks.itemId,
             status: recordingTasks.status,
             text: recordingTasks.text,
             assigneePersonId: recordingTasks.assigneePersonId,
@@ -99,6 +114,10 @@ export async function tasksForArchive(
             duePhrase: recordingTasks.duePhrase,
             quote: recordingTasks.quote,
             evidenceStartMs: recordingTasks.evidenceStartMs,
+            evidenceSegmentIndex: recordingTasks.evidenceSegmentIndex,
+            evidenceCharStart: recordingTasks.evidenceCharStart,
+            evidenceCharEnd: recordingTasks.evidenceCharEnd,
+            evidenceProvenance: recordingTasks.evidenceProvenance,
             source: recordingTasks.source,
             ticked: recordingTasks.ticked,
             createdAt: recordingTasks.createdAt,
@@ -107,17 +126,17 @@ export async function tasksForArchive(
         })
         .from(recordingTasks)
         .innerJoin(
-            recordings,
+            chatterItems,
             and(
-                eq(recordings.id, recordingTasks.recordingId),
-                eq(recordings.userId, recordingTasks.userId),
+                eq(chatterItems.id, recordingTasks.itemId),
+                eq(chatterItems.userId, recordingTasks.userId),
             ),
         )
         .leftJoin(people, eq(people.id, recordingTasks.assigneePersonId))
         .where(
             and(
                 archivedTaskCondition(scope),
-                inArray(recordingTasks.recordingId, [...recordingIds]),
+                inArray(recordingTasks.itemId, [...recordingIds]),
                 proposals ? undefined : ne(recordingTasks.status, "proposed"),
             ),
         )
@@ -141,6 +160,20 @@ export async function tasksForArchive(
             duePhrase: optional(row.duePhrase),
             quote: optional(row.quote),
             evidenceStartMs: row.evidenceStartMs,
+            ...(row.evidenceSegmentIndex !== null &&
+            row.evidenceCharStart !== null &&
+            row.evidenceCharEnd !== null
+                ? {
+                      evidenceText: {
+                          segmentIndex: row.evidenceSegmentIndex,
+                          charStart: row.evidenceCharStart,
+                          charEnd: row.evidenceCharEnd,
+                      },
+                  }
+                : {}),
+            ...(row.evidenceProvenance
+                ? { evidenceProvenance: row.evidenceProvenance }
+                : {}),
             source: row.source,
             createdAt: row.createdAt.toISOString(),
             acceptedAt: row.acceptedAt?.toISOString() ?? null,
@@ -176,30 +209,34 @@ export async function taskUpdatesForArchive(
     const rows = await db
         .select({
             id: taskUpdateProposals.id,
-            recordingId: taskUpdateProposals.recordingId,
+            recordingId: taskUpdateProposals.itemId,
             taskId: taskUpdateProposals.taskId,
             kind: taskUpdateProposals.kind,
             dueDate: taskUpdateProposals.dueDate,
             duePhrase: taskUpdateProposals.duePhrase,
             quote: taskUpdateProposals.quote,
             evidenceStartMs: taskUpdateProposals.evidenceStartMs,
+            evidenceSegmentIndex: taskUpdateProposals.evidenceSegmentIndex,
+            evidenceCharStart: taskUpdateProposals.evidenceCharStart,
+            evidenceCharEnd: taskUpdateProposals.evidenceCharEnd,
+            evidenceProvenance: taskUpdateProposals.evidenceProvenance,
             ticked: taskUpdateProposals.ticked,
             createdAt: taskUpdateProposals.createdAt,
         })
         .from(taskUpdateProposals)
         .innerJoin(
-            recordings,
+            chatterItems,
             and(
-                eq(recordings.id, taskUpdateProposals.recordingId),
-                eq(recordings.userId, taskUpdateProposals.userId),
+                eq(chatterItems.id, taskUpdateProposals.itemId),
+                eq(chatterItems.userId, taskUpdateProposals.userId),
             ),
         )
         .where(
             and(
                 scope.kind === "personal"
                     ? eq(taskUpdateProposals.userId, scope.userId)
-                    : archivedRecordingCondition(scope),
-                inArray(taskUpdateProposals.recordingId, [...recordingIds]),
+                    : archivedItemCondition(scope),
+                inArray(taskUpdateProposals.itemId, [...recordingIds]),
             ),
         )
         .orderBy(taskUpdateProposals.createdAt);
@@ -214,6 +251,20 @@ export async function taskUpdatesForArchive(
             duePhrase: optional(row.duePhrase),
             quote: optional(row.quote),
             evidenceStartMs: row.evidenceStartMs,
+            ...(row.evidenceSegmentIndex !== null &&
+            row.evidenceCharStart !== null &&
+            row.evidenceCharEnd !== null
+                ? {
+                      evidenceText: {
+                          segmentIndex: row.evidenceSegmentIndex,
+                          charStart: row.evidenceCharStart,
+                          charEnd: row.evidenceCharEnd,
+                      },
+                  }
+                : {}),
+            ...(row.evidenceProvenance
+                ? { evidenceProvenance: row.evidenceProvenance }
+                : {}),
             ticked: row.ticked,
             createdAt: row.createdAt.toISOString(),
         });

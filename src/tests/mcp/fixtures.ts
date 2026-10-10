@@ -11,6 +11,7 @@ import {
 import { encryptText } from "@/lib/encryption/fields";
 import type { McpCaller } from "@/lib/mcp/caller";
 import type { McpRole } from "@/lib/mcp/roles";
+import { insertRecordings } from "@/tests/integration/items";
 import type { TestDatabase } from "@/tests/integration/postgres";
 
 /** A user caller as `resolveCaller` builds one. */
@@ -59,7 +60,7 @@ export async function insertRecording(
         deletedAt?: Date | null;
     },
 ): Promise<void> {
-    await db.insert(recordings).values({
+    await insertRecordings(db, {
         id,
         userId,
         deviceSn: "SN-1",
@@ -100,7 +101,7 @@ export async function shareRecording(
     if (!root || !recording) throw new Error("cannot share");
     await db.insert(recordingFolderAssignments).values({
         userId: recording.userId,
-        recordingId,
+        itemId: recordingId,
         folderId: root.id,
     });
 }
@@ -194,7 +195,7 @@ export async function insertTask(
     const [row] = await db
         .insert(recordingTasks)
         .values({
-            recordingId,
+            itemId: recordingId,
             userId,
             status,
             text: encryptText(text),

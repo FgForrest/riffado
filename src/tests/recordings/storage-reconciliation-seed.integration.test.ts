@@ -7,7 +7,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { recordings, users } from "@/db/schema";
+import { users } from "@/db/schema";
 import {
     createMigratedTestDatabase,
     getTestDatabaseUrl,
@@ -44,6 +44,7 @@ vi.mock("@/lib/posthog-server", () => ({
 }));
 
 import { seedStorageReconciliationJobs } from "@/lib/recordings/storage-reconciliation-job";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -99,15 +100,13 @@ describeWithDatabase("storage reconciliation seeder (PostgreSQL)", () => {
                 { id: "user-empty", email: "empty@example.test" },
             ]);
         const gone = new Date("2026-09-02T10:00:00Z");
-        await db()
-            .insert(recordings)
-            .values([
-                recording("rec-1", "user-live", null),
-                recording("rec-2", "user-live", null),
-                recording("rec-3", "user-mixed", gone),
-                recording("rec-4", "user-mixed", null),
-                recording("rec-5", "user-deleted", gone),
-            ]);
+        await insertRecordings(db(), [
+            recording("rec-1", "user-live", null),
+            recording("rec-2", "user-live", null),
+            recording("rec-3", "user-mixed", gone),
+            recording("rec-4", "user-mixed", null),
+            recording("rec-5", "user-deleted", gone),
+        ]);
         enqueueJob.mockResolvedValue({ job: { id: "job" }, created: true });
 
         await expect(seedStorageReconciliationJobs()).resolves.toBe(2);

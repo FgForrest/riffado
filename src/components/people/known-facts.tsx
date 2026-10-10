@@ -1,6 +1,14 @@
 "use client";
 
-import { Building2, Pencil, Play, Plus, Trash2, UserRound } from "lucide-react";
+import {
+    Building2,
+    Mail,
+    Pencil,
+    Play,
+    Plus,
+    Trash2,
+    UserRound,
+} from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useExtracted, useLocale } from "next-intl";
@@ -32,8 +40,12 @@ function timestamp(ms: number): string {
 }
 
 function recordingHref(evidence: PageEvidence): string {
-    return evidence.view === "org"
-        ? `/dashboard?recording=${encodeURIComponent(evidence.recordingId)}&view=org`
+    if (evidence.view === "org") {
+        return `/dashboard?recording=${encodeURIComponent(evidence.recordingId)}&view=org`;
+    }
+    // A mail opens in the pile; the recording page is for audio.
+    return evidence.kind === "mail"
+        ? `/dashboard?recording=${encodeURIComponent(evidence.recordingId)}`
         : `/recordings/${evidence.recordingId}`;
 }
 
@@ -69,9 +81,10 @@ export interface FactEditing {
 /**
  * What is known about a person or an entity, by relation and direction:
  * under "leads", what `name` leads; under "reports to <name>", who reports
- * to them. Each fact with where it was said (▸ opens the recording), how
- * many recordings support it and when it was last said. Only what the
- * viewer may read reaches here (`factsForPage`).
+ * to them. Each fact with where it was said or written (▸ opens the
+ * recording or the mail; a mail's quoted part is marked as an earlier
+ * writer's), how many recordings and mails support it and when it was last
+ * said. Only what the viewer may read reaches here (`factsForPage`).
  */
 export function KnownFacts({
     name,
@@ -200,7 +213,14 @@ export function KnownFacts({
                                 fact.scope === editing.ownScope;
                             const relationKey = group.key.split("|")[0] ?? "";
                             const recordingsCount = new Set(
-                                fact.evidence.map((item) => item.recordingId),
+                                fact.evidence
+                                    .filter((item) => item.kind === "audio")
+                                    .map((item) => item.recordingId),
+                            ).size;
+                            const mailsCount = new Set(
+                                fact.evidence
+                                    .filter((item) => item.kind === "mail")
+                                    .map((item) => item.recordingId),
                             ).size;
                             const latest = fact.evidence[0];
                             return (
@@ -280,12 +300,26 @@ export function KnownFacts({
                                             : i18n("Only you")}
                                         {" · "}
                                         {fact.origin === "manual" &&
-                                        recordingsCount === 0
+                                        recordingsCount + mailsCount === 0
                                             ? i18n("Entered by hand")
-                                            : i18n(
-                                                  "Supported by {count, plural, one {# recording} other {# recordings}}",
-                                                  { count: recordingsCount },
-                                              )}
+                                            : mailsCount === 0
+                                              ? i18n(
+                                                    "Supported by {count, plural, one {# recording} other {# recordings}}",
+                                                    { count: recordingsCount },
+                                                )
+                                              : recordingsCount === 0
+                                                ? i18n(
+                                                      "Supported by {count, plural, one {# mail} other {# mails}}",
+                                                      { count: mailsCount },
+                                                  )
+                                                : i18n(
+                                                      "Supported by {recordings, plural, one {# recording} other {# recordings}} and {mails, plural, one {# mail} other {# mails}}",
+                                                      {
+                                                          recordings:
+                                                              recordingsCount,
+                                                          mails: mailsCount,
+                                                      },
+                                                  )}
                                         {latest &&
                                             ` · ${i18n("last on {date}", {
                                                 date: formatDateTime(
@@ -307,12 +341,24 @@ export function KnownFacts({
                                                         )}
                                                         className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
                                                     >
-                                                        <Play className="size-3" />
-                                                        {evidence.title}{" "}
-                                                        {timestamp(
-                                                            evidence.startMs,
+                                                        {evidence.kind ===
+                                                        "mail" ? (
+                                                            <Mail className="size-3" />
+                                                        ) : (
+                                                            <Play className="size-3" />
                                                         )}
+                                                        {evidence.title}
+                                                        {evidence.startMs !==
+                                                            null &&
+                                                            ` ${timestamp(evidence.startMs)}`}
                                                     </Link>
+                                                    {evidence.quoted && (
+                                                        <span className="ml-1 text-xs text-amber-700 dark:text-amber-400">
+                                                            {i18n(
+                                                                "quoted from an earlier message",
+                                                            )}
+                                                        </span>
+                                                    )}
                                                 </li>
                                             ))}
                                         </ul>

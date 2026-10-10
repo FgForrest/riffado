@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireApiSession } from "@/lib/auth-server";
+import { ALL_ITEM_KINDS } from "@/lib/content/item-kinds";
 import { apiHandler } from "@/lib/errors";
 import { forgetDismissals } from "@/lib/learn/review";
 import {
@@ -21,6 +22,7 @@ export const DELETE = apiHandler<IdContext>(async (request, context) => {
         session.user.id,
         id,
         requestedRecordingView(request),
+        { kinds: ALL_ITEM_KINDS },
     );
     assertMayChange(access, session.user.id);
     return NextResponse.json({ forgotten: await forgetDismissals(access) });

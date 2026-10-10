@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Schema from "@/db/schema";
 
 // vi.mock is hoisted to the top of the file, so the factory must construct
 // its own state. We expose handles via vi.hoisted so tests can reach in
@@ -20,13 +21,17 @@ vi.mock("@/lib/posthog-server", () => ({
 
 vi.mock("@/db", () => ({ db: dbMock }));
 
-vi.mock("@/db/schema", () => {
+vi.mock("@/db/schema", async (importOriginal) => {
+    // A recording's tombstone goes through `@/db/items`, which derives its
+    // columns from the real recording and item tables.
+    const { recordings, chatterItems } = await importOriginal<typeof Schema>();
     // Stable references; actions code compares by drizzle's column-proxy
     // identity in the real module. Stubs are enough for unit testing.
     return {
         users: { id: "users.id" },
         plaudConnections: { userId: "plaudConnections.userId" },
-        recordings: { id: "recordings.id" },
+        recordings,
+        chatterItems,
         adminActionLog: {},
     };
 });

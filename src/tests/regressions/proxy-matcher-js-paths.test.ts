@@ -54,4 +54,12 @@ describe("proxy middleware matcher", () => {
             pattern.test("/.well-known/oauth-protected-resource/api/mcp"),
         ).toBe(true);
     });
+
+    // A raw mail may be 36 MB: past 10 MB Next cuts a proxied body off.
+    it("skips the two mail ingest routes, and only those", () => {
+        expect(pattern.test("/api/internal/mail/precheck")).toBe(false);
+        expect(pattern.test("/api/internal/mail/ingest")).toBe(false);
+        expect(pattern.test("/api/internal/mail/ingest/x")).toBe(true);
+        expect(pattern.test("/api/internal/mail")).toBe(true);
+    });
 });

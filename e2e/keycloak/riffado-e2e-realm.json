@@ -24,6 +24,9 @@
                 },
                 {
                     "name": "tasks:write"
+                },
+                {
+                    "name": "mail:read"
                 }
             ]
         }

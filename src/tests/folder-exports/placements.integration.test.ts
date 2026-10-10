@@ -34,6 +34,7 @@ import {
 } from "vitest";
 import {
     asyncJobs,
+    chatterItems,
     filesystemExportNodes,
     filesystemExportSettings,
     folderExportMaterializations,
@@ -137,6 +138,7 @@ import {
     moveRecordingBetweenFolders,
     removeRecordingFromFolder,
 } from "@/lib/folders/folders";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -272,24 +274,22 @@ describeWithDatabase("Filesystem export placements (PostgreSQL)", () => {
                 ),
             );
         privateRootId = privateRoot?.id ?? "";
-        await db()
-            .insert(recordings)
-            .values({
-                id: RECORDING,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: `plaud-${RECORDING}`,
-                filename: encryptText("Weekly sync"),
-                duration: 60_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:01:00Z"),
-                filesize: 12,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/${RECORDING}.mp3`,
-                storageFilename: `${RECORDING}.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: RECORDING,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: `plaud-${RECORDING}`,
+            filename: encryptText("Weekly sync"),
+            duration: 60_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:01:00Z"),
+            filesize: 12,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/${RECORDING}.mp3`,
+            storageFilename: `${RECORDING}.mp3`,
+            plaudVersion: "1",
+        });
         await db()
             .insert(transcriptions)
             .values({
@@ -350,9 +350,9 @@ describeWithDatabase("Filesystem export placements (PostgreSQL)", () => {
             toFolderId: home,
         });
         await db()
-            .update(recordings)
-            .set({ filename: encryptText("Weekly review") })
-            .where(eq(recordings.id, RECORDING));
+            .update(chatterItems)
+            .set({ title: encryptText("Weekly review") })
+            .where(eq(chatterItems.id, RECORDING));
         await exportNow();
 
         expect(tree()).toEqual([
@@ -504,7 +504,7 @@ describeWithDatabase("Filesystem export placements (PostgreSQL)", () => {
         await db().insert(folderExportPlacements).values({
             userId: OWNER,
             exportConfigurationId: exportId,
-            recordingId: RECORDING,
+            itemId: RECORDING,
             placementFolderId: work,
             targetPath: "rec",
             directoryName: "Weekly sync",
@@ -596,24 +596,22 @@ describeWithDatabase("Filesystem export placements (PostgreSQL)", () => {
     });
 
     it("never gives a recording the directory another one is leaving", async () => {
-        await db()
-            .insert(recordings)
-            .values({
-                id: "rec-beta",
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-rec-beta",
-                filename: encryptText("Beta"),
-                duration: 60_000,
-                startTime: new Date("2026-09-02T10:00:00Z"),
-                endTime: new Date("2026-09-02T10:01:00Z"),
-                filesize: 12,
-                fileMd5: "1".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/rec-beta.mp3`,
-                storageFilename: "rec-beta.mp3",
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: "rec-beta",
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-rec-beta",
+            filename: encryptText("Beta"),
+            duration: 60_000,
+            startTime: new Date("2026-09-02T10:00:00Z"),
+            endTime: new Date("2026-09-02T10:01:00Z"),
+            filesize: 12,
+            fileMd5: "1".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/rec-beta.mp3`,
+            storageFilename: "rec-beta.mp3",
+            plaudVersion: "1",
+        });
         await exportNow();
         // Beta's audio now lives only in the export.
         await db()
@@ -625,9 +623,9 @@ describeWithDatabase("Filesystem export placements (PostgreSQL)", () => {
             .set({ deletedAt: new Date() })
             .where(eq(recordings.id, RECORDING));
         await db()
-            .update(recordings)
-            .set({ filename: encryptText("Weekly sync") })
-            .where(eq(recordings.id, "rec-beta"));
+            .update(chatterItems)
+            .set({ title: encryptText("Weekly sync") })
+            .where(eq(chatterItems.id, "rec-beta"));
 
         await exportNow();
         expect(tree()).toEqual([

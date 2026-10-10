@@ -45,7 +45,7 @@ export interface KnownFact {
     subject: KnowledgeTarget;
     relationKey: string;
     object: KnowledgeTarget | { literal: string };
-    origin: "recording" | "manual";
+    origin: "recording" | "mail" | "manual";
 }
 
 /** What one scope knows, as loaded. */

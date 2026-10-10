@@ -28,7 +28,6 @@ import {
     people,
     personNotes,
     recordingFolders,
-    recordings,
     recordingTasks,
     taskUpdateProposals,
     transcriptions,
@@ -108,6 +107,7 @@ import { confirmedOverlays } from "@/lib/learn/llm-input";
 import { ensureOrgAccount } from "@/lib/org/account";
 import type { StorageProvider } from "@/lib/storage/types";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -162,23 +162,21 @@ describeWithDatabase("backup and export scope (PostgreSQL)", () => {
     }, 30_000);
 
     async function recording(id: string, userId: string, title: string) {
-        await db()
-            .insert(recordings)
-            .values({
-                id,
-                userId,
-                deviceSn: "SN-1",
-                plaudFileId: `plaud-${id}`,
-                filename: encryptText(title),
-                duration: 12_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:00:12Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${userId}/${id}.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id,
+            userId,
+            deviceSn: "SN-1",
+            plaudFileId: `plaud-${id}`,
+            filename: encryptText(title),
+            duration: 12_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:00:12Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${userId}/${id}.mp3`,
+            plaudVersion: "1",
+        });
     }
 
     async function transcript(
@@ -467,7 +465,7 @@ describeWithDatabase("backup and export scope (PostgreSQL)", () => {
         const [call] = await db()
             .insert(recordingTasks)
             .values({
-                recordingId: SHARED,
+                itemId: SHARED,
                 userId: ALICE,
                 status: "open",
                 text: encryptText("Call Petra"),
@@ -480,7 +478,7 @@ describeWithDatabase("backup and export scope (PostgreSQL)", () => {
             .insert(recordingTasks)
             .values([
                 {
-                    recordingId: SHARED,
+                    itemId: SHARED,
                     userId: ALICE,
                     status: "proposed",
                     text: encryptText("Book the venue"),
@@ -488,7 +486,7 @@ describeWithDatabase("backup and export scope (PostgreSQL)", () => {
                     ticked: true,
                 },
                 {
-                    recordingId: SHARED,
+                    itemId: SHARED,
                     userId: ALICE,
                     status: "open",
                     text: encryptText("BRAVO-ORG-TASK"),
@@ -496,7 +494,7 @@ describeWithDatabase("backup and export scope (PostgreSQL)", () => {
                     createdByUserId: orgUserId,
                 },
                 {
-                    recordingId: PRIVATE_BRAVO,
+                    itemId: PRIVATE_BRAVO,
                     userId: BRAVO,
                     status: "open",
                     text: encryptText("BRAVO-PRIVATE-TASK"),
@@ -508,7 +506,7 @@ describeWithDatabase("backup and export scope (PostgreSQL)", () => {
             .insert(taskUpdateProposals)
             .values({
                 taskId: call?.id ?? "",
-                recordingId: PRIVATE_ALICE,
+                itemId: PRIVATE_ALICE,
                 userId: ALICE,
                 kind: "done",
                 quote: encryptText("I called Petra"),

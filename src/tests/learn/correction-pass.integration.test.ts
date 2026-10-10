@@ -21,8 +21,8 @@ import {
 import {
     apiCredentials,
     asyncJobs,
+    chatterItems,
     learnRuns,
-    recordings,
     transcriptCorrectionPasses,
     transcriptCorrections,
     transcriptions,
@@ -110,6 +110,7 @@ import { finishReview } from "@/lib/learn/review";
 import { ensureOrgAccount } from "@/lib/org/account";
 import { requireRecordingView } from "@/lib/sharing/access";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -169,24 +170,22 @@ describeWithDatabase("The correction pass (PostgreSQL)", () => {
         await db().insert(users).values({ id: OWNER, email: "o@example.test" });
         await ensureOrgAccount();
         await seedCoreVocabulary();
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 9_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:00:09Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/rec.mp3`,
-                plaudVersion: "1",
-                summaryDueAt: new Date(Date.now() + AUTO_LEARN_HOLD_MS),
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 9_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:00:09Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/rec.mp3`,
+            plaudVersion: "1",
+            summaryDueAt: new Date(Date.now() + AUTO_LEARN_HOLD_MS),
+        });
         const [transcript] = await db()
             .insert(transcriptions)
             .values({
@@ -221,7 +220,7 @@ describeWithDatabase("The correction pass (PostgreSQL)", () => {
             .values({
                 userId: OWNER,
                 scopeUserId: OWNER,
-                recordingId: REC,
+                itemId: REC,
                 transcriptionId: transcriptId,
                 view: "private",
                 actorUserId: OWNER,
@@ -236,9 +235,9 @@ describeWithDatabase("The correction pass (PostgreSQL)", () => {
     const held = async () =>
         (
             await db()
-                .select({ at: recordings.summaryDueAt })
-                .from(recordings)
-                .where(eq(recordings.id, REC))
+                .select({ at: chatterItems.summaryDueAt })
+                .from(chatterItems)
+                .where(eq(chatterItems.id, REC))
         )[0]?.at ?? null;
 
     const passJob = async () =>
@@ -382,7 +381,7 @@ describeWithDatabase("The correction pass (PostgreSQL)", () => {
             .values({
                 userId: OWNER,
                 scopeUserId: OWNER,
-                recordingId: REC,
+                itemId: REC,
                 transcriptionId: transcriptId,
                 view: "private",
                 actorUserId: OWNER,

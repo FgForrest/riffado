@@ -33,6 +33,9 @@ vi.mock("@/lib/learn/llm-input", () => ({
 }));
 
 vi.mock("@/db", () => ({ db: { select: vi.fn() } }));
+vi.mock("@/lib/mail/list", () => ({
+    loadMailListRows: vi.fn().mockResolvedValue([]),
+}));
 
 vi.mock("@/lib/env", () => ({ env: { IS_HOSTED: false } }));
 
@@ -148,6 +151,7 @@ function queueSelect(rows: unknown[]): void {
     });
     const node: Record<string, unknown> = {};
     node.from = () => node;
+    node.innerJoin = () => node;
     node.where = () => afterWhere;
     (db.select as Mock).mockImplementationOnce((projection: unknown) => {
         projections.push(projection);
@@ -177,6 +181,20 @@ const RECORDING_ROW = {
     deviceSn: "SN-1",
     waveformPeaks: null,
     audioReapedAt: null,
+};
+
+/** The same recording as the detail page selects it, with `audioItemColumns`. */
+const AUDIO_ITEM_ROW = {
+    id: "rec-1",
+    userId: "user-1",
+    title: "Board meeting",
+    duration: 60_000,
+    occurredAt: new Date("2026-09-11T18:42:00.000Z"),
+    filesize: 100,
+    deviceSn: "SN-1",
+    waveformPeaks: null,
+    audioReapedAt: null,
+    contentReapedAt: null,
 };
 
 describe("stored turns survive both SSR loaders", () => {
@@ -247,7 +265,7 @@ describe("stored turns survive both SSR loaders", () => {
     });
 
     it("passes turns from the single-recording loader", async () => {
-        queueSelect([RECORDING_ROW]);
+        queueSelect([AUDIO_ITEM_ROW]);
         queueSelect([TRANSCRIPT_ROW]);
         queueSelect([]);
 

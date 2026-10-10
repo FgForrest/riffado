@@ -5,6 +5,7 @@ export const MCP_ROLES = [
     "summaries:read",
     "tasks:read",
     "tasks:write",
+    "mail:read",
 ] as const;
 
 /** One of {@link MCP_ROLES}. */

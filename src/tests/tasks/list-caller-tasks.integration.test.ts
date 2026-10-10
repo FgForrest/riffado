@@ -122,6 +122,13 @@ describeWithDatabase("listCallerTasks (PostgreSQL)", () => {
         return database.db;
     }
 
+    function withoutRecordingId<T extends { recordingId: string }>(
+        values: T,
+    ): Omit<T, "recordingId"> {
+        const { recordingId: _recordingId, ...rest } = values;
+        return rest;
+    }
+
     async function addTask(
         name: string,
         values: {
@@ -137,7 +144,8 @@ describeWithDatabase("listCallerTasks (PostgreSQL)", () => {
             .insert(recordingTasks)
             .values({
                 status: "open",
-                ...values,
+                ...withoutRecordingId(values),
+                itemId: values.recordingId,
                 text: encryptText(`Task ${name}`),
                 source: "manual",
             })

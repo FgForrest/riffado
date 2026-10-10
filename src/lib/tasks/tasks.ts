@@ -16,6 +16,8 @@ import {
 } from "drizzle-orm";
 import { db } from "@/db";
 import {
+    chatterItems,
+    type EvidenceProvenance,
     people,
     recordings,
     recordingTaskRejections,
@@ -34,6 +36,7 @@ import { folderCondition } from "@/lib/folders/condition";
 import { assertOrgScopeWritable } from "@/lib/org/config";
 import { notifyIfShared } from "@/lib/sharing/notify";
 import {
+    ANY_TASK_ITEM,
     assignedToViewer,
     type TaskViewer,
     taskClosable,
@@ -66,6 +69,17 @@ export interface TaskView {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    /** Where in a mail the quote is: a range of one segment's text. */
+    evidenceText: {
+        segmentIndex: number;
+        charStart: number;
+        charEnd: number;
+    } | null;
+    /**
+     * The quote is from a quoted part, from an unverified sender, or was
+     * not found in a mail with quoted parts.
+     */
+    evidenceProvenance: EvidenceProvenance | null;
     source: "riffado" | "plaud" | "manual";
     ticked: boolean;
     version: number;
@@ -86,6 +100,8 @@ export interface TaskUpdateView {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    /** As on a task proposal of a mail. */
+    evidenceProvenance: EvidenceProvenance | null;
     ticked: boolean;
     version: number;
     task: {
@@ -155,7 +171,7 @@ function iso(value: Date | null): string | null {
 
 const taskColumns = {
     id: recordingTasks.id,
-    recordingId: recordingTasks.recordingId,
+    recordingId: recordingTasks.itemId,
     status: recordingTasks.status,
     text: recordingTasks.text,
     assigneePersonId: recordingTasks.assigneePersonId,
@@ -166,6 +182,10 @@ const taskColumns = {
     duePhrase: recordingTasks.duePhrase,
     quote: recordingTasks.quote,
     evidenceStartMs: recordingTasks.evidenceStartMs,
+    evidenceSegmentIndex: recordingTasks.evidenceSegmentIndex,
+    evidenceCharStart: recordingTasks.evidenceCharStart,
+    evidenceCharEnd: recordingTasks.evidenceCharEnd,
+    evidenceProvenance: recordingTasks.evidenceProvenance,
     source: recordingTasks.source,
     ticked: recordingTasks.ticked,
     version: recordingTasks.version,
@@ -201,6 +221,17 @@ function toView(
         duePhrase: decryptOptional(row.duePhrase),
         quote: decryptOptional(row.quote),
         evidenceStartMs: row.evidenceStartMs,
+        evidenceText:
+            row.evidenceSegmentIndex !== null &&
+            row.evidenceCharStart !== null &&
+            row.evidenceCharEnd !== null
+                ? {
+                      segmentIndex: row.evidenceSegmentIndex,
+                      charStart: row.evidenceCharStart,
+                      charEnd: row.evidenceCharEnd,
+                  }
+                : null,
+        evidenceProvenance: row.evidenceProvenance ?? null,
         source: row.source as TaskView["source"],
         ticked: row.ticked === true,
         version: row.version ?? 0,
@@ -228,15 +259,15 @@ export async function listRecordingTasks(
 ): Promise<RecordingTasks | null> {
     const [recording] = await db
         .select({
-            id: recordings.id,
-            canEdit: sql<boolean>`${taskEditable(viewer)}`,
+            id: chatterItems.id,
+            canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
         })
-        .from(recordings)
+        .from(chatterItems)
         .where(
             and(
-                eq(recordings.id, recordingId),
-                isNull(recordings.deletedAt),
-                taskVisible(viewer),
+                eq(chatterItems.id, recordingId),
+                isNull(chatterItems.deletedAt),
+                taskVisible(viewer, ANY_TASK_ITEM),
             ),
         )
         .limit(1);
@@ -245,17 +276,17 @@ export async function listRecordingTasks(
     const rows = await db
         .select({
             ...taskColumns,
-            canEdit: sql<boolean>`${taskEditable(viewer)}`,
-            canClose: sql<boolean>`${taskClosable(viewer)}`,
+            canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
+            canClose: sql<boolean>`${taskClosable(viewer, ANY_TASK_ITEM)}`,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
         .leftJoin(people, assigneeJoin())
         .where(
             and(
-                eq(recordingTasks.recordingId, recordingId),
+                eq(recordingTasks.itemId, recordingId),
                 // Again here: the recording may be withdrawn meanwhile.
-                taskVisible(viewer),
+                taskVisible(viewer, ANY_TASK_ITEM),
                 recording.canEdit
                     ? undefined
                     : ne(recordingTasks.status, "proposed"),
@@ -266,7 +297,7 @@ export async function listRecordingTasks(
     const [rejection] = await db
         .select({ id: recordingTaskRejections.id })
         .from(recordingTaskRejections)
-        .where(eq(recordingTaskRejections.recordingId, recordingId))
+        .where(eq(recordingTaskRejections.itemId, recordingId))
         .limit(1);
 
     return {
@@ -299,14 +330,15 @@ async function listUpdateProposals(
             duePhrase: taskUpdateProposals.duePhrase,
             quote: taskUpdateProposals.quote,
             evidenceStartMs: taskUpdateProposals.evidenceStartMs,
+            evidenceProvenance: taskUpdateProposals.evidenceProvenance,
             ticked: taskUpdateProposals.ticked,
             version: taskUpdateProposals.version,
             taskId: recordingTasks.id,
-            taskRecordingId: recordingTasks.recordingId,
+            taskRecordingId: recordingTasks.itemId,
             taskText: recordingTasks.text,
             taskDueDate: recordingTasks.dueDate,
             taskStatus: recordingTasks.status,
-            recordingTitle: recordings.filename,
+            recordingTitle: chatterItems.title,
             assigneeName: people.displayName,
         })
         .from(taskUpdateProposals)
@@ -314,13 +346,13 @@ async function listUpdateProposals(
             recordingTasks,
             eq(recordingTasks.id, taskUpdateProposals.taskId),
         )
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
         .leftJoin(people, assigneeJoin())
         .where(
             and(
-                eq(taskUpdateProposals.recordingId, recordingId),
-                isNull(recordings.deletedAt),
-                taskVisible(viewer),
+                eq(taskUpdateProposals.itemId, recordingId),
+                isNull(chatterItems.deletedAt),
+                taskVisible(viewer, ANY_TASK_ITEM),
             ),
         )
         .orderBy(asc(taskUpdateProposals.createdAt));
@@ -333,6 +365,7 @@ async function listUpdateProposals(
             duePhrase: decryptOptional(row.duePhrase),
             quote: decryptOptional(row.quote),
             evidenceStartMs: row.evidenceStartMs,
+            evidenceProvenance: row.evidenceProvenance ?? null,
             ticked: row.ticked,
             version: row.version,
             task: {
@@ -368,10 +401,13 @@ async function lockTask(
     taskId: string,
 ): Promise<LockedTask> {
     if (viewer.isOrg) assertOrgScopeWritable();
+    if ((await taskItemKind(tx, taskId)) === "mail") {
+        return lockMailTask(tx, viewer, taskId);
+    }
     const [row] = await tx
         .select({
             id: recordingTasks.id,
-            recordingId: recordingTasks.recordingId,
+            recordingId: recordingTasks.itemId,
             ownerUserId: recordings.userId,
             status: recordingTasks.status,
             text: recordingTasks.text,
@@ -382,12 +418,60 @@ async function lockTask(
             shared: sql<boolean>`${taskRecordingShared(viewer)}`,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
         .where(and(eq(recordingTasks.id, taskId), isNull(recordings.deletedAt)))
         .for("update", { of: recordings })
         .limit(1);
     if (!row?.visible) throw notFound();
     // A proposal is its reviewer's alone.
+    if (row.status === "proposed" && !row.canEdit) throw notFound();
+    return { ...row, text: decryptText(row.text) };
+}
+
+/** What kind of item a task is on. */
+async function taskItemKind(
+    tx: Tx,
+    taskId: string,
+): Promise<"audio" | "mail" | null> {
+    const [row] = await tx
+        .select({ kind: chatterItems.kind })
+        .from(recordingTasks)
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
+        .where(eq(recordingTasks.id, taskId))
+        .limit(1);
+    return row?.kind ?? null;
+}
+
+/**
+ * `lockTask` for a task on a mail: a mail has no recording row, so its item
+ * row is the one locked, as sharing and withdrawal lock it.
+ */
+async function lockMailTask(
+    tx: Tx,
+    viewer: TaskViewer,
+    taskId: string,
+): Promise<LockedTask> {
+    const [row] = await tx
+        .select({
+            id: recordingTasks.id,
+            recordingId: recordingTasks.itemId,
+            ownerUserId: chatterItems.userId,
+            status: recordingTasks.status,
+            text: recordingTasks.text,
+            version: recordingTasks.version,
+            visible: sql<boolean>`${taskVisible(viewer, ANY_TASK_ITEM)}`,
+            canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
+            canClose: sql<boolean>`${taskClosable(viewer, ANY_TASK_ITEM)}`,
+            shared: sql<boolean>`${taskRecordingShared(viewer, ANY_TASK_ITEM)}`,
+        })
+        .from(recordingTasks)
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
+        .where(
+            and(eq(recordingTasks.id, taskId), isNull(chatterItems.deletedAt)),
+        )
+        .for("update", { of: chatterItems })
+        .limit(1);
+    if (!row?.visible) throw notFound();
     if (row.status === "proposed" && !row.canEdit) throw notFound();
     return { ...row, text: decryptText(row.text) };
 }
@@ -399,7 +483,7 @@ async function lockRecordingForEdit(
     recordingId: string,
 ): Promise<{ ownerUserId: string; shared: boolean }> {
     if (viewer.isOrg) assertOrgScopeWritable();
-    const [row] = await tx
+    const [recordingRow] = await tx
         .select({
             ownerUserId: recordings.userId,
             visible: sql<boolean>`${taskVisible(viewer)}`,
@@ -412,6 +496,26 @@ async function lockRecordingForEdit(
         )
         .for("update")
         .limit(1);
+    // A mail has no recording row: its item row is locked instead.
+    const [row] = recordingRow
+        ? [recordingRow]
+        : await tx
+              .select({
+                  ownerUserId: chatterItems.userId,
+                  visible: sql<boolean>`${taskVisible(viewer, ANY_TASK_ITEM)}`,
+                  canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
+                  shared: sql<boolean>`${taskRecordingShared(viewer, ANY_TASK_ITEM)}`,
+              })
+              .from(chatterItems)
+              .where(
+                  and(
+                      eq(chatterItems.id, recordingId),
+                      eq(chatterItems.kind, "mail"),
+                      isNull(chatterItems.deletedAt),
+                  ),
+              )
+              .for("update")
+              .limit(1);
     if (!row?.visible) {
         throw new AppError(
             ErrorCode.RECORDING_NOT_FOUND,
@@ -524,13 +628,13 @@ export async function addTask(
                 position: sql<number | null>`max(${recordingTasks.position})`,
             })
             .from(recordingTasks)
-            .where(eq(recordingTasks.recordingId, recordingId));
+            .where(eq(recordingTasks.itemId, recordingId));
         const now = new Date();
         const open = input.status === "open";
         const [row] = await tx
             .insert(recordingTasks)
             .values({
-                recordingId,
+                itemId: recordingId,
                 userId: recording.ownerUserId,
                 status: input.status,
                 text: encryptText(text),
@@ -665,7 +769,7 @@ async function rejectInTx(
         .values(
             texts.map((text) => ({
                 userId: ownerUserId,
-                recordingId,
+                itemId: recordingId,
                 fingerprintHmac: taskFingerprint(text),
             })),
         )
@@ -699,7 +803,7 @@ export async function mergeProposals(
             .from(recordingTasks)
             .where(
                 and(
-                    eq(recordingTasks.recordingId, recordingId),
+                    eq(recordingTasks.itemId, recordingId),
                     eq(recordingTasks.status, "proposed"),
                     inArray(recordingTasks.id, ids),
                 ),
@@ -767,7 +871,7 @@ export async function tickUpdateProposal(
             .where(
                 and(
                     eq(taskUpdateProposals.id, updateId),
-                    eq(taskUpdateProposals.recordingId, recordingId),
+                    eq(taskUpdateProposals.itemId, recordingId),
                     eq(taskUpdateProposals.version, version),
                 ),
             )
@@ -808,7 +912,7 @@ export async function acceptReview(
             .from(recordingTasks)
             .where(
                 and(
-                    eq(recordingTasks.recordingId, recordingId),
+                    eq(recordingTasks.itemId, recordingId),
                     eq(recordingTasks.status, "proposed"),
                 ),
             );
@@ -823,7 +927,7 @@ export async function acceptReview(
             .from(taskUpdateProposals)
             .where(
                 and(
-                    eq(taskUpdateProposals.recordingId, recordingId),
+                    eq(taskUpdateProposals.itemId, recordingId),
                     liveFollowUpCondition(),
                 ),
             );
@@ -903,7 +1007,7 @@ export async function acceptReview(
                     inArray(
                         recordings.id,
                         tx
-                            .select({ id: recordingTasks.recordingId })
+                            .select({ id: recordingTasks.itemId })
                             .from(recordingTasks)
                             .where(
                                 inArray(
@@ -920,16 +1024,13 @@ export async function acceptReview(
             const [target] = await tx
                 .select({
                     status: recordingTasks.status,
-                    recordingId: recordingTasks.recordingId,
+                    recordingId: recordingTasks.itemId,
                     ownerUserId: recordings.userId,
                     canEdit: sql<boolean>`${taskEditable(viewer)}`,
                     canClose: sql<boolean>`${taskClosable(viewer)}`,
                 })
                 .from(recordingTasks)
-                .innerJoin(
-                    recordings,
-                    eq(recordings.id, recordingTasks.recordingId),
-                )
+                .innerJoin(recordings, eq(recordings.id, recordingTasks.itemId))
                 .where(
                     and(
                         eq(recordingTasks.id, update.taskId),
@@ -970,7 +1071,7 @@ export async function acceptReview(
         }
         await tx
             .delete(taskUpdateProposals)
-            .where(eq(taskUpdateProposals.recordingId, recordingId));
+            .where(eq(taskUpdateProposals.itemId, recordingId));
         return {
             accepted: accepted.length,
             rejected: rejected.length,
@@ -1004,13 +1105,18 @@ async function requireTaskView(
     const [row] = await db
         .select({
             ...taskColumns,
-            canEdit: sql<boolean>`${taskEditable(viewer)}`,
-            canClose: sql<boolean>`${taskClosable(viewer)}`,
+            canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
+            canClose: sql<boolean>`${taskClosable(viewer, ANY_TASK_ITEM)}`,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
         .leftJoin(people, assigneeJoin())
-        .where(and(eq(recordingTasks.id, taskId), taskVisible(viewer)))
+        .where(
+            and(
+                eq(recordingTasks.id, taskId),
+                taskVisible(viewer, ANY_TASK_ITEM),
+            ),
+        )
         .limit(1);
     if (!row) throw notFound();
     return toView(row);
@@ -1020,12 +1126,17 @@ async function requireTaskView(
  * Recordings with proposals or follow-ups waiting for the viewer's review,
  * newest first, with how many.
  */
-export async function recordingsAwaitingTaskReview(
-    viewer: TaskViewer,
-): Promise<{ recordingId: string; title: string; proposals: number }[]> {
+export async function recordingsAwaitingTaskReview(viewer: TaskViewer): Promise<
+    {
+        recordingId: string;
+        kind: "audio" | "mail";
+        title: string;
+        proposals: number;
+    }[]
+> {
     const proposals = db
         .select({
-            recordingId: recordingTasks.recordingId,
+            recordingId: recordingTasks.itemId,
             waiting: sql<number>`count(*)`.as("waiting"),
         })
         .from(recordingTasks)
@@ -1037,10 +1148,10 @@ export async function recordingsAwaitingTaskReview(
                     : eq(recordingTasks.userId, viewer.userId),
             ),
         )
-        .groupBy(recordingTasks.recordingId);
+        .groupBy(recordingTasks.itemId);
     const followUps = db
         .select({
-            recordingId: taskUpdateProposals.recordingId,
+            recordingId: taskUpdateProposals.itemId,
             waiting: sql<number>`count(*)`.as("waiting"),
         })
         .from(taskUpdateProposals)
@@ -1052,21 +1163,28 @@ export async function recordingsAwaitingTaskReview(
                     : eq(taskUpdateProposals.userId, viewer.userId),
             ),
         )
-        .groupBy(taskUpdateProposals.recordingId);
+        .groupBy(taskUpdateProposals.itemId);
     const waiting = proposals.unionAll(followUps).as("waiting");
     const rows = await db
         .select({
-            recordingId: recordings.id,
-            title: recordings.filename,
+            recordingId: chatterItems.id,
+            kind: chatterItems.kind,
+            title: chatterItems.title,
             proposals: sql<number>`sum(${waiting.waiting})::int`,
         })
         .from(waiting)
-        .innerJoin(recordings, eq(recordings.id, waiting.recordingId))
-        .where(and(isNull(recordings.deletedAt), taskEditable(viewer)))
-        .groupBy(recordings.id)
-        .orderBy(desc(recordings.startTime));
+        .innerJoin(chatterItems, eq(chatterItems.id, waiting.recordingId))
+        .where(
+            and(
+                isNull(chatterItems.deletedAt),
+                taskEditable(viewer, ANY_TASK_ITEM),
+            ),
+        )
+        .groupBy(chatterItems.id)
+        .orderBy(desc(chatterItems.occurredAt));
     return rows.map((row) => ({
         recordingId: row.recordingId,
+        kind: row.kind,
         title: decryptText(row.title),
         proposals: row.proposals,
     }));
@@ -1094,6 +1212,8 @@ export interface TaskListItem extends TaskView {
         startTime: string;
         /** The view the viewer opens it in. */
         view: "private" | "org";
+        /** What the item is: a recording or a mail. */
+        kind: "audio" | "mail";
     };
 }
 
@@ -1114,18 +1234,18 @@ export async function listTasks(
 ): Promise<TaskListItem[]> {
     const conditions: (SQL | undefined)[] = [
         ne(recordingTasks.status, "proposed"),
-        isNull(recordings.deletedAt),
+        isNull(chatterItems.deletedAt),
     ];
     const mine = assignedToViewer(viewer);
     if (query.tab === "mine") {
         if (viewer.isOrg) return [];
-        conditions.push(mine, taskVisible(viewer));
+        conditions.push(mine, taskVisible(viewer, ANY_TASK_ITEM));
     } else {
         conditions.push(
             viewer.isOrg
-                ? taskRecordingShared(viewer)
+                ? taskRecordingShared(viewer, ANY_TASK_ITEM)
                 : and(
-                      eq(recordings.userId, viewer.userId),
+                      eq(chatterItems.userId, viewer.userId),
                       eq(recordingTasks.userId, viewer.userId),
                   ),
             not(mine),
@@ -1135,7 +1255,9 @@ export async function listTasks(
         conditions.push(eq(recordingTasks.status, query.state));
     }
     if (query.folderId) {
-        conditions.push(await folderCondition(viewer.userId, query.folderId));
+        conditions.push(
+            await folderCondition(viewer.userId, query.folderId, ANY_TASK_ITEM),
+        );
     }
     if (query.due === "none") {
         conditions.push(isNull(recordingTasks.dueDate));
@@ -1173,25 +1295,30 @@ export interface CallerTaskQuery {
     recordingId: string | null;
     /** `YYYY-MM-DD`: due strictly before this day; undated tasks drop out. */
     dueBefore: string | null;
-    /** SQL over `recordings` the task's recording must also pass. */
+    /**
+     * SQL over `recordings` the task's recording must also pass: a task on
+     * a mail then drops out.
+     */
     recordingCondition: SQL | null;
     /** Continue after this position of the newest-first order. */
     after: Keyset | null;
     limit: number;
 }
 
+// A task on a mail is listed like one on a recording (D8: tasks learned
+// from mail stay visible under their own role; callers redact the mail).
 function callerTaskConditions(viewer: TaskViewer): SQL[] {
     return [
         ne(recordingTasks.status, "proposed"),
-        isNull(recordings.deletedAt),
-        taskListed(viewer),
+        isNull(chatterItems.deletedAt),
+        taskListed(viewer, ANY_TASK_ITEM),
     ];
 }
 
 /**
  * Every task in the viewer's lists (the Tasks page's tabs together; never
- * a proposal, never on a deleted recording) that passes the query, newest
- * first (`createdAt`, then `id`), `limit` at most after `after`.
+ * a proposal, never on a deleted recording or mail) that passes the query,
+ * newest first (`createdAt`, then `id`), `limit` at most after `after`.
  */
 export async function listCallerTasks(
     viewer: TaskViewer,
@@ -1207,7 +1334,7 @@ export async function listCallerTasks(
         );
     }
     if (query.recordingId) {
-        conditions.push(eq(recordingTasks.recordingId, query.recordingId));
+        conditions.push(eq(recordingTasks.itemId, query.recordingId));
     }
     if (query.dueBefore) {
         conditions.push(lt(recordingTasks.dueDate, query.dueBefore));
@@ -1253,14 +1380,17 @@ async function loadTaskListItems(
     const rows = await db
         .select({
             ...taskColumns,
-            canEdit: sql<boolean>`${taskEditable(viewer)}`,
-            canClose: sql<boolean>`${taskClosable(viewer)}`,
-            recordingOwner: recordings.userId,
-            recordingTitle: recordings.filename,
-            recordingStart: recordings.startTime,
+            canEdit: sql<boolean>`${taskEditable(viewer, ANY_TASK_ITEM)}`,
+            canClose: sql<boolean>`${taskClosable(viewer, ANY_TASK_ITEM)}`,
+            recordingOwner: chatterItems.userId,
+            recordingTitle: chatterItems.title,
+            recordingStart: chatterItems.occurredAt,
+            recordingKind: chatterItems.kind,
         })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
+        // Conditions over `recordings` (the MCP tools') keep to recordings.
+        .leftJoin(recordings, eq(recordings.id, recordingTasks.itemId))
         .leftJoin(people, assigneeJoin())
         .where(and(...conditions))
         .orderBy(...order)
@@ -1273,6 +1403,7 @@ async function loadTaskListItems(
             title: decryptText(row.recordingTitle),
             startTime: row.recordingStart.toISOString(),
             view: row.recordingOwner === viewer.userId ? "private" : "org",
+            kind: row.recordingKind,
         },
     }));
 }
@@ -1288,15 +1419,15 @@ export async function countNewTasks(viewer: TaskViewer): Promise<number> {
     const [row] = await db
         .select({ count: sql<number>`count(*)::int` })
         .from(recordingTasks)
-        .innerJoin(recordings, eq(recordings.id, recordingTasks.recordingId))
+        .innerJoin(chatterItems, eq(chatterItems.id, recordingTasks.itemId))
         .where(
             and(
                 eq(recordingTasks.status, "open"),
-                isNull(recordings.deletedAt),
+                isNull(chatterItems.deletedAt),
                 assignedToViewer(viewer),
-                taskVisible(viewer),
+                taskVisible(viewer, ANY_TASK_ITEM),
                 // Their own recording's tasks are not news to them.
-                ne(recordings.userId, viewer.userId),
+                ne(chatterItems.userId, viewer.userId),
                 settings?.seen
                     ? gt(recordingTasks.assignedAt, settings.seen)
                     : undefined,

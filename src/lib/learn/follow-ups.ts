@@ -9,7 +9,7 @@
 
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { asyncJobs, recordings } from "@/db/schema";
+import { asyncJobs, chatterItems } from "@/db/schema";
 import { LEARN_RELEASE_JOB_KIND } from "@/lib/learn/auto-learn";
 import { LEARN_CORRECT_JOB_KIND } from "@/lib/learn/correction-pass-queue";
 import { TITLE_JOB_KIND } from "@/lib/recordings/title-job";
@@ -38,13 +38,13 @@ export async function recordingFollowUps(
     recordingId: string,
 ): Promise<RecordingFollowUps | null> {
     const [recording] = await db
-        .select({ dueAt: recordings.summaryDueAt })
-        .from(recordings)
+        .select({ dueAt: chatterItems.summaryDueAt })
+        .from(chatterItems)
         .where(
             and(
-                eq(recordings.id, recordingId),
-                eq(recordings.userId, userId),
-                isNull(recordings.deletedAt),
+                eq(chatterItems.id, recordingId),
+                eq(chatterItems.userId, userId),
+                isNull(chatterItems.deletedAt),
             ),
         )
         .limit(1);

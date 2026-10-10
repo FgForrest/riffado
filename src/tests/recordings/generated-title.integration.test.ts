@@ -17,7 +17,7 @@ import {
     it,
     vi,
 } from "vitest";
-import { recordings, users } from "@/db/schema";
+import { chatterItems, users } from "@/db/schema";
 import {
     createMigratedTestDatabase,
     getTestDatabaseUrl,
@@ -63,6 +63,7 @@ import {
     storeGeneratedTitle,
     titleStillGenerated,
 } from "@/lib/recordings/generated-title";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -94,36 +95,34 @@ describeWithDatabase("storing a generated title (PostgreSQL)", () => {
     beforeEach(async () => {
         await db().delete(users);
         await db().insert(users).values({ id: ALICE, email: "a@x.test" });
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: ALICE,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("2026-09-01 10:00"),
-                duration: 60_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:01:00Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${ALICE}/rec.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: ALICE,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("2026-09-01 10:00"),
+            duration: 60_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:01:00Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${ALICE}/rec.mp3`,
+            plaudVersion: "1",
+        });
     });
 
     async function title() {
         const [row] = await db()
-            .select({ filename: recordings.filename })
-            .from(recordings)
-            .where(eq(recordings.id, REC));
+            .select({ filename: chatterItems.title })
+            .from(chatterItems)
+            .where(eq(chatterItems.id, REC));
         return decryptText(row?.filename ?? "");
     }
 
     /** What renaming does (`PATCH /api/recordings/[id]`). */
     const renamed = {
-        filename: encryptText("Budget review"),
+        title: encryptText("Budget review"),
         titleEditedAt: new Date(),
     };
 
@@ -135,9 +134,9 @@ describeWithDatabase("storing a generated title (PostgreSQL)", () => {
 
     it("keeps a title a person set", async () => {
         await db()
-            .update(recordings)
+            .update(chatterItems)
             .set(renamed)
-            .where(eq(recordings.id, REC));
+            .where(eq(chatterItems.id, REC));
 
         expect(await storeGeneratedTitle(ALICE, REC, "Weekly sync")).toBe(
             false,
@@ -157,9 +156,9 @@ describeWithDatabase("storing a generated title (PostgreSQL)", () => {
         });
         const rename = db().transaction(async (tx) => {
             await tx
-                .update(recordings)
+                .update(chatterItems)
                 .set(renamed)
-                .where(eq(recordings.id, REC));
+                .where(eq(chatterItems.id, REC));
             started();
             await committed;
         });

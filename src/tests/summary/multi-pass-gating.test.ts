@@ -19,6 +19,11 @@ import { DEFAULT_MERGE_PROMPT } from "@/lib/summary/multi-pass";
 
 // Without corrections a model reads the stored text as it is.
 // Task proposals read and write the database; covered on their own.
+// Mail's masking reads mail configuration; no mail is summarized here.
+vi.mock("@/lib/mail/redact", () => ({
+    maskedContentForModel: async (content: unknown) => content,
+    secretAddressMasker: async () => (text: string) => text,
+}));
 vi.mock("@/lib/tasks/access", () => ({
     taskViewerById: vi.fn(async () => ({})),
 }));
@@ -86,6 +91,7 @@ function selectChain() {
             table = t;
             return c;
         },
+        innerJoin: () => c,
         where: () => c,
         for: () => c,
         orderBy: () => c,

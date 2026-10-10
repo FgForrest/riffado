@@ -21,10 +21,11 @@ export function useSettingsNav(
     open: boolean,
     onClose: () => void,
     isHosted: boolean,
+    mailEnabled = false,
 ) {
     const settingsNav = useMemo(
-        () => buildSettingsNav({ isHosted }),
-        [isHosted],
+        () => buildSettingsNav({ isHosted, mailEnabled }),
+        [isHosted, mailEnabled],
     );
     const [activeSection, setActiveSection] =
         useState<SettingsSection>("providers");

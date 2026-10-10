@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import {
     decrypt,
+    decryptBuffer,
     decryptJSON,
     encrypt,
+    encryptBuffer,
     encryptJSON,
     generateEncryptionKey,
 } from "../lib/encryption";
@@ -110,5 +112,18 @@ describe("Encryption", () => {
 
             expect(key1).not.toBe(key2);
         });
+    });
+});
+
+describe("buffer encryption", () => {
+    it("round-trips bytes and refuses tampered ones", () => {
+        const plain = Buffer.from([0, 1, 2, 255, 13, 10, 0]);
+        const sealed = encryptBuffer(plain);
+        expect(sealed.subarray(0, 4).toString()).toBe("RFE1");
+        expect(decryptBuffer(sealed).equals(plain)).toBe(true);
+        const tampered = Buffer.from(sealed);
+        tampered[tampered.length - 1] ^= 1;
+        expect(() => decryptBuffer(tampered)).toThrow();
+        expect(() => decryptBuffer(Buffer.from("nope"))).toThrow();
     });
 });

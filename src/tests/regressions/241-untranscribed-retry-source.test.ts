@@ -54,16 +54,19 @@ function captureWhereExprs(): unknown[] {
     (db.select as Mock).mockImplementation(() => {
         const chain: {
             from: Mock;
+            innerJoin: Mock;
             where: Mock;
             orderBy: Mock;
             limit: Mock;
         } = {
             from: vi.fn(),
+            innerJoin: vi.fn(),
             where: vi.fn(),
             orderBy: vi.fn(),
             limit: vi.fn().mockResolvedValue([]),
         };
         chain.from.mockReturnValue(chain);
+        chain.innerJoin.mockReturnValue(chain);
         chain.where.mockImplementation((expr: unknown) => {
             whereExprs.push(expr);
             return chain;

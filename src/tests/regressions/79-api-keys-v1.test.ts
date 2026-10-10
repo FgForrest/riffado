@@ -198,6 +198,7 @@ describe("Issue #79 - API keys and v1 recordings", () => {
 
         let whereExpr: unknown;
         const listChain = {
+            innerJoin: vi.fn(),
             leftJoin: vi.fn(),
             where: vi.fn((expr: unknown) => {
                 whereExpr = expr;
@@ -210,9 +211,10 @@ describe("Issue #79 - API keys and v1 recordings", () => {
                                     userId: "user-79",
                                     deviceSn: "SN-1",
                                     plaudFileId: "plaud-1",
-                                    filename: "Scoped Recording",
+                                    title: "Scoped Recording",
+                                    titleEditedAt: null,
                                     duration: 1000,
-                                    startTime: now,
+                                    occurredAt: now,
                                     endTime: now,
                                     filesize: 100,
                                     fileMd5: "md5",
@@ -225,6 +227,9 @@ describe("Issue #79 - API keys and v1 recordings", () => {
                                     scene: null,
                                     isTrash: false,
                                     deletedAt: null,
+                                    summaryDueAt: null,
+                                    contentReapedAt: null,
+                                    summaryReapedAt: null,
                                     createdAt: now,
                                     updatedAt: now,
                                 },
@@ -237,6 +242,7 @@ describe("Issue #79 - API keys and v1 recordings", () => {
                 };
             }),
         };
+        listChain.innerJoin.mockReturnValue(listChain);
         listChain.leftJoin.mockReturnValue(listChain);
 
         (db.select as Mock)

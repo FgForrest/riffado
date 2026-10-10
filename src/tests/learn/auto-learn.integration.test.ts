@@ -22,8 +22,8 @@ import {
     apiCredentials,
     apiRateLimitBuckets,
     asyncJobs,
+    chatterItems,
     learnRuns,
-    recordings,
     transcriptions,
     userSettings,
     users,
@@ -108,6 +108,7 @@ import { titleJobHandler } from "@/lib/recordings/title-job-handler";
 import { enqueueTopicsJob } from "@/lib/topics/topics-job";
 import { upsertTranscription } from "@/lib/transcription/persist";
 import { emitEvent } from "@/lib/webhooks/emit";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -159,23 +160,21 @@ describeWithDatabase("automatic Learn holds (PostgreSQL)", () => {
                 defaultModel: "gpt-test",
                 isDefaultEnhancement: true,
             });
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 5_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:00:05Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/rec.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 5_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:00:05Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/rec.mp3`,
+            plaudVersion: "1",
+        });
         const turns = [
             { speaker: "speaker_0", startMs: 0, endMs: 5_000, text: "Ahoj." },
         ];
@@ -203,9 +202,9 @@ describeWithDatabase("automatic Learn holds (PostgreSQL)", () => {
     const dueAt = async () =>
         (
             await db()
-                .select({ at: recordings.summaryDueAt })
-                .from(recordings)
-                .where(eq(recordings.id, REC))
+                .select({ at: chatterItems.summaryDueAt })
+                .from(chatterItems)
+                .where(eq(chatterItems.id, REC))
         )[0]?.at ?? null;
 
     const kinds = async () =>
@@ -227,7 +226,7 @@ describeWithDatabase("automatic Learn holds (PostgreSQL)", () => {
             .values({
                 userId: OWNER,
                 scopeUserId: OWNER,
-                recordingId: REC,
+                itemId: REC,
                 transcriptionId,
                 view: "private",
                 actorUserId: OWNER,
@@ -259,9 +258,9 @@ describeWithDatabase("automatic Learn holds (PostgreSQL)", () => {
 
     const hold = () =>
         db()
-            .update(recordings)
+            .update(chatterItems)
             .set({ summaryDueAt: new Date(Date.now() + AUTO_LEARN_HOLD_MS) })
-            .where(eq(recordings.id, REC));
+            .where(eq(chatterItems.id, REC));
 
     it("holds the title, summary and topics and starts Learn, queuing nothing else", async () => {
         const before = Date.now();
@@ -396,31 +395,29 @@ describeWithDatabase("automatic Learn holds (PostgreSQL)", () => {
         await hold();
         await run("ready");
         // Behind it: a hold nothing holds any more.
-        await db()
-            .insert(recordings)
-            .values({
-                id: "rec-free",
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-free",
-                filename: encryptText("Free"),
-                duration: 5_000,
-                startTime: new Date("2026-09-01T11:00:00Z"),
-                endTime: new Date("2026-09-01T11:00:05Z"),
-                filesize: 11,
-                fileMd5: "1".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/free.mp3`,
-                plaudVersion: "1",
-                summaryDueAt: new Date(Date.now() + AUTO_LEARN_HOLD_MS + 1_000),
-            });
+        await insertRecordings(db(), {
+            id: "rec-free",
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-free",
+            filename: encryptText("Free"),
+            duration: 5_000,
+            startTime: new Date("2026-09-01T11:00:00Z"),
+            endTime: new Date("2026-09-01T11:00:05Z"),
+            filesize: 11,
+            fileMd5: "1".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/free.mp3`,
+            plaudVersion: "1",
+            summaryDueAt: new Date(Date.now() + AUTO_LEARN_HOLD_MS + 1_000),
+        });
 
         // A batch of one.
         expect(await sweepAutoLearnHolds(new Date(), 1)).toBe(1);
         const [free] = await db()
-            .select({ at: recordings.summaryDueAt })
-            .from(recordings)
-            .where(eq(recordings.id, "rec-free"));
+            .select({ at: chatterItems.summaryDueAt })
+            .from(chatterItems)
+            .where(eq(chatterItems.id, "rec-free"));
         expect(free?.at).toBeNull();
         expect(await dueAt()).not.toBeNull();
     });
@@ -516,7 +513,7 @@ describeWithDatabase("automatic Learn holds (PostgreSQL)", () => {
         await db()
             .insert(aiEnhancements)
             .values({
-                recordingId: REC,
+                itemId: REC,
                 userId: OWNER,
                 transcriptionId: riffadoId,
                 summary: encryptText("Made before the review."),
@@ -591,7 +588,7 @@ describeWithDatabase("automatic Learn holds (PostgreSQL)", () => {
         await db()
             .insert(aiEnhancements)
             .values({
-                recordingId: REC,
+                itemId: REC,
                 userId: OWNER,
                 summary: encryptText("Their own summary."),
                 provider: "openai",
@@ -608,7 +605,7 @@ describeWithDatabase("automatic Learn holds (PostgreSQL)", () => {
             .from(aiEnhancements)
             .where(
                 and(
-                    eq(aiEnhancements.recordingId, REC),
+                    eq(aiEnhancements.itemId, REC),
                     eq(aiEnhancements.userId, OWNER),
                 ),
             );
@@ -630,9 +627,9 @@ describeWithDatabase("automatic Learn holds (PostgreSQL)", () => {
             decryptText(
                 (
                     await db()
-                        .select({ filename: recordings.filename })
-                        .from(recordings)
-                        .where(eq(recordings.id, REC))
+                        .select({ filename: chatterItems.title })
+                        .from(chatterItems)
+                        .where(eq(chatterItems.id, REC))
                 )[0]?.filename ?? "",
             );
 
@@ -657,12 +654,12 @@ describeWithDatabase("automatic Learn holds (PostgreSQL)", () => {
 
         it("keeps a title the person set while it waited", async () => {
             await db()
-                .update(recordings)
+                .update(chatterItems)
                 .set({
-                    filename: encryptText("Their name"),
+                    title: encryptText("Their name"),
                     titleEditedAt: new Date(),
                 })
-                .where(eq(recordings.id, REC));
+                .where(eq(chatterItems.id, REC));
             vi.mocked(emitEvent).mockClear();
 
             expect(await runTitle()).toEqual({ retitled: false });

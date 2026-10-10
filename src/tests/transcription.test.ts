@@ -101,7 +101,7 @@ vi.mock("@/lib/knowledge/speaker-labels", () => ({
 
 import { OpenAI } from "openai";
 import { db } from "@/db";
-import { recordings } from "@/db/schema";
+import { chatterItems, recordings } from "@/db/schema";
 import { generateTitleFromTranscription } from "@/lib/ai/generate-title";
 import { refreshExistingRecordingSidecars } from "@/lib/export/document-sidecars";
 import { transcriptRewrittenInTx } from "@/lib/knowledge/transcript-rewrite";
@@ -112,6 +112,17 @@ import {
 } from "@/lib/transcription/transcribe-recording";
 import { emitEvent } from "@/lib/webhooks/emit";
 import { exprReferencesColumn } from "./fixtures/drizzle-expr";
+
+/** The recording lookup: a recording joined to its item. */
+function recordingLookup(rows: unknown[]) {
+    const chain = {
+        from: () => chain,
+        innerJoin: () => chain,
+        where: () => chain,
+        limit: vi.fn().mockResolvedValue(rows),
+    };
+    return chain;
+}
 
 describe("Transcription", () => {
     const mockUserId = "user-123";
@@ -136,13 +147,7 @@ describe("Transcription", () => {
 
     describe("transcribeRecording", () => {
         it("should return error when recording not found", async () => {
-            (db.select as Mock).mockReturnValue({
-                from: vi.fn().mockReturnValue({
-                    where: vi.fn().mockReturnValue({
-                        limit: vi.fn().mockResolvedValue([]),
-                    }),
-                }),
-            });
+            (db.select as Mock).mockReturnValue(recordingLookup([]));
 
             const result = await transcribeRecording(
                 mockUserId,
@@ -155,18 +160,11 @@ describe("Transcription", () => {
 
         it("should return success when transcription already exists", async () => {
             (db.select as Mock)
-                .mockReturnValueOnce({
-                    from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            limit: vi.fn().mockResolvedValue([
-                                {
-                                    id: mockRecordingId,
-                                    filename: "test.mp3",
-                                },
-                            ]),
-                        }),
-                    }),
-                })
+                .mockReturnValueOnce(
+                    recordingLookup([
+                        { id: mockRecordingId, title: "test.mp3" },
+                    ]),
+                )
                 .mockReturnValueOnce({
                     from: vi.fn().mockReturnValue({
                         where: vi.fn().mockReturnValue({
@@ -189,19 +187,15 @@ describe("Transcription", () => {
 
         it("should return error when no API credentials configured", async () => {
             (db.select as Mock)
-                .mockReturnValueOnce({
-                    from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            limit: vi.fn().mockResolvedValue([
-                                {
-                                    id: mockRecordingId,
-                                    filename: "test.mp3",
-                                    storagePath: "test.mp3",
-                                },
-                            ]),
-                        }),
-                    }),
-                })
+                .mockReturnValueOnce(
+                    recordingLookup([
+                        {
+                            id: mockRecordingId,
+                            title: "test.mp3",
+                            storagePath: "test.mp3",
+                        },
+                    ]),
+                )
                 .mockReturnValueOnce({
                     from: vi.fn().mockReturnValue({
                         where: vi.fn().mockReturnValue({
@@ -226,19 +220,15 @@ describe("Transcription", () => {
             (isMynahConfigured as Mock).mockReturnValueOnce(true);
 
             (db.select as Mock)
-                .mockReturnValueOnce({
-                    from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            limit: vi.fn().mockResolvedValue([
-                                {
-                                    id: mockRecordingId,
-                                    filename: "test.mp3",
-                                    storagePath: "test.mp3",
-                                },
-                            ]),
-                        }),
-                    }),
-                })
+                .mockReturnValueOnce(
+                    recordingLookup([
+                        {
+                            id: mockRecordingId,
+                            title: "test.mp3",
+                            storagePath: "test.mp3",
+                        },
+                    ]),
+                )
                 .mockReturnValueOnce({
                     from: vi.fn().mockReturnValue({
                         where: vi.fn().mockReturnValue({
@@ -278,19 +268,15 @@ describe("Transcription", () => {
             });
 
             (db.select as Mock)
-                .mockReturnValueOnce({
-                    from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            limit: vi.fn().mockResolvedValue([
-                                {
-                                    id: mockRecordingId,
-                                    filename: "test.mp3",
-                                    storagePath: "test.mp3",
-                                },
-                            ]),
-                        }),
-                    }),
-                })
+                .mockReturnValueOnce(
+                    recordingLookup([
+                        {
+                            id: mockRecordingId,
+                            title: "test.mp3",
+                            storagePath: "test.mp3",
+                        },
+                    ]),
+                )
                 .mockReturnValueOnce({
                     from: vi.fn().mockReturnValue({
                         where: vi.fn().mockReturnValue({
@@ -358,22 +344,18 @@ describe("Transcription", () => {
             );
 
             (db.select as Mock)
-                .mockReturnValueOnce({
-                    from: vi.fn().mockReturnValue({
-                        where: vi.fn().mockReturnValue({
-                            limit: vi.fn().mockResolvedValue([
-                                {
-                                    id: mockRecordingId,
-                                    userId: mockUserId,
-                                    plaudFileId: "plaud-1",
-                                    filename: "Original Title",
-                                    storagePath: "test.mp3",
-                                    deletedAt: null,
-                                },
-                            ]),
-                        }),
-                    }),
-                })
+                .mockReturnValueOnce(
+                    recordingLookup([
+                        {
+                            id: mockRecordingId,
+                            userId: mockUserId,
+                            plaudFileId: "plaud-1",
+                            title: "Original Title",
+                            storagePath: "test.mp3",
+                            deletedAt: null,
+                        },
+                    ]),
+                )
                 .mockReturnValueOnce({
                     from: vi.fn().mockReturnValue({
                         where: vi.fn().mockReturnValue({
@@ -420,22 +402,18 @@ describe("Transcription", () => {
             const txUpdate = vi.fn().mockReturnValue({
                 set: recordingBumpSet,
             });
+            // The transcript write locks the recording joined to its item.
+            const recordingLock = {
+                from: () => recordingLock,
+                innerJoin: () => recordingLock,
+                where: () => recordingLock,
+                for: () => recordingLock,
+                limit: () => Promise.resolve([{ deletedAt: null }]),
+            };
             const tx = {
                 select: vi
                     .fn()
-                    .mockReturnValueOnce({
-                        from: vi.fn().mockReturnValue({
-                            where: vi.fn().mockReturnValue({
-                                for: vi.fn().mockReturnValue({
-                                    limit: vi
-                                        .fn()
-                                        .mockResolvedValue([
-                                            { deletedAt: null },
-                                        ]),
-                                }),
-                            }),
-                        }),
-                    })
+                    .mockReturnValueOnce(recordingLock)
                     .mockReturnValueOnce({
                         from: vi.fn().mockReturnValue({
                             where: vi.fn().mockReturnValue({
@@ -513,14 +491,28 @@ describe("Transcription", () => {
 
             expect(result.success).toBe(true);
             expect(txInsert).toHaveBeenCalled();
-            expect(txUpdate).toHaveBeenCalledWith(recordings);
-            expect(recordingBumpSet).toHaveBeenCalledWith({
+            expect(txUpdate.mock.calls.map(([table]) => table)).toEqual([
+                recordings,
+                chatterItems,
+            ]);
+            expect(recordingBumpSet.mock.calls.map(([set]) => set)).toEqual([
+                { updatedAt: expect.any(Date) },
+                {
+                    updatedAt: expect.any(Date),
+                    // Persisting a transcript also clears any retention marker.
+                    contentReapedAt: null,
+                },
+            ]);
+            // The title is the item's; the recording's own updatedAt moves
+            // with it.
+            expect(
+                (db.update as Mock).mock.calls.map(([table]) => table),
+            ).toEqual([chatterItems, recordings]);
+            expect(titleUpdateSet).toHaveBeenNthCalledWith(1, {
+                title: "v1:encrypted:Generated Title",
                 updatedAt: expect.any(Date),
-                // Persisting a transcript also clears any retention marker.
-                transcriptReapedAt: null,
             });
-            expect(titleUpdateSet).toHaveBeenCalledWith({
-                filename: "v1:encrypted:Generated Title",
+            expect(titleUpdateSet).toHaveBeenNthCalledWith(2, {
                 updatedAt: expect.any(Date),
             });
             expect(emitEvent).toHaveBeenCalledWith(
@@ -559,7 +551,7 @@ describe("Transcription", () => {
             expect(
                 exprReferencesColumn(
                     titleUpdateWhere.mock.calls[0]?.[0],
-                    recordings.titleEditedAt,
+                    chatterItems.titleEditedAt,
                 ),
             ).toBe(true);
             expect(refreshExistingRecordingSidecars).not.toHaveBeenCalled();

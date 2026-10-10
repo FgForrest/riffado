@@ -29,6 +29,7 @@ export interface ExportTarget {
     exportAudio: boolean;
     exportTranscript: boolean;
     exportSummary: boolean;
+    exportMail: boolean;
     googleDrive: GoogleDriveTarget | null;
     /** Filesystem: when entries written before ownership tracking were adopted. */
     nodesAdoptedAt: Date | null;
@@ -46,6 +47,7 @@ async function selectTargets(where: SQL | undefined): Promise<ExportTarget[]> {
             exportAudio: folderExportConfigurations.exportAudio,
             exportTranscript: folderExportConfigurations.exportTranscript,
             exportSummary: folderExportConfigurations.exportSummary,
+            exportMail: folderExportConfigurations.exportMail,
             lastError: folderExportConfigurations.lastError,
             lastErrorAt: folderExportConfigurations.lastErrorAt,
             filesystemPath: filesystemExportSettings.targetPath,
@@ -83,6 +85,7 @@ async function selectTargets(where: SQL | undefined): Promise<ExportTarget[]> {
             exportAudio: row.exportAudio,
             exportTranscript: row.exportTranscript,
             exportSummary: row.exportSummary,
+            exportMail: row.exportMail,
             lastError: row.lastError,
             lastErrorAt: row.lastErrorAt,
         };
@@ -144,6 +147,7 @@ export function toConfigurationDto(
         exportAudio: target.exportAudio,
         exportTranscript: target.exportTranscript,
         exportSummary: target.exportSummary,
+        exportMail: target.exportMail,
         lastError: target.lastError,
         lastErrorAt: target.lastErrorAt?.toISOString() ?? null,
         googleDrive: drive

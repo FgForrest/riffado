@@ -1,6 +1,7 @@
 import { Readable } from "node:stream";
 import unzipper from "unzipper";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type * as Schema from "@/db/schema";
 import type { StorageProvider } from "@/lib/storage/types";
 
 const { dbMock, archivedTasks } = vi.hoisted(() => ({
@@ -14,12 +15,22 @@ vi.mock("@/lib/tasks/archive", () => ({
     taskUpdatesForArchive: vi.fn(async () => new Map()),
     archivedAssigneeIds: vi.fn(() => []),
 }));
-vi.mock("@/db/schema", () => ({
+vi.mock("@/lib/mail/archive", () => ({
+    collectArchivedMail: vi.fn().mockResolvedValue([]),
+}));
+vi.mock("@/lib/encryption", () => ({
+    decryptBuffer: (value: Buffer) => value,
+}));
+vi.mock("@/db/schema", async (importOriginal) => ({
+    // The recording reads select `audioItemColumns`, which is derived from
+    // the real recording and item tables.
+    recordings: (await importOriginal<typeof Schema>()).recordings,
+    chatterItems: (await importOriginal<typeof Schema>()).chatterItems,
     users: { id: "users.id", role: "users.role" },
     learnRuns: {
         id: "learnRuns.id",
         scopeUserId: "learnRuns.scopeUserId",
-        recordingId: "learnRuns.recordingId",
+        itemId: "learnRuns.itemId",
         transcriptionId: "learnRuns.transcriptionId",
         view: "learnRuns.view",
         trigger: "learnRuns.trigger",
@@ -40,7 +51,6 @@ vi.mock("@/db/schema", () => ({
         dependsOnLabel: "learnReviewItems.dependsOnLabel",
         payload: "learnReviewItems.payload",
     },
-    recordings: "recordings",
     transcriptions: "transcriptions",
     aiEnhancements: "aiEnhancements",
     aiUsageEvents: {
@@ -94,13 +104,18 @@ vi.mock("@/db/schema", () => ({
     },
     recordingFolderAssignments: {
         userId: "recordingFolderAssignments.userId",
-        recordingId: "recordingFolderAssignments.recordingId",
+        itemId: "recordingFolderAssignments.itemId",
         folderId: "recordingFolderAssignments.folderId",
     },
     personNotes: {
         personId: "personNotes.personId",
         userId: "personNotes.userId",
         notes: "personNotes.notes",
+    },
+    personEmails: {
+        __table: "personEmails",
+        personId: "personEmails.personId",
+        email: "personEmails.email",
     },
     transcriptCorrections: {
         userId: "transcriptCorrections.userId",
@@ -153,7 +168,7 @@ vi.mock("@/db/schema", () => ({
         userId: "knowledgeFactEvidence.userId",
         factId: "knowledgeFactEvidence.factId",
         transcriptionId: "knowledgeFactEvidence.transcriptionId",
-        recordingId: "knowledgeFactEvidence.recordingId",
+        itemId: "knowledgeFactEvidence.itemId",
         transcriptRevision: "knowledgeFactEvidence.transcriptRevision",
         startMs: "knowledgeFactEvidence.startMs",
         endMs: "knowledgeFactEvidence.endMs",
@@ -221,6 +236,10 @@ function mockSelectSequence(
             }
             if (table?.__table === "apiCredentials") {
                 return { where: () => Promise.resolve(extras.rates ?? []) };
+            }
+            // Nobody here has an address beside their primary email.
+            if (table?.__table === "personEmails") {
+                return { where: () => Promise.resolve([]) };
             }
             // The folder assignment read joins its folder; the join itself
             // adds nothing a canned result needs to reproduce.
@@ -350,8 +369,8 @@ describe("buildAndUploadExportArchive", () => {
                     {
                         id: "rec-1",
                         userId: "user-1",
-                        filename: "enc-recording",
-                        startTime: date,
+                        title: "enc-recording",
+                        occurredAt: date,
                         endTime: date,
                         duration: 1000,
                         filesize: 0,
@@ -366,7 +385,7 @@ describe("buildAndUploadExportArchive", () => {
                 usage: [
                     {
                         id: "usage-1",
-                        recordingId: "rec-1",
+                        itemId: "rec-1",
                         payerUserId: "user-1",
                         operation: "transcription",
                         costUsd: "0.006000000",
@@ -622,8 +641,8 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "rec-1",
                     userId: "user-1",
-                    filename: "enc-recording",
-                    startTime: new Date("2026-01-03T00:00:00Z"),
+                    title: "enc-recording",
+                    occurredAt: new Date("2026-01-03T00:00:00Z"),
                     endTime: new Date("2026-01-03T00:01:00Z"),
                     duration: 60_000,
                     filesize: 0,
@@ -974,8 +993,8 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "rec-1",
                     userId: "user-1",
-                    filename: "enc-filename",
-                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    title: "enc-filename",
+                    occurredAt: new Date("2026-01-01T00:00:00Z"),
                     endTime: new Date("2026-01-01T00:01:00Z"),
                     duration: 60000,
                     filesize: 5,
@@ -1049,8 +1068,8 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "rec-1",
                     userId: "user-1",
-                    filename: "enc-filename",
-                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    title: "enc-filename",
+                    occurredAt: new Date("2026-01-01T00:00:00Z"),
                     endTime: new Date("2026-01-01T00:01:00Z"),
                     duration: 60000,
                     filesize: 5,
@@ -1111,8 +1130,8 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "rec-1",
                     userId: "user-1",
-                    filename: "enc-filename",
-                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    title: "enc-filename",
+                    occurredAt: new Date("2026-01-01T00:00:00Z"),
                     endTime: new Date("2026-01-01T00:01:00Z"),
                     duration: 60000,
                     filesize: 5,
@@ -1172,8 +1191,8 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "rec-1",
                     userId: "user-1",
-                    filename: "enc-filename",
-                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    title: "enc-filename",
+                    occurredAt: new Date("2026-01-01T00:00:00Z"),
                     endTime: new Date("2026-01-01T00:01:00Z"),
                     duration: 60000,
                     filesize: 5,
@@ -1293,8 +1312,8 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "rec-1",
                     userId: "user-1",
-                    filename: "enc-filename",
-                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    title: "enc-filename",
+                    occurredAt: new Date("2026-01-01T00:00:00Z"),
                     endTime: new Date("2026-01-01T00:01:00Z"),
                     duration: 60000,
                     filesize: 18,
@@ -1313,7 +1332,7 @@ describe("buildAndUploadExportArchive", () => {
             ],
             [
                 {
-                    recordingId: "rec-1",
+                    itemId: "rec-1",
                     summary: "A concise summary",
                     actionItems: ["do a thing"],
                     keyPoints: ["key point"],
@@ -1391,8 +1410,8 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "rec-1",
                     userId: "user-1",
-                    filename: "enc-filename",
-                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    title: "enc-filename",
+                    occurredAt: new Date("2026-01-01T00:00:00Z"),
                     endTime: new Date("2026-01-01T00:01:00Z"),
                     duration: 60000,
                     filesize: 18,
@@ -1442,8 +1461,8 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "rec-1",
                     userId: "user-1",
-                    filename: "enc-filename",
-                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    title: "enc-filename",
+                    occurredAt: new Date("2026-01-01T00:00:00Z"),
                     endTime: new Date("2026-01-01T00:01:00Z"),
                     duration: 60000,
                     filesize: 256 * 1024,
@@ -1477,8 +1496,8 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "rec-missing",
                     userId: "user-1",
-                    filename: "enc-filename",
-                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    title: "enc-filename",
+                    occurredAt: new Date("2026-01-01T00:00:00Z"),
                     endTime: new Date("2026-01-01T00:01:00Z"),
                     duration: 1000,
                     filesize: 0,
@@ -1554,8 +1573,8 @@ describe("buildAndUploadExportArchive", () => {
                 {
                     id: "rec-stuck",
                     userId: "user-1",
-                    filename: "enc-filename",
-                    startTime: new Date("2026-01-01T00:00:00Z"),
+                    title: "enc-filename",
+                    occurredAt: new Date("2026-01-01T00:00:00Z"),
                     endTime: new Date("2026-01-01T00:01:00Z"),
                     duration: 1000,
                     filesize: 100,

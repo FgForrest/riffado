@@ -2,6 +2,7 @@ import { and, eq, inArray, isNull, type SQL, sql } from "drizzle-orm";
 import type { db } from "@/db";
 import {
     aiEnhancements,
+    type EvidenceProvenance,
     people,
     recordingTaskRejections,
     recordingTasks,
@@ -43,6 +44,21 @@ export interface ProposedTask {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    /** Where in a mail the quote is: a range of one segment's text. */
+    evidenceText?: TextEvidence | null;
+    /**
+     * The quote is in a quoted part of a mail, by a sender nothing
+     * verified, or not found in a mail with quoted parts: the proposal then
+     * starts unticked.
+     */
+    evidenceProvenance?: EvidenceProvenance | null;
+}
+
+/** A range of one segment of a mail's content. */
+export interface TextEvidence {
+    segmentIndex: number;
+    charStart: number;
+    charEnd: number;
 }
 
 export interface ProposedTaskUpdate {
@@ -52,6 +68,8 @@ export interface ProposedTaskUpdate {
     duePhrase: string | null;
     quote: string | null;
     evidenceStartMs: number | null;
+    evidenceText?: TextEvidence | null;
+    evidenceProvenance?: EvidenceProvenance | null;
 }
 
 /** What one summary proposes, ready to store. */
@@ -92,7 +110,7 @@ export async function writeTaskProposalsInTx(
         .delete(recordingTasks)
         .where(
             and(
-                eq(recordingTasks.recordingId, recordingId),
+                eq(recordingTasks.itemId, recordingId),
                 eq(recordingTasks.userId, ownerUserId),
                 eq(recordingTasks.status, "proposed"),
                 eq(recordingTasks.source, proposals.source),
@@ -105,7 +123,7 @@ export async function writeTaskProposalsInTx(
         .delete(taskUpdateProposals)
         .where(
             and(
-                eq(taskUpdateProposals.recordingId, recordingId),
+                eq(taskUpdateProposals.itemId, recordingId),
                 eq(taskUpdateProposals.userId, ownerUserId),
                 sql`(${taskUpdateProposals.version} = 0 or not ${liveFollowUpCondition()})`,
             ),
@@ -120,7 +138,7 @@ export async function writeTaskProposalsInTx(
                 .from(recordingTaskRejections)
                 .where(
                     and(
-                        eq(recordingTaskRejections.recordingId, recordingId),
+                        eq(recordingTaskRejections.itemId, recordingId),
                         eq(recordingTaskRejections.userId, ownerUserId),
                     ),
                 )
@@ -134,7 +152,7 @@ export async function writeTaskProposalsInTx(
         .from(recordingTasks)
         .where(
             and(
-                eq(recordingTasks.recordingId, recordingId),
+                eq(recordingTasks.itemId, recordingId),
                 eq(recordingTasks.userId, ownerUserId),
             ),
         );
@@ -191,7 +209,7 @@ export async function writeTaskProposalsInTx(
         known.add(fingerprint);
         position += 1;
         rows.push({
-            recordingId,
+            itemId: recordingId,
             userId: ownerUserId,
             status: "proposed" as const,
             text: encryptText(task.text),
@@ -205,8 +223,12 @@ export async function writeTaskProposalsInTx(
             duePhrase: encryptText(task.duePhrase),
             quote: encryptText(task.quote),
             evidenceStartMs: task.evidenceStartMs,
+            evidenceSegmentIndex: task.evidenceText?.segmentIndex ?? null,
+            evidenceCharStart: task.evidenceText?.charStart ?? null,
+            evidenceCharEnd: task.evidenceText?.charEnd ?? null,
+            evidenceProvenance: task.evidenceProvenance ?? null,
             source: proposals.source,
-            ticked: !task.assigneeCheck,
+            ticked: !task.assigneeCheck && !task.evidenceProvenance,
             position,
             createdByUserId: actorUserId,
         });
@@ -222,13 +244,18 @@ export async function writeTaskProposalsInTx(
             .values(
                 updates.map((update) => ({
                     taskId: update.taskId,
-                    recordingId,
+                    itemId: recordingId,
                     userId: ownerUserId,
                     kind: update.kind,
                     dueDate: update.dueDate,
                     duePhrase: encryptText(update.duePhrase),
                     quote: encryptText(update.quote),
                     evidenceStartMs: update.evidenceStartMs,
+                    evidenceSegmentIndex:
+                        update.evidenceText?.segmentIndex ?? null,
+                    evidenceCharStart: update.evidenceText?.charStart ?? null,
+                    evidenceCharEnd: update.evidenceText?.charEnd ?? null,
+                    evidenceProvenance: update.evidenceProvenance ?? null,
                 })),
             )
             .onConflictDoNothing();
@@ -245,13 +272,13 @@ export async function deleteRecordingTasksInTx(
 ): Promise<void> {
     await tx
         .delete(taskUpdateProposals)
-        .where(eq(taskUpdateProposals.recordingId, recordingId));
+        .where(eq(taskUpdateProposals.itemId, recordingId));
     await tx
         .delete(recordingTasks)
-        .where(eq(recordingTasks.recordingId, recordingId));
+        .where(eq(recordingTasks.itemId, recordingId));
     await tx
         .delete(recordingTaskRejections)
-        .where(eq(recordingTaskRejections.recordingId, recordingId));
+        .where(eq(recordingTaskRejections.itemId, recordingId));
 }
 
 /**
@@ -268,7 +295,7 @@ export async function dropTasksWithoutSummaryInTx(
         .from(aiEnhancements)
         .where(
             and(
-                eq(aiEnhancements.recordingId, recordingId),
+                eq(aiEnhancements.itemId, recordingId),
                 eq(aiEnhancements.userId, ownerUserId),
             ),
         )

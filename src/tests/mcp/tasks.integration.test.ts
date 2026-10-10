@@ -217,12 +217,14 @@ describeWithDatabase("MCP task tools (PostgreSQL)", () => {
             evidenceStartMs?: number;
         },
     ): Promise<void> {
-        const { text, assigneeHint, duePhrase, quote, ...rest } = values;
+        const { text, assigneeHint, duePhrase, quote, recordingId, ...rest } =
+            values;
         const [row] = await db()
             .insert(recordingTasks)
             .values({
                 status: "open",
                 ...rest,
+                itemId: recordingId,
                 text: encryptText(text),
                 assigneeHint: assigneeHint ? encryptText(assigneeHint) : null,
                 duePhrase: duePhrase ? encryptText(duePhrase) : null,
@@ -450,6 +452,7 @@ describeWithDatabase("MCP task tools (PostgreSQL)", () => {
                 due_phrase: "by Friday",
                 quote: "Petra needs the pricing page ready by Friday",
                 start_ms: 12_000,
+                kind: "audio",
                 version: 0,
                 can_edit: false,
                 can_close: false,

@@ -56,6 +56,7 @@ interface FormState {
     exportAudio: boolean;
     exportTranscript: boolean;
     exportSummary: boolean;
+    exportMail: boolean;
 }
 
 /**
@@ -75,6 +76,7 @@ function emptyForm(provider: FolderExportProviderType): FormState {
         exportAudio: true,
         exportTranscript: true,
         exportSummary: true,
+        exportMail: false,
     };
 }
 
@@ -95,6 +97,7 @@ function formFor(configuration: FolderExportConfigurationDto): FormState {
         exportAudio: configuration.exportAudio,
         exportTranscript: configuration.exportTranscript,
         exportSummary: configuration.exportSummary,
+        exportMail: configuration.exportMail,
     };
 }
 
@@ -211,6 +214,7 @@ export function FolderExportActions({
             exportAudio: form.exportAudio,
             exportTranscript: form.exportTranscript,
             exportSummary: form.exportSummary,
+            exportMail: form.exportMail,
         };
         try {
             const response = await fetch(url, {
@@ -312,6 +316,7 @@ export function FolderExportActions({
             configuration.exportAudio && i18n("Audio"),
             configuration.exportTranscript && i18n("Transcript"),
             configuration.exportSummary && i18n("Summary"),
+            configuration.exportMail && i18n("Mail"),
         ]
             .filter(Boolean)
             .join(", ");
@@ -326,7 +331,10 @@ export function FolderExportActions({
     const canSave =
         form !== null &&
         !saving &&
-        (form.exportAudio || form.exportTranscript || form.exportSummary) &&
+        (form.exportAudio ||
+            form.exportTranscript ||
+            form.exportSummary ||
+            form.exportMail) &&
         (form.provider === "filesystem"
             ? form.targetPath.trim().length > 0
             : form.driveFolder !== null && driveReady);
@@ -474,6 +482,16 @@ export function FolderExportActions({
                                         "exportSummary",
                                         i18n("Summary (all variants)"),
                                     ],
+                                    ...(providers.mail || form.exportMail
+                                        ? ([
+                                              [
+                                                  "exportMail",
+                                                  i18n(
+                                                      "Mail (the message and a Markdown document)",
+                                                  ),
+                                              ],
+                                          ] as const)
+                                        : []),
                                 ] as const
                             ).map(([key, label]) => (
                                 <div
@@ -493,7 +511,8 @@ export function FolderExportActions({
                                         />
                                     </div>
                                     {form.provider === "google-drive" &&
-                                        key !== "exportAudio" &&
+                                        (key === "exportTranscript" ||
+                                            key === "exportSummary") &&
                                         form[key] && (
                                             <Select
                                                 value={

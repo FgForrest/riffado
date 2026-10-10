@@ -9,7 +9,8 @@ import {
     notInArray,
 } from "drizzle-orm";
 import { db } from "@/db";
-import { recordings, transcriptions } from "@/db/schema";
+import { recordingItemJoin } from "@/db/items";
+import { chatterItems, recordings, transcriptions } from "@/db/schema";
 import { sharedRecordingCondition } from "@/lib/sharing/shared";
 
 /** Max already-synced recordings to retry per sync. */
@@ -69,7 +70,7 @@ export async function listUntranscribedRecordingIds(
         // recordings straight back to auto-transcribe, re-creating at
         // provider cost the very transcripts the user asked to have
         // deleted -- and the next sweep would delete them again, forever.
-        isNull(recordings.transcriptReapedAt),
+        isNull(chatterItems.contentReapedAt),
         // Likewise, a recording whose audio has been reaped has nothing
         // left to send to a provider. `transcribeRecording` refuses these,
         // so queueing them would only burn sync work on certain failures.
@@ -90,6 +91,7 @@ export async function listUntranscribedRecordingIds(
     const rows = await db
         .select({ id: recordings.id })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(and(...conditions))
         .orderBy(desc(recordings.createdAt), desc(recordings.id))
         .limit(limit);

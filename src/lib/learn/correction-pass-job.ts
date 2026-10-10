@@ -178,7 +178,12 @@ async function runPass({
             return { skipped: "superseded", written: 0, pass };
         }
         const orgUserId = await sharingOrgUserId();
-        if (!(await mayStillRun(pass, orgUserId))) {
+        if (
+            !(await mayStillRun(
+                { ...pass, itemId: pass.recordingId },
+                orgUserId,
+            ))
+        ) {
             await setStatus(pass.id, "cancelled");
             return { skipped: "not allowed", written: 0, pass };
         }

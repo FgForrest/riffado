@@ -3,8 +3,10 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
     aiEnhancements,
+    chatterItems,
     folderExportConfigurations,
     folderExportMaterializations,
+    mailMessages,
     recordings,
     transcriptions,
 } from "@/db/schema";
@@ -17,8 +19,10 @@ import {
     ancestorFolderIds,
     descendantFolderIds,
 } from "@/lib/folders/hierarchy";
+import { mailMarkdownDocument } from "@/lib/mail/export-document";
+import { readRawMail } from "@/lib/mail/raw-storage";
 import { isOrgAccount } from "@/lib/org/config";
-import { sharedRecordingCondition } from "@/lib/sharing/shared";
+import { sharedItemCondition } from "@/lib/sharing/shared";
 import { createUserStorageProvider } from "@/lib/storage/factory";
 import { enqueueExportMaterialization, enqueueExportPlan } from "./jobs";
 import { withExportLock } from "./lock";
@@ -64,12 +68,12 @@ async function materializeLocked(
     materializationId: string,
 ): Promise<boolean> {
     // The organization account's exports carry other people's shared
-    // recordings; everyone else's carry only their own.
+    // recordings and mail; everyone else's carry only their own.
     const isOrg = await isOrgAccount(userId);
     const [state] = await db
         .select({
             id: folderExportMaterializations.id,
-            recordingId: folderExportMaterializations.recordingId,
+            recordingId: folderExportMaterializations.itemId,
             artifactId: folderExportMaterializations.artifactId,
             artifactType: folderExportMaterializations.artifactType,
             format: folderExportMaterializations.format,
@@ -83,7 +87,9 @@ async function materializeLocked(
             plaudVersion: recordings.plaudVersion,
             filesize: recordings.filesize,
             audioReapedAt: recordings.audioReapedAt,
-            ownerUserId: recordings.userId,
+            rawHash: mailMessages.rawHash,
+            rawStoragePath: mailMessages.rawStoragePath,
+            ownerUserId: chatterItems.userId,
         })
         .from(folderExportMaterializations)
         .innerJoin(
@@ -94,8 +100,22 @@ async function materializeLocked(
             ),
         )
         .innerJoin(
+            chatterItems,
+            eq(chatterItems.id, folderExportMaterializations.itemId),
+        )
+        .leftJoin(
             recordings,
-            eq(recordings.id, folderExportMaterializations.recordingId),
+            and(
+                eq(recordings.id, chatterItems.id),
+                eq(recordings.userId, chatterItems.userId),
+            ),
+        )
+        .leftJoin(
+            mailMessages,
+            and(
+                eq(mailMessages.id, chatterItems.id),
+                eq(mailMessages.userId, chatterItems.userId),
+            ),
         )
         .where(
             and(
@@ -103,8 +123,8 @@ async function materializeLocked(
                 eq(folderExportMaterializations.userId, userId),
                 eq(folderExportConfigurations.userId, userId),
                 isOrg
-                    ? sharedRecordingCondition(userId)
-                    : eq(recordings.userId, userId),
+                    ? sharedItemCondition(userId, chatterItems.id)
+                    : eq(chatterItems.userId, userId),
             ),
         )
         .limit(1);
@@ -134,7 +154,7 @@ async function materializeLocked(
             format: state.format,
         };
         if (state.artifactType === "audio") {
-            if (state.audioReapedAt) {
+            if (state.storagePath === null || state.audioReapedAt) {
                 // Retention removed the audio: nothing to write it from.
                 await markProjectionStale(userId, state.id);
                 return false;
@@ -158,6 +178,35 @@ async function materializeLocked(
                 await storage.downloadStream(state.storagePath),
                 options,
             );
+        } else if (state.artifactType === "mail") {
+            // The owner's alone; gone once retention removed it.
+            if (isOrg || !state.rawStoragePath) {
+                await markProjectionStale(userId, state.id);
+                return false;
+            }
+            if (state.rawHash !== state.artifactVersion) {
+                await markProjectionStale(userId, state.id);
+                await enqueueExportPlan(userId, state.exportId);
+                return false;
+            }
+            await provider.materialize(
+                state.logicalPath,
+                await readRawMail(state.ownerUserId, state.rawStoragePath),
+                options,
+            );
+        } else if (state.artifactType === "mail_document") {
+            const document = await mailMarkdownDocument({
+                viewerUserId: userId,
+                ownerUserId: state.ownerUserId,
+                itemId: state.recordingId,
+            });
+            const content = document === null ? null : Buffer.from(document);
+            if (!content || digest(content) !== state.artifactVersion) {
+                await markProjectionStale(userId, state.id);
+                await enqueueExportPlan(userId, state.exportId);
+                return false;
+            }
+            await provider.materialize(state.logicalPath, content, options);
         } else {
             // The owner's rows, for the Organization's export too: a shared
             // recording is one recording.
@@ -189,10 +238,7 @@ async function materializeLocked(
                           .where(
                               and(
                                   eq(aiEnhancements.id, state.artifactId),
-                                  eq(
-                                      aiEnhancements.recordingId,
-                                      state.recordingId,
-                                  ),
+                                  eq(aiEnhancements.itemId, state.recordingId),
                                   eq(aiEnhancements.userId, state.ownerUserId),
                               ),
                           )

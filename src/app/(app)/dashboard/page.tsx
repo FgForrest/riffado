@@ -1,8 +1,10 @@
 import { and, desc, eq, isNotNull, isNull } from "drizzle-orm";
 import { Workstation } from "@/components/dashboard/workstation";
 import { db } from "@/db";
+import { recordingItemJoin } from "@/db/items";
 import {
     aiEnhancements,
+    chatterItems,
     plaudConnections,
     recordings,
     transcriptions,
@@ -19,6 +21,8 @@ import { isAdminEmail } from "@/lib/hosted/admin/guard";
 import { confirmedOverlays } from "@/lib/learn/llm-input";
 import { recordingsNeedingReview } from "@/lib/learn/pending";
 import { type OverlayCorrection, readTextOf } from "@/lib/learn/render";
+import { isMailEnabled } from "@/lib/mail/config";
+import { loadMailListRows, loadSharedMailRows } from "@/lib/mail/list";
 import { getOrgUserId, isOrgAccount } from "@/lib/org/config";
 import { initialSettingsFromRow } from "@/lib/settings/initial-settings";
 import { sharedRecordingCondition } from "@/lib/sharing/access";
@@ -117,9 +121,9 @@ async function loadOrganizationLibrary(
         .select({
             id: recordings.id,
             userId: recordings.userId,
-            filename: recordings.filename,
+            filename: chatterItems.title,
             duration: recordings.duration,
-            startTime: recordings.startTime,
+            startTime: chatterItems.occurredAt,
             filesize: recordings.filesize,
             deviceSn: recordings.deviceSn,
             waveformPeaks: recordings.waveformPeaks,
@@ -128,6 +132,7 @@ async function loadOrganizationLibrary(
             ownerEmail: users.email,
         })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .innerJoin(users, eq(users.id, recordings.userId))
         .where(
             and(
@@ -135,7 +140,7 @@ async function loadOrganizationLibrary(
                 sharedRecordingCondition(orgUserId),
             ),
         )
-        .orderBy(desc(recordings.startTime));
+        .orderBy(desc(chatterItems.occurredAt));
     const [transcriptRows, summaryRows] = await Promise.all([
         db
             .select({ transcription: transcriptions })
@@ -155,12 +160,12 @@ async function loadOrganizationLibrary(
             )
             .then((found) => found.map((row) => row.transcription)),
         db
-            .select({ recordingId: aiEnhancements.recordingId })
+            .select({ recordingId: aiEnhancements.itemId })
             .from(aiEnhancements)
             .innerJoin(
                 recordings,
                 and(
-                    eq(recordings.id, aiEnhancements.recordingId),
+                    eq(recordings.id, aiEnhancements.itemId),
                     eq(recordings.userId, aiEnhancements.userId),
                 ),
             )
@@ -206,8 +211,16 @@ async function loadOrganizationLibrary(
                 },
             ),
     );
+    const sharedMail = await loadSharedMailRows(viewerId, orgUserId);
     return {
-        recordings: library,
+        recordings:
+            sharedMail.length > 0
+                ? [...library, ...sharedMail].sort(
+                      (left, right) =>
+                          Date.parse(right.startTime) -
+                          Date.parse(left.startTime),
+                  )
+                : library,
         transcriptVariants: variants,
         transcriptions: primaryVariants(variants),
     };
@@ -229,9 +242,9 @@ export default async function DashboardPage() {
         db
             .select({
                 id: recordings.id,
-                filename: recordings.filename,
+                filename: chatterItems.title,
                 duration: recordings.duration,
-                startTime: recordings.startTime,
+                startTime: chatterItems.occurredAt,
                 filesize: recordings.filesize,
                 deviceSn: recordings.deviceSn,
                 waveformPeaks: recordings.waveformPeaks,
@@ -241,13 +254,14 @@ export default async function DashboardPage() {
                 audioReapedAt: recordings.audioReapedAt,
             })
             .from(recordings)
+            .innerJoin(chatterItems, recordingItemJoin)
             .where(
                 and(
                     eq(recordings.userId, session.user.id),
                     isNull(recordings.deletedAt),
                 ),
             )
-            .orderBy(desc(recordings.startTime)),
+            .orderBy(desc(chatterItems.occurredAt)),
         db
             .select({
                 // Which stored transcript each text is: speaker changes
@@ -274,7 +288,7 @@ export default async function DashboardPage() {
         // list status chip — the full summary is still fetched on
         // selection by the existing /api/recordings/[id]/summary route.
         db
-            .select({ recordingId: aiEnhancements.recordingId })
+            .select({ recordingId: aiEnhancements.itemId })
             .from(aiEnhancements)
             .where(
                 and(
@@ -331,6 +345,11 @@ export default async function DashboardPage() {
             ),
     );
 
+    // Mail sits in the same pile; the organization account has none.
+    const mailRows = viewerIsOrgAccount
+        ? []
+        : await loadMailListRows(session.user.id);
+
     const preferredTranscriptSource =
         settingsRow?.preferredTranscriptSource ?? "plaud";
     const transcriptVariants = buildTranscriptVariants(
@@ -365,7 +384,7 @@ export default async function DashboardPage() {
 
     return (
         <Workstation
-            recordings={recordingsData}
+            recordings={[...recordingsData, ...mailRows]}
             transcriptions={transcriptionMap}
             transcriptVariants={transcriptVariants}
             organizationLibrary={organizationLibrary}
@@ -375,6 +394,7 @@ export default async function DashboardPage() {
             initialSettings={initialSettings}
             plaudNeedsReconnect={connectionRow?.invalidatedAt != null}
             isHosted={env.IS_HOSTED}
+            mailEnabled={isMailEnabled() && !viewerIsOrgAccount}
             exportProviders={exportProvidersAvailability()}
             initialFolderOrganization={visibleFolderOrganization}
         />

@@ -401,7 +401,7 @@ describeWithDatabase("MCP transcript tools (PostgreSQL)", () => {
             .values({
                 userId: ALICE,
                 scopeUserId: ALICE,
-                recordingId: "r1",
+                itemId: "r1",
                 transcriptionId: ref.t1,
                 view: "private",
                 actorUserId: ALICE,

@@ -1,6 +1,15 @@
 "use client";
 
-import { Download, Loader2, MoreHorizontal, Play, Trash2 } from "lucide-react";
+import {
+    Download,
+    Loader2,
+    Mail,
+    MoreHorizontal,
+    Paperclip,
+    Play,
+    Share2,
+    Trash2,
+} from "lucide-react";
 import { useExtracted, useLocale } from "next-intl";
 import { useConfirm } from "@/components/confirm-dialog";
 import { Button } from "@/components/ui/button";
@@ -66,9 +75,30 @@ export function RecordingRow({
             >
                 <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
+                        {recording.kind === "mail" && (
+                            <Mail
+                                className="size-3.5 shrink-0 text-muted-foreground"
+                                aria-label={i18n("Mail")}
+                            />
+                        )}
                         <h3 className="truncate text-sm font-medium">
-                            {recording.filename}
+                            {recording.filename ||
+                                (recording.kind === "mail"
+                                    ? i18n("(no subject)")
+                                    : "")}
                         </h3>
+                        {recording.mail?.hasAttachments && (
+                            <Paperclip
+                                className="size-3 shrink-0 text-muted-foreground"
+                                aria-label={i18n("Attachments")}
+                            />
+                        )}
+                        {recording.mail?.waitingToShare && (
+                            <Share2
+                                className="size-3 shrink-0 text-primary"
+                                aria-label={i18n("Waiting to be shared")}
+                            />
+                        )}
                         {inFlight && (
                             <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] text-primary">
                                 <Loader2
@@ -97,7 +127,10 @@ export function RecordingRow({
                                 isCompact ? "mt-0.5" : "mt-1",
                             )}
                         >
-                            {formatDurationMs(recording.duration)}
+                            {recording.kind === "mail"
+                                ? (recording.mail?.from ??
+                                  i18n("Unknown sender"))
+                                : formatDurationMs(recording.duration)}
                             {" \u00b7 "}
                             {formatDateTime(
                                 recording.startTime,
@@ -127,47 +160,55 @@ export function RecordingRow({
                         <DropdownMenuItem
                             onSelect={() => {
                                 window.location.assign(
-                                    recordingAudioDownloadPath(recording.id),
+                                    recording.kind === "mail"
+                                        ? `/api/mail/${encodeURIComponent(recording.id)}/raw`
+                                        : recordingAudioDownloadPath(
+                                              recording.id,
+                                          ),
                                 );
                             }}
                         >
-                            <Download /> {i18n("Download audio")}
+                            <Download />{" "}
+                            {recording.kind === "mail"
+                                ? i18n("Download the message")
+                                : i18n("Download audio")}
                         </DropdownMenuItem>
-                        {recording.isOwn !== false && (
-                            <>
-                                <DropdownMenuSeparator />
-                                <DropdownMenuItem
-                                    variant="destructive"
-                                    onSelect={(e) => {
-                                        // Keep menu mounted so confirm dialog can take focus.
-                                        e.preventDefault();
-                                        void confirm({
-                                            title: i18n(
-                                                "Delete this recording?",
-                                            ),
-                                            description: (
-                                                <>
-                                                    <span className="font-medium text-foreground">
-                                                        {recording.filename}
-                                                    </span>
-                                                    <br />{" "}
-                                                    {i18n(
-                                                        "The audio file and any transcript or summary will be removed. If the file is still on your Plaud device, the next sync will re-download it.",
-                                                    )}
-                                                </>
-                                            ),
-                                            confirmLabel: i18n("Delete"),
-                                            pendingLabel: i18n("Deleting…"),
-                                            destructive: true,
-                                            onConfirm: () =>
-                                                onDelete(recording),
-                                        });
-                                    }}
-                                >
-                                    <Trash2 /> {i18n("Delete")}
-                                </DropdownMenuItem>
-                            </>
-                        )}
+                        {recording.isOwn !== false &&
+                            recording.kind !== "mail" && (
+                                <>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem
+                                        variant="destructive"
+                                        onSelect={(e) => {
+                                            // Keep menu mounted so confirm dialog can take focus.
+                                            e.preventDefault();
+                                            void confirm({
+                                                title: i18n(
+                                                    "Delete this recording?",
+                                                ),
+                                                description: (
+                                                    <>
+                                                        <span className="font-medium text-foreground">
+                                                            {recording.filename}
+                                                        </span>
+                                                        <br />{" "}
+                                                        {i18n(
+                                                            "The audio file and any transcript or summary will be removed. If the file is still on your Plaud device, the next sync will re-download it.",
+                                                        )}
+                                                    </>
+                                                ),
+                                                confirmLabel: i18n("Delete"),
+                                                pendingLabel: i18n("Deleting…"),
+                                                destructive: true,
+                                                onConfirm: () =>
+                                                    onDelete(recording),
+                                            });
+                                        }}
+                                    >
+                                        <Trash2 /> {i18n("Delete")}
+                                    </DropdownMenuItem>
+                                </>
+                            )}
                     </DropdownMenuContent>
                 </DropdownMenu>
             </div>

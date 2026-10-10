@@ -24,6 +24,7 @@ const SETTINGS_TOPICS: Record<SettingsSection, HelpTarget> = {
         page: "exports-backups-retention",
         anchor: "to-google-drive",
     },
+    mail: { page: "mail", anchor: "your-addresses" },
     billing: { page: "settings", anchor: "the-other-sections" },
     "plaud-account": { page: "settings", anchor: "the-other-sections" },
     sync: { page: "settings", anchor: "the-other-sections" },

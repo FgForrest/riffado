@@ -21,7 +21,6 @@ import {
     aiEnhancements,
     people,
     recordingFolders,
-    recordings,
     recordingTaskRejections,
     recordingTasks,
     taskUpdateProposals,
@@ -89,6 +88,7 @@ vi.mock("@/lib/webhooks/emit", () => ({
     emitEvent: vi.fn().mockResolvedValue(undefined),
 }));
 
+import { markRecordingDeleted } from "@/db/items";
 import { deleteSummaryForRecording } from "@/db/queries/retention";
 import { encryptText } from "@/lib/encryption/fields";
 import { addRecordingToFolder } from "@/lib/folders/folders";
@@ -112,6 +112,7 @@ import {
     updateTask,
 } from "@/lib/tasks/tasks";
 import { upsertEnhancement } from "@/lib/transcription/persist";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -170,24 +171,22 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
     }, 30_000);
 
     async function addRecording(id: string, startTime: string) {
-        await db()
-            .insert(recordings)
-            .values({
-                id,
-                userId: ALICE,
-                deviceSn: "SN-1",
-                plaudFileId: `plaud-${id}`,
-                filename: encryptText(`Recording ${id}`),
-                duration: 60_000,
-                startTime: new Date(startTime),
-                endTime: new Date(startTime),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${ALICE}/${id}.mp3`,
-                storageFilename: `${id}.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id,
+            userId: ALICE,
+            deviceSn: "SN-1",
+            plaudFileId: `plaud-${id}`,
+            filename: encryptText(`Recording ${id}`),
+            duration: 60_000,
+            startTime: new Date(startTime),
+            endTime: new Date(startTime),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${ALICE}/${id}.mp3`,
+            storageFilename: `${id}.mp3`,
+            plaudVersion: "1",
+        });
         const [transcript] = await db()
             .insert(transcriptions)
             .values({
@@ -384,7 +383,7 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
         });
         await db().insert(taskUpdateProposals).values({
             taskId: task.id,
-            recordingId: REC,
+            itemId: REC,
             userId: ALICE,
             kind: "done",
         });
@@ -418,7 +417,7 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
         const rejections = await db()
             .select()
             .from(recordingTaskRejections)
-            .where(eq(recordingTaskRejections.recordingId, REC));
+            .where(eq(recordingTaskRejections.itemId, REC));
         expect(rejections.map((row) => row.fingerprintHmac).sort()).toEqual(
             [
                 taskFingerprint("Draft the pricing page"),
@@ -538,7 +537,7 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
         await db()
             .insert(recordingTasks)
             .values({
-                recordingId: REC,
+                itemId: REC,
                 userId: ALICE,
                 status: "proposed",
                 text: encryptText("Book the venue"),
@@ -561,7 +560,7 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
             .insert(taskUpdateProposals)
             .values({
                 taskId: task.id,
-                recordingId: LATER,
+                itemId: LATER,
                 userId: ALICE,
                 kind: "done",
                 quote: encryptText("I sent the partner email"),
@@ -595,7 +594,7 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
             await db()
                 .select()
                 .from(taskUpdateProposals)
-                .where(eq(taskUpdateProposals.recordingId, LATER)),
+                .where(eq(taskUpdateProposals.itemId, LATER)),
         ).toEqual([]);
     });
 
@@ -656,7 +655,7 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
         });
         await db().insert(taskUpdateProposals).values({
             taskId: task.id,
-            recordingId: REC,
+            itemId: REC,
             userId: ALICE,
             kind: "done",
         });
@@ -748,9 +747,7 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
     it("drops the tasks with the recording's last summary, also one a re-run left", async () => {
         await addTask(alice, REC, { text: "Call Dana", status: "open" });
         // A re-run replaced the summary and nothing was made again.
-        await db()
-            .delete(aiEnhancements)
-            .where(eq(aiEnhancements.recordingId, REC));
+        await db().delete(aiEnhancements).where(eq(aiEnhancements.itemId, REC));
         expect((await review(alice)).tasks).toHaveLength(1);
         await deleteSummaryForRecording(
             REC,
@@ -765,7 +762,7 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
         await db()
             .insert(recordingTasks)
             .values({
-                recordingId,
+                itemId: recordingId,
                 userId: ALICE,
                 status: "proposed",
                 text: encryptText(text),
@@ -774,9 +771,12 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
     }
 
     async function followUp(taskId: string, recordingId: string) {
-        await db()
-            .insert(taskUpdateProposals)
-            .values({ taskId, recordingId, userId: ALICE, kind: "done" });
+        await db().insert(taskUpdateProposals).values({
+            taskId,
+            itemId: recordingId,
+            userId: ALICE,
+            kind: "done",
+        });
     }
 
     it("lists the recordings awaiting their reviewer, newest first, with what waits", async () => {
@@ -800,18 +800,25 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
         await followUp(closed.id, LATER);
         await addRecording("rec-gone", "2026-10-09T10:00:00Z");
         await propose("rec-gone", "Gone with its recording");
-        await db()
-            .update(recordings)
-            .set({ deletedAt: new Date() })
-            .where(eq(recordings.id, "rec-gone"));
+        await markRecordingDeleted(db(), {
+            id: "rec-gone",
+            userId: ALICE,
+            at: new Date(),
+        });
 
         expect(await recordingsAwaitingTaskReview(alice)).toEqual([
             {
                 recordingId: LATER,
+                kind: "audio",
                 title: `Recording ${LATER}`,
                 proposals: 3,
             },
-            { recordingId: REC, title: `Recording ${REC}`, proposals: 1 },
+            {
+                recordingId: REC,
+                kind: "audio",
+                title: `Recording ${REC}`,
+                proposals: 1,
+            },
         ]);
         expect(await recordingsAwaitingTaskReview(bob)).toEqual([]);
         expect(await recordingsAwaitingTaskReview(org)).toEqual([]);
@@ -828,11 +835,17 @@ describeWithDatabase("tasks (PostgreSQL)", () => {
         await propose(LATER, "Draft the pricing page");
 
         expect(await recordingsAwaitingTaskReview(org)).toEqual([
-            { recordingId: REC, title: `Recording ${REC}`, proposals: 2 },
+            {
+                recordingId: REC,
+                kind: "audio",
+                title: `Recording ${REC}`,
+                proposals: 2,
+            },
         ]);
         expect(await recordingsAwaitingTaskReview(alice)).toEqual([
             {
                 recordingId: LATER,
+                kind: "audio",
                 title: `Recording ${LATER}`,
                 proposals: 1,
             },

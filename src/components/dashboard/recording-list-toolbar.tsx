@@ -22,6 +22,9 @@ import { Input } from "@/components/ui/input";
 
 export type SortOrder = "newest" | "oldest" | "name";
 
+/** Which kinds of item the pile shows. */
+export type KindFilter = "all" | "audio" | "mail";
+
 export function RecordingListToolbar({
     query,
     onQueryChange,
@@ -35,6 +38,8 @@ export function RecordingListToolbar({
     reviewCount = 0,
     needsReviewOnly = false,
     onNeedsReviewOnlyChange,
+    kindFilter,
+    onKindFilterChange,
 }: {
     query: string;
     onQueryChange: (next: string) => void;
@@ -49,6 +54,9 @@ export function RecordingListToolbar({
     reviewCount?: number;
     needsReviewOnly?: boolean;
     onNeedsReviewOnlyChange?: (next: boolean) => void;
+    /** Shown once the pile holds mail; absent hides the filter. */
+    kindFilter?: KindFilter;
+    onKindFilterChange?: (next: KindFilter) => void;
 }) {
     const i18n = useExtracted();
     return (
@@ -87,6 +95,34 @@ export function RecordingListToolbar({
                     {i18n("recording")} {totalCount !== 1 ? i18n("s") : ""}
                 </span>
                 <div className="flex items-center gap-1">
+                    {kindFilter && onKindFilterChange && (
+                        <fieldset
+                            aria-label={i18n("Show")}
+                            className="flex items-center rounded-md border p-0.5"
+                        >
+                            {(
+                                [
+                                    ["all", i18n("All")],
+                                    ["audio", i18n("Audio")],
+                                    ["mail", i18n("Mail")],
+                                ] as const
+                            ).map(([value, label]) => (
+                                <button
+                                    key={value}
+                                    type="button"
+                                    aria-pressed={kindFilter === value}
+                                    onClick={() => onKindFilterChange(value)}
+                                    className={
+                                        kindFilter === value
+                                            ? "rounded bg-secondary px-1.5 py-0.5 text-foreground"
+                                            : "rounded px-1.5 py-0.5 hover:text-foreground"
+                                    }
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </fieldset>
+                    )}
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button

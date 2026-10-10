@@ -36,7 +36,7 @@ export async function readStoredSummary(
     source?: EnhancementSource,
 ): Promise<StoredSummary | null> {
     const conditions = [
-        eq(aiEnhancements.recordingId, recordingId),
+        eq(aiEnhancements.itemId, recordingId),
         eq(aiEnhancements.userId, userId),
     ];
     if (source) conditions.push(eq(aiEnhancements.source, source));

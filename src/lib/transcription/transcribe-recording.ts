@@ -1,9 +1,11 @@
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { OpenAI } from "openai";
 import { db } from "@/db";
+import { audioItemColumns, recordingItemJoin } from "@/db/items";
 import {
     aiEnhancements,
     apiCredentials,
+    chatterItems,
     recordings,
     transcriptions,
     userSettings,
@@ -270,20 +272,31 @@ export async function storeBrowserTranscription(
                 .delete(aiEnhancements)
                 .where(
                     and(
-                        eq(aiEnhancements.recordingId, recordingId),
+                        eq(aiEnhancements.itemId, recordingId),
                         eq(aiEnhancements.userId, userId),
                         eq(aiEnhancements.source, "riffado"),
                     ),
                 );
 
+            const now = new Date();
             await tx
                 .update(recordings)
-                .set({ transcriptReapedAt: null, updatedAt: new Date() })
+                .set({ updatedAt: now })
                 .where(
                     and(
                         eq(recordings.id, recordingId),
                         eq(recordings.userId, userId),
                         isNull(recordings.deletedAt),
+                    ),
+                );
+            await tx
+                .update(chatterItems)
+                .set({ contentReapedAt: null, updatedAt: now })
+                .where(
+                    and(
+                        eq(chatterItems.id, recordingId),
+                        eq(chatterItems.userId, userId),
+                        isNull(chatterItems.deletedAt),
                     ),
                 );
         });
@@ -433,8 +446,9 @@ async function transcribeRecordingInner(
         }
 
         const [recording] = await db
-            .select()
+            .select(audioItemColumns)
             .from(recordings)
+            .innerJoin(chatterItems, recordingItemJoin)
             .where(
                 and(
                     eq(recordings.id, recordingId),
@@ -568,7 +582,7 @@ async function transcribeRecordingInner(
                 storagePath: recording.storagePath,
                 durationMs: recording.duration,
                 language: defaultLanguage,
-                filename: decryptText(recording.filename),
+                filename: decryptText(recording.title),
             };
             const result = await transcribeViaMynah(input);
             await recordAiUsage(
@@ -639,9 +653,9 @@ async function transcribeRecordingInner(
                 recording.storagePath,
             );
 
-            // `recording.filename` is encrypted at rest; decrypt before
+            // `recording.title` is encrypted at rest; decrypt before
             // passing to the transcription provider as a filename hint.
-            const decryptedFilename = decryptText(recording.filename);
+            const decryptedFilename = decryptText(recording.title);
             const { file: audioFile, contentType } = buildAudioFile(
                 audioBuffer,
                 recording.storagePath,

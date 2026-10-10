@@ -234,7 +234,7 @@ describeWithDatabase("MCP recording tools (PostgreSQL)", () => {
     ): Promise<void> {
         await db()
             .insert(recordingFolderAssignments)
-            .values({ userId, recordingId, folderId });
+            .values({ userId, itemId: recordingId, folderId });
     }
 
     beforeAll(async () => {
@@ -409,7 +409,7 @@ describeWithDatabase("MCP recording tools (PostgreSQL)", () => {
             userId: ALICE,
             factId: fact.id,
             transcriptionId,
-            recordingId,
+            itemId: recordingId,
             transcriptRevision: 0,
             startMs: 0,
             endMs: 1000,

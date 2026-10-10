@@ -1,7 +1,13 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
 import {
+    type AudioItemRow,
+    audioItemColumns,
+    recordingItemJoin,
+} from "@/db/items";
+import {
     aiEnhancements,
+    chatterItems,
     recordings,
     transcriptions,
     userSettings,
@@ -120,8 +126,22 @@ export function buildSummaryMarkdown(input: SummarySidecarInput): string {
         "---",
     ].join("\n");
 
-    const sections: string[] = [`# ${input.title}`];
+    const sections = [`# ${input.title}`, ...summarySections(input)];
 
+    return `${frontMatter}\n\n${sections.join("\n\n")}\n`;
+}
+
+/**
+ * A summary's Markdown sections: its text, key points, and its tasks (or,
+ * while there are none, its action items).
+ */
+export function summarySections(
+    input: Pick<
+        SummarySidecarInput,
+        "summary" | "keyPoints" | "actionItems" | "tasks"
+    >,
+): string[] {
+    const sections: string[] = [];
     const summary = input.summary?.trim();
     if (summary) {
         sections.push(`## Summary\n\n${summary}`);
@@ -134,8 +154,7 @@ export function buildSummaryMarkdown(input: SummarySidecarInput): string {
     } else if (input.actionItems.length > 0) {
         sections.push(`## Action items\n\n${bulletList(input.actionItems)}`);
     }
-
-    return `${frontMatter}\n\n${sections.join("\n\n")}\n`;
+    return sections;
 }
 
 function taskList(tasks: readonly SummarySidecarTask[]): string {
@@ -169,8 +188,9 @@ export async function exportRecordingSidecars(
     if (!selection.transcript && !selection.summary) return [];
 
     const [recording] = await db
-        .select()
+        .select(audioItemColumns)
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 eq(recordings.id, recordingId),
@@ -182,7 +202,7 @@ export async function exportRecordingSidecars(
 
     if (!recording) return [];
 
-    const title = decryptText(recording.filename);
+    const title = decryptText(recording.title);
     const written: SidecarKind[] = [];
     let storagePath = recording.storagePath;
     let storage: Awaited<ReturnType<typeof createUserStorageProvider>> | null =
@@ -275,8 +295,9 @@ export async function getRecordingMarkdownDocument(
     options: RecordingMarkdownOptions = {},
 ): Promise<RecordingMarkdownDocument | null> {
     const [recording] = await db
-        .select()
+        .select(audioItemColumns)
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 eq(recordings.id, recordingId),
@@ -287,7 +308,7 @@ export async function getRecordingMarkdownDocument(
         .limit(1);
     if (!recording) return null;
 
-    const title = decryptText(recording.filename);
+    const title = decryptText(recording.title);
     return renderRecordingMarkdownDocument(
         ownerUserId,
         recording,
@@ -300,7 +321,7 @@ export async function getRecordingMarkdownDocument(
 
 async function renderRecordingMarkdownDocument(
     userId: string,
-    recording: typeof recordings.$inferSelect,
+    recording: AudioItemRow,
     title: string,
     kind: SidecarKind,
     storagePath: string,
@@ -352,7 +373,7 @@ async function renderRecordingMarkdownDocument(
             filename,
             content: buildTranscriptMarkdown({
                 title,
-                recordedAt: recording.startTime,
+                recordedAt: recording.occurredAt,
                 durationMs: recording.duration,
                 language: primary.detectedLanguage,
                 provider: primary.provider,
@@ -369,7 +390,7 @@ async function renderRecordingMarkdownDocument(
         .from(aiEnhancements)
         .where(
             and(
-                eq(aiEnhancements.recordingId, recording.id),
+                eq(aiEnhancements.itemId, recording.id),
                 eq(aiEnhancements.userId, userId),
             ),
         );
@@ -452,7 +473,7 @@ async function renderRecordingMarkdownDocument(
         filename,
         content: buildSummaryMarkdown({
             title,
-            recordedAt: recording.startTime,
+            recordedAt: recording.occurredAt,
             provider: enhancement.provider,
             model: enhancement.model,
             source: enhancement.source,
@@ -586,7 +607,7 @@ async function contentSources(
                   .from(aiEnhancements)
                   .where(
                       and(
-                          eq(aiEnhancements.recordingId, recordingId),
+                          eq(aiEnhancements.itemId, recordingId),
                           eq(aiEnhancements.userId, userId),
                       ),
                   );

@@ -2,7 +2,17 @@ import { and, eq, isNull } from "drizzle-orm";
 import { notFound } from "next/navigation";
 import { RecordingWorkstation } from "@/components/recordings/recording-workstation";
 import { db } from "@/db";
-import { recordings, transcriptions, userSettings } from "@/db/schema";
+import {
+    audioItemColumns,
+    recordingItemJoin,
+    toRecordingResponseRow,
+} from "@/db/items";
+import {
+    chatterItems,
+    recordings,
+    transcriptions,
+    userSettings,
+} from "@/db/schema";
 import { requireAuth, requireCompletedOnboarding } from "@/lib/auth-server";
 import { decryptText } from "@/lib/encryption/fields";
 import { listFolderOrganization } from "@/lib/folders/folders";
@@ -24,8 +34,9 @@ export default async function RecordingDetailPage({
 
     // Fetch recording from database
     const [recording] = await db
-        .select()
+        .select(audioItemColumns)
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(
             and(
                 eq(recordings.id, id),
@@ -105,9 +116,9 @@ export default async function RecordingDetailPage({
     return (
         <RecordingWorkstation
             recording={{
-                ...recording,
-                filename: decryptText(recording.filename),
-                startTime: recording.startTime.toISOString(),
+                ...toRecordingResponseRow(recording),
+                filename: decryptText(recording.title),
+                startTime: recording.occurredAt.toISOString(),
                 waveformPeaks,
                 audioReaped: recording.audioReapedAt !== null,
                 hasTranscript: transcriptRows.length > 0,

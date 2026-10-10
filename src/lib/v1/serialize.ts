@@ -1,7 +1,13 @@
 import { and, eq, isNull, type SQL, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+    type AudioItemRow,
+    audioItemColumns,
+    recordingItemJoin,
+} from "@/db/items";
+import {
     aiEnhancements,
+    chatterItems,
     plaudDevices,
     recordings,
     transcriptions,
@@ -11,7 +17,7 @@ import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import type { OverlayCorrection } from "@/lib/learn/render";
 import { readTranscriptTurns } from "@/lib/transcription/read-turns";
 
-type RecordingRow = typeof recordings.$inferSelect;
+type RecordingRow = AudioItemRow;
 type DeviceRow = typeof plaudDevices.$inferSelect;
 type TranscriptionRow = typeof transcriptions.$inferSelect;
 type AiEnhancementRow = typeof aiEnhancements.$inferSelect;
@@ -239,10 +245,10 @@ export function serializeRecording(
 
     return {
         id: recording.id,
-        title: decryptText(recording.filename),
+        title: decryptText(recording.title),
         created_at: toIso(recording.createdAt),
         updated_at: toIso(recording.updatedAt),
-        recorded_at: toIso(recording.startTime),
+        recorded_at: toIso(recording.occurredAt),
         duration_ms: recording.duration,
         filesize_bytes: recording.filesize,
         device: device
@@ -268,10 +274,10 @@ export function serializeRecording(
  * summary input, the v1 transcript endpoint). Prefers the user's configured
  * source, then their own 'riffado' transcript, then whatever exists.
  */
-export function resolvePrimaryTranscript(
-    transcripts: TranscriptionRow[],
+export function resolvePrimaryTranscript<T extends { source: string }>(
+    transcripts: T[],
     preferredSource: string,
-): TranscriptionRow | null {
+): T | null {
     if (transcripts.length === 0) return null;
     return (
         transcripts.find((t) => t.source === preferredSource) ??
@@ -324,10 +330,11 @@ export async function getV1RecordingDetailForUser(
 ): Promise<V1RecordingDetail | null> {
     const [row] = await db
         .select({
-            recording: recordings,
+            recording: audioItemColumns,
             device: plaudDevices,
         })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .leftJoin(
             plaudDevices,
             and(
@@ -361,7 +368,7 @@ export async function getV1RecordingDetailForUser(
             .from(aiEnhancements)
             .where(
                 and(
-                    eq(aiEnhancements.recordingId, recordingId),
+                    eq(aiEnhancements.itemId, recordingId),
                     eq(aiEnhancements.userId, userId),
                 ),
             ),

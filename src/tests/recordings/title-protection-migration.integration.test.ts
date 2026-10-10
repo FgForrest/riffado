@@ -16,9 +16,9 @@
 
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { eq, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { recordings, transcriptions, users } from "@/db/schema";
+import { transcriptions, users } from "@/db/schema";
 import {
     createMigratedTestDatabase,
     getTestDatabaseUrl,
@@ -57,6 +57,10 @@ describeWithDatabase("protecting existing titles (PostgreSQL)", () => {
     }, 30_000);
 
     async function insertRecording(id: string, transcriptReaped = false) {
+        await db().execute(sql`
+            INSERT INTO chatter_items (id, user_id, kind, title, occurred_at)
+            VALUES (${id}, 'user-1', 'audio', 'Weekly', now())
+        `);
         await db().execute(sql`
             INSERT INTO recordings (
                 id, user_id, device_sn, plaud_file_id, filename, duration,
@@ -101,13 +105,14 @@ describeWithDatabase("protecting existing titles (PostgreSQL)", () => {
         }
         await insertRecording("rec-new");
 
-        const titleEditedAt = async (id: string) =>
-            (
-                await db()
-                    .select({ at: recordings.titleEditedAt })
-                    .from(recordings)
-                    .where(eq(recordings.id, id))
-            )[0]?.at;
+        // The column these migrations wrote, read as they left it.
+        const titleEditedAt = async (id: string) => {
+            const rows = await db().execute<{ at: string | null }>(
+                sql`SELECT title_edited_at AS at FROM recordings WHERE id = ${id}`,
+            );
+            const at = rows[0]?.at;
+            return at === undefined || at === null ? at : new Date(at);
+        };
         expect(await titleEditedAt("rec-old")).toBeInstanceOf(Date);
         expect(await titleEditedAt("rec-reaped")).toBeInstanceOf(Date);
         expect(await titleEditedAt("rec-untranscribed")).toBeNull();

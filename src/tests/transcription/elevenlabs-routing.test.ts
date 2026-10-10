@@ -96,17 +96,19 @@ function mockDbForCredential(credential: CredentialRow): void {
         // recording lookup
         .mockReturnValueOnce({
             from: vi.fn().mockReturnValue({
-                where: vi.fn().mockReturnValue({
-                    limit: vi.fn().mockResolvedValue([
-                        {
-                            id: "rec-el",
-                            userId: "user-el",
-                            plaudFileId: "plaud-1",
-                            filename: "Board meeting",
-                            storagePath: "rec-el.mp3",
-                            deletedAt: null,
-                        },
-                    ]),
+                innerJoin: vi.fn().mockReturnValue({
+                    where: vi.fn().mockReturnValue({
+                        limit: vi.fn().mockResolvedValue([
+                            {
+                                id: "rec-el",
+                                userId: "user-el",
+                                plaudFileId: "plaud-1",
+                                title: "Board meeting",
+                                storagePath: "rec-el.mp3",
+                                deletedAt: null,
+                            },
+                        ]),
+                    }),
                 }),
             }),
         })
@@ -154,11 +156,13 @@ function mockDbForCredential(credential: CredentialRow): void {
             .fn()
             .mockReturnValueOnce({
                 from: vi.fn().mockReturnValue({
-                    where: vi.fn().mockReturnValue({
-                        for: vi.fn().mockReturnValue({
-                            limit: vi
-                                .fn()
-                                .mockResolvedValue([{ deletedAt: null }]),
+                    innerJoin: vi.fn().mockReturnValue({
+                        where: vi.fn().mockReturnValue({
+                            for: vi.fn().mockReturnValue({
+                                limit: vi
+                                    .fn()
+                                    .mockResolvedValue([{ deletedAt: null }]),
+                            }),
                         }),
                     }),
                 }),

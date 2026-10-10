@@ -21,8 +21,8 @@ import {
 import {
     aiEnhancements,
     apiCredentials,
+    chatterItems,
     recordingFolders,
-    recordings,
     transcriptions,
     userSettings,
     users,
@@ -160,6 +160,7 @@ import { reconcileRecordingStorage } from "@/lib/recordings/reconcile-storage";
 import { resolveRecordingAccess } from "@/lib/sharing/access";
 import { topicsJobHandler } from "@/lib/topics/topics-job-handler";
 import { upsertEnhancement } from "@/lib/transcription/persist";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -228,24 +229,22 @@ describeWithDatabase("a shared recording is one recording (PostgreSQL)", () => {
                 { id: BOB, email: "bob@example.test" },
             ]);
         orgUserId = (await ensureOrgAccount()) ?? "";
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 60_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:01:00Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/rec.mp3`,
-                storageFilename: "rec.mp3",
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 60_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:01:00Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/rec.mp3`,
+            storageFilename: "rec.mp3",
+            plaudVersion: "1",
+        });
         // No speakers, so nothing stands in the way of sharing it.
         const [transcript] = await db()
             .insert(transcriptions)
@@ -261,7 +260,7 @@ describeWithDatabase("a shared recording is one recording (PostgreSQL)", () => {
         await db()
             .insert(aiEnhancements)
             .values({
-                recordingId: REC,
+                itemId: REC,
                 userId: OWNER,
                 transcriptionId: transcript?.id,
                 summary: encryptText("The owner's summary."),
@@ -287,7 +286,7 @@ describeWithDatabase("a shared recording is one recording (PostgreSQL)", () => {
         return db()
             .select({ userId: aiEnhancements.userId })
             .from(aiEnhancements)
-            .where(eq(aiEnhancements.recordingId, REC));
+            .where(eq(aiEnhancements.itemId, REC));
     }
 
     it("shows every member the owner's summary on the Organization view", async () => {
@@ -348,7 +347,7 @@ describeWithDatabase("a shared recording is one recording (PostgreSQL)", () => {
                 .from(aiEnhancements)
                 .where(
                     and(
-                        eq(aiEnhancements.recordingId, REC),
+                        eq(aiEnhancements.itemId, REC),
                         eq(aiEnhancements.userId, OWNER),
                     ),
                 ),
@@ -420,11 +419,11 @@ describeWithDatabase("a shared recording is one recording (PostgreSQL)", () => {
         await unshareRecording(OWNER, REC, { withdraw: true });
         const [row] = await db()
             .select({
-                filename: recordings.filename,
-                titleEditedAt: recordings.titleEditedAt,
+                filename: chatterItems.title,
+                titleEditedAt: chatterItems.titleEditedAt,
             })
-            .from(recordings)
-            .where(eq(recordings.id, REC));
+            .from(chatterItems)
+            .where(eq(chatterItems.id, REC));
         expect(decryptText(row?.filename ?? "")).toBe("Curated");
         expect(row?.titleEditedAt).not.toBeNull();
         // Withdrawn, the curator's view of it is gone.

@@ -100,6 +100,7 @@ import { changeTranscriptSpeaker } from "@/lib/knowledge/speaker-changes";
 import { seedCoreVocabulary } from "@/lib/knowledge/vocabulary";
 import { ensureOrgAccount } from "@/lib/org/account";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
+import { insertRecordings } from "@/tests/integration/items";
 
 type Tx = Parameters<
     Parameters<TestPostgresDatabase["db"]["transaction"]>[0]
@@ -156,23 +157,21 @@ describeWithDatabase(
                 .values([{ id: ALICE, email: "alice@example.test" }]);
             orgUserId = (await ensureOrgAccount()) ?? "";
             await seedCoreVocabulary();
-            await db()
-                .insert(recordings)
-                .values({
-                    id: REC,
-                    userId: ALICE,
-                    deviceSn: "SN-1",
-                    plaudFileId: "plaud-1",
-                    filename: encryptText("Weekly"),
-                    duration: 10_000,
-                    startTime: new Date("2026-09-01T10:00:00Z"),
-                    endTime: new Date("2026-09-01T10:00:10Z"),
-                    filesize: 11,
-                    fileMd5: "0".repeat(32),
-                    storageType: "local",
-                    storagePath: `${ALICE}/rec.mp3`,
-                    plaudVersion: "1",
-                });
+            await insertRecordings(db(), {
+                id: REC,
+                userId: ALICE,
+                deviceSn: "SN-1",
+                plaudFileId: "plaud-1",
+                filename: encryptText("Weekly"),
+                duration: 10_000,
+                startTime: new Date("2026-09-01T10:00:00Z"),
+                endTime: new Date("2026-09-01T10:00:10Z"),
+                filesize: 11,
+                fileMd5: "0".repeat(32),
+                storageType: "local",
+                storagePath: `${ALICE}/rec.mp3`,
+                plaudVersion: "1",
+            });
             const [transcript] = await db()
                 .insert(transcriptions)
                 .values({

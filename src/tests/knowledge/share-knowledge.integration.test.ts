@@ -30,7 +30,6 @@ import {
     knowledgeRelationTypes,
     people,
     recordingFolders,
-    recordings,
     transcriptCorrections,
     transcriptions,
     transcriptSpeakers,
@@ -111,6 +110,7 @@ import {
 import { ensureOrgAccount } from "@/lib/org/account";
 import type { StorageProvider } from "@/lib/storage/types";
 import type { TranscriptTurn } from "@/lib/transcription/turns";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -207,23 +207,21 @@ describeWithDatabase("knowledge through sharing (PostgreSQL)", () => {
         await db().insert(users).values({ id: OWNER, email: "o@example.test" });
         orgUserId = (await ensureOrgAccount()) ?? "";
         await seedCoreVocabulary();
-        await db()
-            .insert(recordings)
-            .values({
-                id: REC,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: "plaud-1",
-                filename: encryptText("Weekly"),
-                duration: 12_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:00:12Z"),
-                filesize: 11,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/rec.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: REC,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: "plaud-1",
+            filename: encryptText("Weekly"),
+            duration: 12_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:00:12Z"),
+            filesize: 11,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/rec.mp3`,
+            plaudVersion: "1",
+        });
         const [transcript] = await db()
             .insert(transcriptions)
             .values({

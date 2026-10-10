@@ -1,14 +1,15 @@
 import { hashPassword } from "better-auth/crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
+import { insertAudioItem } from "@/db/items";
 import {
     accounts,
     aiUsageEvents,
     apiCredentials,
     learnReviewItems,
     learnRuns,
+    mailAddresses,
     recordingFolders,
-    recordings,
     recordingTasks,
     transcriptCorrections,
     transcriptions,
@@ -99,6 +100,8 @@ interface Scope {
 export async function seedUserGuideDemo(
     now = new Date(),
 ): Promise<DemoSeedResult> {
+    // The demo starts from nothing, mail addresses included.
+    await db.delete(mailAddresses);
     await db.delete(users);
     await seedCoreVocabulary();
     const orgUserId = await ensureOrgAccount();
@@ -448,30 +451,25 @@ async function seedRecording(
     const fileMd5 = md5Of(fixture.key);
     const uploaded = fixture.origin !== "plaud";
 
-    const [row] = await db
-        .insert(recordings)
-        .values({
-            userId,
-            deviceSn: uploaded ? "local" : DEVICE_SN,
-            plaudFileId: uploaded
-                ? `uploaded-demo-${fixture.key}`
-                : `demo-${fixture.key}`,
-            filename: encryptText(fixture.title),
-            duration: durationMs,
-            startTime,
-            endTime: new Date(startTime.getTime() + durationMs),
-            filesize: fixture.durationMinutes * 60 * 2_000,
-            fileMd5,
-            storageType: "local",
-            storagePath,
-            storageFilename,
-            plaudVersion: "1",
-            downloadedAt: startTime,
-            waveformPeaks: waveformPeaks(fixture.key),
-        })
-        .returning({ id: recordings.id });
-    if (!row) throw new Error(`Recording ${fixture.key} was not created`);
-    const recordingId = row.id;
+    const { id: recordingId } = await insertAudioItem(db, {
+        userId,
+        deviceSn: uploaded ? "local" : DEVICE_SN,
+        plaudFileId: uploaded
+            ? `uploaded-demo-${fixture.key}`
+            : `demo-${fixture.key}`,
+        title: encryptText(fixture.title),
+        duration: durationMs,
+        occurredAt: startTime,
+        endTime: new Date(startTime.getTime() + durationMs),
+        filesize: fixture.durationMinutes * 60 * 2_000,
+        fileMd5,
+        storageType: "local",
+        storagePath,
+        storageFilename,
+        plaudVersion: "1",
+        downloadedAt: startTime,
+        waveformPeaks: waveformPeaks(fixture.key),
+    });
     const audio = {
         storagePath,
         durationSeconds: fixture.durationMinutes * 60,
@@ -608,7 +606,7 @@ async function seedRecording(
 
     for (const cost of fixture.costs ?? []) {
         await db.insert(aiUsageEvents).values({
-            recordingId,
+            itemId: recordingId,
             userId,
             payerUserId: userId,
             operation: cost.operation,
@@ -678,7 +676,7 @@ async function seedTasks(
         const settled = task.status !== "proposed";
         const decidedAt = new Date(now.getTime() - DAY_MS);
         await db.insert(recordingTasks).values({
-            recordingId,
+            itemId: recordingId,
             userId,
             status: task.status,
             text: encryptText(task.text),
@@ -719,7 +717,7 @@ async function seedLearnRun(
         .values({
             userId,
             scopeUserId: userId,
-            recordingId,
+            itemId: recordingId,
             transcriptionId: transcription.id,
             view: "private",
             actorUserId: userId,

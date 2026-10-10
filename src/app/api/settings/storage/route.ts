@@ -2,11 +2,13 @@ import { promises as fsp } from "node:fs";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
-import { recordings } from "@/db/schema";
+import { recordingItemJoin } from "@/db/items";
+import { chatterItems, recordings } from "@/db/schema";
 import { requireApiSession } from "@/lib/auth-server";
 import { decryptText } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
 import { apiHandler } from "@/lib/errors";
+import { isMailEnabled } from "@/lib/mail/config";
 
 export const GET = apiHandler(async (request: Request) => {
     const session = await requireApiSession(request);
@@ -29,12 +31,13 @@ export const GET = apiHandler(async (request: Request) => {
         db
             .select({
                 id: recordings.id,
-                filename: recordings.filename,
+                filename: chatterItems.title,
                 filesize: recordings.filesize,
                 duration: recordings.duration,
-                startTime: recordings.startTime,
+                startTime: chatterItems.occurredAt,
             })
             .from(recordings)
+            .innerJoin(chatterItems, recordingItemJoin)
             .where(activeRecording)
             .orderBy(desc(recordings.filesize))
             .limit(5),
@@ -69,5 +72,7 @@ export const GET = apiHandler(async (request: Request) => {
         largest,
         diskFreeBytes,
         quotaBytes: null as number | null,
+        // Mail has its own retention policy here, the Organization's too.
+        mailRetentionOffered: isMailEnabled(),
     });
 });

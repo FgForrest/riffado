@@ -32,12 +32,12 @@ export async function queueCorrectionPassInTx(
         | "id"
         | "userId"
         | "scopeUserId"
-        | "recordingId"
+        | "itemId"
         | "transcriptionId"
         | "transcriptRevision"
         | "view"
         | "actorUserId"
-    >,
+    > & { transcriptionId: string },
 ): Promise<boolean> {
     if (!run.actorUserId) return false;
     const [settings] = await tx
@@ -51,7 +51,7 @@ export async function queueCorrectionPassInTx(
         .values({
             userId: run.userId,
             scopeUserId: run.scopeUserId,
-            recordingId: run.recordingId,
+            recordingId: run.itemId,
             transcriptionId: run.transcriptionId,
             transcriptRevision: run.transcriptRevision,
             learnRunId: run.id,
@@ -63,7 +63,7 @@ export async function queueCorrectionPassInTx(
     const queued = await enqueueJobInTx(tx, {
         userId: run.actorUserId,
         kind: LEARN_CORRECT_JOB_KIND,
-        subjectId: recordingJobSubject(run.recordingId, run.view),
+        subjectId: recordingJobSubject(run.itemId, run.view),
         maxAttempts: LEARN_CORRECT_MAX_ATTEMPTS,
         payload: { passId: pass.id },
     });

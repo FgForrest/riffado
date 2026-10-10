@@ -26,6 +26,7 @@ import {
     vi,
 } from "vitest";
 import {
+    chatterItems,
     folderExportMaterializations,
     recordingFolders,
     recordings,
@@ -121,6 +122,7 @@ import { withExportLock } from "@/lib/folder-exports/lock";
 import { planFolderExport } from "@/lib/folder-exports/planner";
 import { addRecordingToFolder } from "@/lib/folders/folders";
 import { ensureOrgAccount } from "@/lib/org/account";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -157,9 +159,9 @@ describeWithDatabase("Export directories after a rename (PostgreSQL)", () => {
 
     async function rename(title: string) {
         await db()
-            .update(recordings)
-            .set({ filename: encryptText(title) })
-            .where(eq(recordings.id, RECORDING));
+            .update(chatterItems)
+            .set({ title: encryptText(title) })
+            .where(eq(chatterItems.id, RECORDING));
     }
 
     async function materializeAll() {
@@ -203,24 +205,22 @@ describeWithDatabase("Export directories after a rename (PostgreSQL)", () => {
             .select({ id: recordingFolders.id })
             .from(recordingFolders)
             .where(eq(recordingFolders.userId, orgUserId));
-        await db()
-            .insert(recordings)
-            .values({
-                id: RECORDING,
-                userId: OWNER,
-                deviceSn: "SN-1",
-                plaudFileId: `plaud-${RECORDING}`,
-                filename: encryptText("Old title"),
-                duration: 60_000,
-                startTime: new Date("2026-09-01T10:00:00Z"),
-                endTime: new Date("2026-09-01T10:01:00Z"),
-                filesize: 12,
-                fileMd5: "0".repeat(32),
-                storageType: "local",
-                storagePath: `${OWNER}/${RECORDING}.mp3`,
-                storageFilename: `${RECORDING}.mp3`,
-                plaudVersion: "1",
-            });
+        await insertRecordings(db(), {
+            id: RECORDING,
+            userId: OWNER,
+            deviceSn: "SN-1",
+            plaudFileId: `plaud-${RECORDING}`,
+            filename: encryptText("Old title"),
+            duration: 60_000,
+            startTime: new Date("2026-09-01T10:00:00Z"),
+            endTime: new Date("2026-09-01T10:01:00Z"),
+            filesize: 12,
+            fileMd5: "0".repeat(32),
+            storageType: "local",
+            storagePath: `${OWNER}/${RECORDING}.mp3`,
+            storageFilename: `${RECORDING}.mp3`,
+            plaudVersion: "1",
+        });
         await db()
             .insert(transcriptions)
             .values({

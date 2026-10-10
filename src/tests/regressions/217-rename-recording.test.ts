@@ -96,7 +96,7 @@ vi.mock("@/lib/export/document-sidecars", () => ({
 
 import { PATCH as patchRecording } from "@/app/api/recordings/[id]/route";
 import { db } from "@/db";
-import { recordings } from "@/db/schema";
+import { chatterItems, recordings } from "@/db/schema";
 import { requireApiSession } from "@/lib/auth-server";
 import { encryptText } from "@/lib/encryption/fields";
 import { ErrorCode } from "@/lib/errors";
@@ -126,8 +126,11 @@ function patchRequest(body: unknown) {
 function mockUpdateReturning(row: unknown) {
     const whereSpy = vi.fn();
     const setPayloads: Record<string, unknown>[] = [];
+    const writes: { table: unknown; values: Record<string, unknown> }[] = [];
+    let table: unknown;
     const set = vi.fn((values: Record<string, unknown>) => {
         setPayloads.push(values);
+        writes.push({ table, values });
         const returned =
             "storageFilename" in values
                 ? { storageFilename: values.storageFilename }
@@ -138,8 +141,11 @@ function mockUpdateReturning(row: unknown) {
         whereSpy.mockReturnValueOnce({ returning });
         return { values, where: whereSpy };
     });
-    (db.update as Mock).mockReturnValue({ set });
-    return { set, setPayloads, whereSpy };
+    (db.update as Mock).mockImplementation((target: unknown) => {
+        table = target;
+        return { set };
+    });
+    return { set, setPayloads, writes, whereSpy };
 }
 
 function mockSelectReturning(result: unknown[]) {
@@ -207,10 +213,7 @@ describe("PATCH /api/recordings/[id]", () => {
         mockOwnedRecording();
         mockSelectReturning([]);
         mockSelectReturning([]);
-        const { set } = mockUpdateReturning({
-            id: "rec-1",
-            filename: "encrypted:Q4 planning",
-        });
+        const { set, writes } = mockUpdateReturning({ id: "rec-1" });
 
         const response = await patchRecording(
             patchRequest({ filename: "  Q4 planning  " }),
@@ -221,10 +224,14 @@ describe("PATCH /api/recordings/[id]", () => {
         expect(encryptText).toHaveBeenCalledWith("Q4 planning");
         expect(set).toHaveBeenCalledWith(
             expect.objectContaining({
-                filename: "encrypted:Q4 planning",
+                title: "encrypted:Q4 planning",
                 // A person chose it, so no generated title replaces it.
                 titleEditedAt: expect.any(Date),
             }),
+        );
+        // The title is the recording's item's.
+        expect(writes.find((write) => "title" in write.values)?.table).toBe(
+            chatterItems,
         );
         await expect(response.json()).resolves.toEqual({
             filename: "Q4 planning",
@@ -315,10 +322,7 @@ describe("PATCH /api/recordings/[id]", () => {
         mockOwnedRecording();
         mockSelectReturning([]);
         mockSelectReturning([]);
-        mockUpdateReturning({
-            id: "rec-1",
-            filename: "encrypted:New title",
-        });
+        mockUpdateReturning({ id: "rec-1" });
         storage.exists.mockImplementation(async (key: string) =>
             key.includes("legacy"),
         );
@@ -349,10 +353,7 @@ describe("PATCH /api/recordings/[id]", () => {
         mockOwnedRecording();
         mockSelectReturning([]);
         mockSelectReturning([{ id: "rec-2" }]);
-        mockUpdateReturning({
-            id: "rec-1",
-            filename: "encrypted:New title",
-        });
+        mockUpdateReturning({ id: "rec-1" });
         storage.exists.mockImplementation(async (key: string) =>
             key.includes("legacy"),
         );
@@ -371,10 +372,7 @@ describe("PATCH /api/recordings/[id]", () => {
         mockOwnedRecording();
         mockSelectReturning([]);
         mockSelectReturning([]);
-        const { setPayloads } = mockUpdateReturning({
-            id: "rec-1",
-            filename: "encrypted:New title",
-        });
+        const { setPayloads } = mockUpdateReturning({ id: "rec-1" });
         storage.exists.mockImplementation(async (key: string) =>
             key.includes("legacy"),
         );
@@ -389,9 +387,7 @@ describe("PATCH /api/recordings/[id]", () => {
         await expect(response.json()).resolves.toMatchObject({
             code: ErrorCode.STORAGE_ERROR,
         });
-        expect(setPayloads.some((payload) => "filename" in payload)).toBe(
-            false,
-        );
+        expect(setPayloads.some((payload) => "title" in payload)).toBe(false);
         expect(emitEvent).not.toHaveBeenCalled();
     });
 });

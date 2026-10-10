@@ -28,9 +28,10 @@ const recording = {
     userId: "user-1",
     deviceSn: "SN-1",
     plaudFileId: "plaud-1",
-    filename: "encrypted:Planning Call",
+    kind: "audio" as const,
+    title: "encrypted:Planning Call",
     duration: 120000,
-    startTime: new Date("2026-05-06T11:00:00.000Z"),
+    occurredAt: new Date("2026-05-06T11:00:00.000Z"),
     endTime: new Date("2026-05-06T11:02:00.000Z"),
     filesize: 12345,
     fileMd5: "abc",
@@ -46,10 +47,9 @@ const recording = {
     waveformPeaks: null,
     deletedAt: null,
     audioReapedAt: null,
-    transcriptReapedAt: null,
+    contentReapedAt: null,
     summaryReapedAt: null,
     remoteRetentionClaimedAt: null,
-    unsharedAt: null,
     titleEditedAt: null,
     summaryDueAt: null,
     createdAt: now,
@@ -88,7 +88,7 @@ const transcription = {
 
 const enhancement = {
     id: "sum-1",
-    recordingId: "rec-1",
+    itemId: "rec-1",
     userId: "user-1",
     summary: "encrypted:A short summary",
     actionItems: ["Follow up"],
@@ -250,7 +250,7 @@ describe("v1 recordings", () => {
 
     it("keeps legacy plaintext rows readable through the same serializers", () => {
         const detail = serializeRecordingDetail(
-            { ...recording, filename: "Legacy Recording" },
+            { ...recording, title: "Legacy Recording" },
             null,
             [{ ...transcription, text: "Legacy transcript" }],
             [],

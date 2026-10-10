@@ -9,7 +9,7 @@ The list on the left of **Recordings** shows your newest recordings first, group
 
 ![The recording list with the Needs review filter on](images/recording-list-needs-review.png)
 
-- **Search** finds words in titles and transcripts. It reads corrected transcripts, so a name Learn fixed is found as you spell it.
+- **Search** finds words in titles and transcripts. It reads corrected transcripts, so a name Learn fixed is found as you spell it. It also finds a mail by its sender and by what the mail itself says, not by the earlier messages it quotes, its signature or its disclaimer.
 - **Newest** changes the order: newest first, oldest first, or by name.
 - **Needs review** appears when Learn has proposals waiting on some recordings, and shows just those. See [Learn](learn.md).
 - **Organize** switches the list to your folders. See [Folders](#folders).

@@ -12,10 +12,12 @@ import {
     sql,
 } from "drizzle-orm";
 import { db } from "@/db";
+import { audioItemColumns, recordingItemJoin } from "@/db/items";
 import {
     aiEnhancements,
     aiUsageEvents,
     apiCredentials,
+    chatterItems,
     knowledgeAliases,
     knowledgeEntities,
     knowledgeEntityNotes,
@@ -28,6 +30,7 @@ import {
     learnReviewItems,
     learnRuns,
     people,
+    personEmails,
     personNotes,
     recordingFolderAssignments,
     recordingFolders,
@@ -38,6 +41,7 @@ import {
     transcriptSpeakers,
     users,
 } from "@/db/schema";
+import { decryptBuffer } from "@/lib/encryption";
 import { decryptJsonField, decryptText } from "@/lib/encryption/fields";
 import {
     type ArchiveScope,
@@ -45,6 +49,7 @@ import {
     scopeUserId,
 } from "@/lib/export/archive-scope";
 import { orgOwnedCondition } from "@/lib/knowledge/org-people";
+import { collectArchivedMail } from "@/lib/mail/archive";
 import type { StorageProvider } from "@/lib/storage/types";
 import {
     archivedAssigneeIds,
@@ -94,8 +99,8 @@ function audioExtension(storagePath: string): string {
 }
 
 /** Filesystem-safe, stable folder name per recording inside the archive. */
-function folderName(recording: { id: string; startTime: Date }): string {
-    const iso = recording.startTime.toISOString().replace(/[:.]/g, "-");
+function folderName(recording: { id: string; occurredAt: Date }): string {
+    const iso = recording.occurredAt.toISOString().replace(/[:.]/g, "-");
     return `${iso}_${recording.id}`;
 }
 
@@ -150,11 +155,12 @@ export async function buildAndUploadExportArchive(input: {
     const userId = scopeUserId(scope);
     const userRecordings = await db
         .select({
-            ...getTableColumns(recordings),
+            ...audioItemColumns,
             ownerName: users.name,
             ownerEmail: users.email,
         })
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .innerJoin(users, eq(users.id, recordings.userId))
         .where(archivedRecordingCondition(scope));
 
@@ -168,16 +174,16 @@ export async function buildAndUploadExportArchive(input: {
                   .from(aiUsageEvents)
                   .where(
                       and(
-                          inArray(aiUsageEvents.recordingId, recordingIds),
+                          inArray(aiUsageEvents.itemId, recordingIds),
                           eq(aiUsageEvents.payerUserId, userId),
                       ),
                   )
             : [];
     const usageMap = new Map<string, typeof userUsage>();
     for (const usage of userUsage) {
-        const group = usageMap.get(usage.recordingId) ?? [];
+        const group = usageMap.get(usage.itemId) ?? [];
         group.push(usage);
-        usageMap.set(usage.recordingId, group);
+        usageMap.set(usage.itemId, group);
     }
 
     // The rows the recordings' owners hold.
@@ -214,7 +220,7 @@ export async function buildAndUploadExportArchive(input: {
                   .innerJoin(
                       recordings,
                       and(
-                          eq(recordings.id, aiEnhancements.recordingId),
+                          eq(recordings.id, aiEnhancements.itemId),
                           eq(recordings.userId, aiEnhancements.userId),
                       ),
                   )
@@ -234,7 +240,7 @@ export async function buildAndUploadExportArchive(input: {
         >
     >();
     for (const enhancement of userEnhancements) {
-        const group = enhancementMap.get(enhancement.recordingId) ?? [];
+        const group = enhancementMap.get(enhancement.itemId) ?? [];
         group.push({
             ...enhancement,
             summary: decryptText(enhancement.summary) ?? "",
@@ -242,7 +248,7 @@ export async function buildAndUploadExportArchive(input: {
                 decryptJsonField<string[]>(enhancement.actionItems) ?? [],
             keyPoints: decryptJsonField<string[]>(enhancement.keyPoints) ?? [],
         });
-        enhancementMap.set(enhancement.recordingId, group);
+        enhancementMap.set(enhancement.itemId, group);
     }
 
     // Proposals and the follow-ups heard come along: a review half done is
@@ -341,8 +347,20 @@ export async function buildAndUploadExportArchive(input: {
         facts?: { facts: number; evidence: number };
         learn?: { runs: number; items: number };
         aiProviderRates?: { count: number; path: string };
+        /** Mail of the pile: each a directory with message.eml and mail.json. */
+        mail?: {
+            id: string;
+            subject: string;
+            occurredAt: string;
+            path: string;
+            /**
+             * Whether message.eml is in the archive: a restore needs it. When
+             * it could not be read, why, as for a recording's audio.
+             */
+            raw: { included: boolean; reason?: string };
+        }[];
     } = {
-        version: "2.1",
+        version: "2.2",
         scope: scope.kind,
         createdAt: new Date().toISOString(),
         userId,
@@ -375,8 +393,8 @@ export async function buildAndUploadExportArchive(input: {
                       },
                   }
                 : {}),
-            filename: decryptText(recording.filename),
-            startTime: recording.startTime.toISOString(),
+            filename: decryptText(recording.title),
+            startTime: recording.occurredAt.toISOString(),
             endTime: recording.endTime.toISOString(),
             duration: recording.duration,
             filesize: recording.filesize,
@@ -546,7 +564,7 @@ export async function buildAndUploadExportArchive(input: {
                     JSON.stringify(
                         recordingEnhancements.map((item) => ({
                             id: item.id,
-                            recordingId: item.recordingId,
+                            recordingId: item.itemId,
                             transcriptionId: item.transcriptionId,
                             source: item.source,
                             summary: item.summary,
@@ -692,9 +710,61 @@ export async function buildAndUploadExportArchive(input: {
         };
     }
 
+    // Mail rides along: the raw message as it arrived (decrypted), and what
+    // was read from it.
+    const archivedMail = await collectArchivedMail(scope);
+    const mailTasks = await tasksForArchive(
+        scope,
+        archivedMail.map((mail) => mail.id),
+        { proposals: true },
+    );
+    for (const mail of archivedMail) {
+        onProgress?.();
+        const directory = `mail/${folderName({
+            id: mail.id,
+            occurredAt: new Date(mail.occurredAt),
+        })}`;
+        const { rawStoragePath, ...rest } = mail;
+        const meta = { ...rest, tasks: mailTasks.get(mail.id) ?? [] };
+        let raw: { included: boolean; reason?: string } = {
+            included: false,
+            reason: "The message was not kept",
+        };
+        if (rawStoragePath) {
+            try {
+                archive.append(
+                    decryptBuffer(
+                        await sourceStorage.downloadFile(rawStoragePath),
+                    ),
+                    { name: `${directory}/message.eml` },
+                );
+                raw = { included: true };
+            } catch (error) {
+                const reason =
+                    error instanceof Error ? error.message : String(error);
+                console.error(
+                    `[export] could not read the raw message of mail ${mail.id}:`,
+                    reason,
+                );
+                raw = { included: false, reason };
+            }
+        }
+        archive.append(Buffer.from(JSON.stringify(meta, null, 2)), {
+            name: `${directory}/mail.json`,
+        });
+        manifest.mail ??= [];
+        manifest.mail.push({
+            id: mail.id,
+            subject: mail.subject,
+            occurredAt: mail.occurredAt,
+            path: directory,
+            raw,
+        });
+    }
+
     const organization = await collectFolderOrganization(
         scope,
-        new Set(recordingIds),
+        new Set([...recordingIds, ...archivedMail.map((mail) => mail.id)]),
     );
     if (organization.folders.length > 0) {
         archive.append(Buffer.from(JSON.stringify(organization, null, 2)), {
@@ -857,7 +927,7 @@ async function collectFolderOrganization(
             .where(eq(recordingFolders.userId, userId)),
         db
             .select({
-                recordingId: recordingFolderAssignments.recordingId,
+                recordingId: recordingFolderAssignments.itemId,
                 folderId: recordingFolderAssignments.folderId,
             })
             .from(recordingFolderAssignments)
@@ -1128,6 +1198,34 @@ async function collectKnowledgeBase(
         })),
     ];
 
+    // A person's other addresses, as this scope knows them: a member's
+    // knowledge that an address is an Organization person's stays theirs.
+    const emailRows =
+        archivedRows.length > 0
+            ? await db
+                  .select({
+                      personId: personEmails.personId,
+                      email: personEmails.email,
+                  })
+                  .from(personEmails)
+                  .where(
+                      and(
+                          eq(personEmails.userId, userId),
+                          inArray(
+                              personEmails.personId,
+                              archivedRows.map((row) => row.id),
+                          ),
+                      ),
+                  )
+            : [];
+    const emailsOf = new Map<string, string[]>();
+    for (const row of emailRows) {
+        emailsOf.set(row.personId, [
+            ...(emailsOf.get(row.personId) ?? []),
+            decryptText(row.email),
+        ]);
+    }
+
     return {
         people: archivedRows.map((row) => ({
             id: row.id,
@@ -1135,6 +1233,7 @@ async function collectKnowledgeBase(
             primaryEmail: row.primaryEmail
                 ? decryptText(row.primaryEmail)
                 : null,
+            ...(emailsOf.has(row.id) ? { emails: emailsOf.get(row.id) } : {}),
             notes: row.notes ? decryptText(row.notes) : null,
             mergedIntoId: row.mergedIntoId,
             organization: scope.kind === "organization" || row.organization,
@@ -1432,7 +1531,7 @@ interface ArchivedLearn {
     runs: {
         id: string;
         recordingId: string;
-        transcriptionId: string;
+        transcriptionId: string | null;
         view: string;
         trigger: string;
         status: string;
@@ -1461,7 +1560,7 @@ async function collectLearn(userId: string): Promise<ArchivedLearn> {
     const runs = await db
         .select({
             id: learnRuns.id,
-            recordingId: learnRuns.recordingId,
+            recordingId: learnRuns.itemId,
             transcriptionId: learnRuns.transcriptionId,
             view: learnRuns.view,
             trigger: learnRuns.trigger,
@@ -1523,13 +1622,18 @@ interface ArchivedFacts {
     }[];
     evidence: {
         factId: string;
-        transcriptionId: string;
+        transcriptionId: string | null;
         recordingId: string;
         transcriptRevision: number;
-        startMs: number;
-        endMs: number;
+        startMs: number | null;
+        endMs: number | null;
+        segmentIndex: number | null;
+        charStart: number | null;
+        charEnd: number | null;
         speakerLabel: string | null;
         dependsOnSpeaker: boolean;
+        /** In a mail: "quoted" (an earlier writer's words) or "unverified". */
+        provenance: string | null;
         quote: string;
         status: string;
         confirmedAt: string;
@@ -1568,12 +1672,16 @@ async function collectFacts(
             .select({
                 factId: knowledgeFactEvidence.factId,
                 transcriptionId: knowledgeFactEvidence.transcriptionId,
-                recordingId: knowledgeFactEvidence.recordingId,
+                recordingId: knowledgeFactEvidence.itemId,
                 transcriptRevision: knowledgeFactEvidence.transcriptRevision,
                 startMs: knowledgeFactEvidence.startMs,
                 endMs: knowledgeFactEvidence.endMs,
+                segmentIndex: knowledgeFactEvidence.segmentIndex,
+                charStart: knowledgeFactEvidence.charStart,
+                charEnd: knowledgeFactEvidence.charEnd,
                 speakerLabel: knowledgeFactEvidence.speakerLabel,
                 dependsOnSpeaker: knowledgeFactEvidence.dependsOnSpeaker,
+                provenance: knowledgeFactEvidence.provenance,
                 quote: knowledgeFactEvidence.quote,
                 status: knowledgeFactEvidence.status,
                 confirmedAt: knowledgeFactEvidence.confirmedAt,

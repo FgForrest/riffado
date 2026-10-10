@@ -95,10 +95,10 @@ vi.mock("@/lib/v1/serialize", () => ({
         const self = `/api/v1/recordings/${recording.id}`;
         return {
             id: recording.id,
-            title: recording.filename,
+            title: recording.title,
             created_at: recording.createdAt.toISOString(),
             updated_at: recording.updatedAt.toISOString(),
-            recorded_at: recording.startTime.toISOString(),
+            recorded_at: recording.occurredAt.toISOString(),
             duration_ms: recording.duration,
             filesize_bytes: recording.filesize,
             device: device
@@ -283,14 +283,15 @@ function mockDueDeliveries(
 function mockTombstonedRecording() {
     const now = new Date("2026-05-06T12:00:00.000Z");
     const selectChain = {
+        innerJoin: vi.fn(),
         leftJoin: vi.fn(),
         where: vi.fn(),
         limit: vi.fn().mockResolvedValue([
             {
                 recording: {
                     id: "rec-1",
-                    filename: "Deleted Recording",
-                    startTime: new Date("2026-05-06T11:00:00.000Z"),
+                    title: "Deleted Recording",
+                    occurredAt: new Date("2026-05-06T11:00:00.000Z"),
                     duration: 120000,
                     filesize: 12345,
                     createdAt: new Date("2026-05-06T11:59:00.000Z"),
@@ -305,6 +306,7 @@ function mockTombstonedRecording() {
             },
         ]),
     };
+    selectChain.innerJoin.mockReturnValue(selectChain);
     selectChain.leftJoin.mockReturnValue(selectChain);
     selectChain.where.mockReturnValue(selectChain);
     (db.select as Mock).mockReturnValueOnce({

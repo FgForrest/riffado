@@ -1,6 +1,7 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
-import { recordings } from "@/db/schema";
+import { recordingItemJoin } from "@/db/items";
+import { chatterItems, recordings } from "@/db/schema";
 import { decryptText } from "@/lib/encryption/fields";
 import { rewriteExistingRecordingSidecars } from "@/lib/export/document-sidecars";
 import type { JobHandler, JobResult } from "@/lib/jobs/types";
@@ -32,11 +33,12 @@ export const storageReconciliationScanJobHandler: JobHandler<
         const rows = await db
             .select({
                 id: recordings.id,
-                filename: recordings.filename,
+                filename: chatterItems.title,
                 storagePath: recordings.storagePath,
                 storageFilename: recordings.storageFilename,
             })
             .from(recordings)
+            .innerJoin(chatterItems, recordingItemJoin)
             .where(
                 and(
                     eq(recordings.userId, userId),
@@ -85,11 +87,12 @@ export const storageReconciliationJobHandler: JobHandler<StorageReconciliationJo
             const [recording] = await db
                 .select({
                     id: recordings.id,
-                    filename: recordings.filename,
+                    filename: chatterItems.title,
                     storagePath: recordings.storagePath,
                     storageFilename: recordings.storageFilename,
                 })
                 .from(recordings)
+                .innerJoin(chatterItems, recordingItemJoin)
                 .where(
                     and(
                         eq(recordings.id, payload.recordingId),

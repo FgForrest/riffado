@@ -1,5 +1,6 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { db } from "@/db";
+import { markRecordingDeleted } from "@/db/items";
 import {
     adminActionLog,
     plaudConnections,
@@ -271,10 +272,11 @@ export async function softDeleteRecording(
             );
         }
         const deletedAt = new Date();
-        await tx
-            .update(recordings)
-            .set({ deletedAt })
-            .where(eq(recordings.id, recordingId));
+        await markRecordingDeleted(tx, {
+            id: recordingId,
+            userId: r.userId,
+            at: deletedAt,
+        });
         await writeActionLog(tx, {
             ctx,
             action: "soft_delete_recording",

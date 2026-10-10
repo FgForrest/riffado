@@ -17,6 +17,8 @@
  *   - `people`: the caller's own knowledge base.
  *   - `tasks`: authorized per task by the rules in `src/lib/tasks/access.ts`
  *     (see, close, edit), read under the recording lock for a change.
+ *   - `mail`: the mail's owner, or anyone while it is shared, by
+ *     `resolveMailAccess` (`src/lib/mail/access.ts`).
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -30,7 +32,8 @@ type Rule =
     | "folders"
     | "job"
     | "people"
-    | "tasks";
+    | "tasks"
+    | "mail";
 
 const CLASSIFIED: Record<string, Record<string, Rule>> = {
     "recordings/[id]/route.ts": {
@@ -92,6 +95,21 @@ const CLASSIFIED: Record<string, Record<string, Rule>> = {
         DELETE: "owner",
     },
     "folders/[id]/synchronize/route.ts": { POST: "owner" },
+    // A folder's mail addresses: seen by whoever reaches the folder, changed
+    // by whoever may rename it.
+    "folders/[id]/mail-addresses/route.ts": { GET: "folders", PUT: "folders" },
+    "folders/[id]/mail-addresses/[addressId]/route.ts": { DELETE: "folders" },
+    // A shared mail is read by everyone, read-only; deleting, sharing and
+    // the raw message (every header unmasked) stay its owner's.
+    "mail/[id]/route.ts": { GET: "mail", DELETE: "owner" },
+    "mail/[id]/html/route.ts": { GET: "mail" },
+    "mail/[id]/raw/route.ts": { GET: "owner" },
+    "mail/[id]/attachments/[index]/route.ts": { GET: "mail" },
+    "mail/[id]/share/route.ts": { POST: "owner" },
+    "mail/addresses/route.ts": { GET: "owner", POST: "owner" },
+    "mail/addresses/[id]/route.ts": { PATCH: "owner", DELETE: "owner" },
+    "mail/addresses/[id]/rotate/route.ts": { POST: "owner" },
+    "mail/delivery-log/route.ts": { GET: "owner" },
     "people/route.ts": { GET: "people", POST: "people" },
     "people/[id]/route.ts": {
         GET: "people",
@@ -102,7 +120,13 @@ const CLASSIFIED: Record<string, Record<string, Rule>> = {
 };
 
 const API_ROOT = join(__dirname, "../../app/api");
-const GUARDED_DIRECTORIES = ["recordings/[id]", "jobs", "folders", "people"];
+const GUARDED_DIRECTORIES = [
+    "recordings/[id]",
+    "jobs",
+    "folders",
+    "people",
+    "mail",
+];
 const METHOD = /export const (GET|POST|PUT|PATCH|DELETE)\b/g;
 
 function routeFiles(directory: string): string[] {
@@ -149,6 +173,9 @@ describe("recording route classification", () => {
             }
             if (rules.has("tasks")) {
                 expect(source, file).toContain("requireTaskViewer");
+            }
+            if (rules.has("mail")) {
+                expect(source, file).toMatch(/loadMailDetail|mailRawFor/);
             }
         }
     });

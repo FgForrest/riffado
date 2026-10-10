@@ -20,6 +20,7 @@ Click **Add filesystem export**, give a folder name under the instance's export 
 - **Audio**: the original recording.
 - **Transcript**: the transcript, in every form it has.
 - **Summary**: the summary, in every form it has.
+- **Mail** (where your instance receives mail): each mail as it arrived (`message.eml`, attachments included) and as a readable `mail.md` with its summary and tasks. Off until you turn it on; an export of mail alone is fine.
 
 Click **Save export**. The export covers the folder and every folder inside it. Files are named after the recordings' titles.
 
@@ -34,6 +35,7 @@ First connect your Google account in **Settings → Google Account**. Then click
 - Files of a deleted recording, a removed transcript or summary, or a kind you switched off are deleted from the export.
 - A recording filed in several folders has one copy in each.
 - Riffado never touches files it did not create. Audio that [retention](#deleting-old-data-automatically) removed from Riffado stays in the export.
+- The organization account's export writes a shared mail's `mail.md` only, its secret addresses hidden: the message as it arrived stays its sender's.
 - **Synchronize** checks the export and writes again anything that went missing.
 
 ## Backups
@@ -59,5 +61,13 @@ Each archive stays downloadable for seven days. A backup holds your own recordin
 - **Local transcript** and **Local summary**: these can be made again while the audio is still there.
 
 The recording stays in your library with a note saying what was removed, and Riffado does not bring it back on its own. The top of the Storage page shows how much space your recordings take, and which ones take the most.
+
+Where your instance receives mail, **Auto-delete old mail** below it does the same for mail, counted from when a mail arrived:
+
+- **Mail as it arrived**: the stored message with its attachments.
+- **Mail text**: the text Riffado read. Facts learned only from it are deleted with it.
+- **Mail summary**: the summary and the tasks proposed from it.
+
+The mail stays in your pile with its sender, recipients and subject, and says what was removed. While a mail is shared into the Organization, the Organization's mail policy applies to it instead of yours.
 
 Next: [Settings](settings.md)

@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ADD COLUMN "chatter_kind_filter" varchar(8) DEFAULT 'all' NOT NULL;

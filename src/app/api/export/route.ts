@@ -1,8 +1,10 @@
 import { and, eq, getTableColumns } from "drizzle-orm";
 import { NextResponse } from "next/server";
 import { db } from "@/db";
+import { audioItemColumns, recordingItemJoin } from "@/db/items";
 import {
     aiEnhancements,
+    chatterItems,
     recordings,
     transcriptions,
     userSettings,
@@ -64,8 +66,9 @@ export const GET = apiHandler(async (request: Request) => {
     // organization account every shared one. Never both.
     const scope = await resolveArchiveScope(session.user.id);
     const userRecordings = await db
-        .select()
+        .select(audioItemColumns)
         .from(recordings)
+        .innerJoin(chatterItems, recordingItemJoin)
         .where(archivedRecordingCondition(scope));
 
     // The rows the recordings' owners hold, of live recordings only: a
@@ -94,7 +97,7 @@ export const GET = apiHandler(async (request: Request) => {
                   .innerJoin(
                       recordings,
                       and(
-                          eq(recordings.id, aiEnhancements.recordingId),
+                          eq(recordings.id, aiEnhancements.itemId),
                           eq(recordings.userId, aiEnhancements.userId),
                       ),
                   )
@@ -117,7 +120,7 @@ export const GET = apiHandler(async (request: Request) => {
         >
     >();
     for (const enhancement of userEnhancements) {
-        const group = enhancementMap.get(enhancement.recordingId) ?? [];
+        const group = enhancementMap.get(enhancement.itemId) ?? [];
         group.push({
             ...enhancement,
             summary: decryptText(enhancement.summary) ?? "",
@@ -125,7 +128,7 @@ export const GET = apiHandler(async (request: Request) => {
                 decryptJsonField<string[]>(enhancement.actionItems) ?? [],
             keyPoints: decryptJsonField<string[]>(enhancement.keyPoints) ?? [],
         });
-        enhancementMap.set(enhancement.recordingId, group);
+        enhancementMap.set(enhancement.itemId, group);
     }
 
     // Speaker names are applied here rather than stored: the exported file
@@ -185,7 +188,7 @@ export const GET = apiHandler(async (request: Request) => {
     );
     const decryptedRecordings = userRecordings.map((r) => ({
         ...r,
-        filename: decryptText(r.filename),
+        filename: decryptText(r.title),
     }));
 
     // Format export data
@@ -212,7 +215,7 @@ export const GET = apiHandler(async (request: Request) => {
                         id: recording.id,
                         filename: recording.filename,
                         duration: recording.duration,
-                        startTime: recording.startTime,
+                        startTime: recording.occurredAt,
                         filesize: recording.filesize,
                         transcription:
                             transcriptionMap.get(recording.id)?.text || null,
@@ -255,7 +258,7 @@ export const GET = apiHandler(async (request: Request) => {
             exportData = decryptedRecordings
                 .map((recording) => {
                     const transcription = transcriptionMap.get(recording.id);
-                    return `${recording.filename}\n${new Date(recording.startTime).toISOString()}\n${transcription?.text || "No transcription"}\n\n---\n\n`;
+                    return `${recording.filename}\n${new Date(recording.occurredAt).toISOString()}\n${transcription?.text || "No transcription"}\n\n---\n\n`;
                 })
                 .join("");
             contentType = "text/plain";
@@ -268,7 +271,7 @@ export const GET = apiHandler(async (request: Request) => {
                 .flatMap((recording, index) => {
                     const transcription = transcriptionMap.get(recording.id);
                     if (!transcription?.text) return [];
-                    const startTime = new Date(recording.startTime);
+                    const startTime = new Date(recording.occurredAt);
                     const endTime = new Date(
                         startTime.getTime() + recording.duration,
                     );
@@ -306,7 +309,7 @@ export const GET = apiHandler(async (request: Request) => {
                 .flatMap((recording) => {
                     const transcription = transcriptionMap.get(recording.id);
                     if (!transcription?.text) return [];
-                    const startTime = new Date(recording.startTime);
+                    const startTime = new Date(recording.occurredAt);
                     const endTime = new Date(
                         startTime.getTime() + recording.duration,
                     );

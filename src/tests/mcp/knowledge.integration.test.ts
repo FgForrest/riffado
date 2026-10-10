@@ -249,7 +249,7 @@ describeWithDatabase("MCP knowledge tools (PostgreSQL)", () => {
                 userId: scope,
                 factId,
                 transcriptionId,
-                recordingId,
+                itemId: recordingId,
                 transcriptRevision: 1,
                 startMs,
                 endMs: startMs + 1_000,
@@ -792,6 +792,7 @@ describeWithDatabase("MCP knowledge tools (PostgreSQL)", () => {
                 relation: "leads",
                 object: { id: ids.orion, kind: "entity", name: "Orion" },
                 scope: "personal",
+                origin: "manual",
             });
             expect(
                 about.find((fact) => fact.id === ids.factRole)?.object,
@@ -821,21 +822,27 @@ describeWithDatabase("MCP knowledge tools (PostgreSQL)", () => {
             expect(worksFor?.evidence).toEqual([
                 {
                     recording_id: "r4",
+                    kind: "audio",
                     url: "https://riffado.example.com/dashboard?recording=r4&view=org",
                     start_ms: 500,
                     quote: "Q-r4",
+                    quoted: false,
                 },
                 {
                     recording_id: "r1",
+                    kind: "audio",
                     url: "https://riffado.example.com/dashboard?recording=r1",
                     start_ms: 100,
                     quote: "Q-r1",
+                    quoted: false,
                 },
                 {
                     recording_id: "r3",
+                    kind: "audio",
                     url: "https://riffado.example.com/dashboard?recording=r3&view=org",
                     start_ms: 100,
                     quote: "Q-r3-a",
+                    quoted: false,
                 },
             ]);
             expect(

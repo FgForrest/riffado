@@ -20,7 +20,6 @@ import {
 import {
     knowledgeAliases,
     knowledgeFacts,
-    recordings,
     transcriptCorrections,
     transcriptions,
     users,
@@ -153,6 +152,7 @@ import { knowledgeStore } from "@/lib/knowledge/knowledge-loader";
 import { createPerson, listPeople } from "@/lib/knowledge/people";
 import { seedCoreVocabulary } from "@/lib/knowledge/vocabulary";
 import { ensureOrgAccount } from "@/lib/org/account";
+import { insertRecordings } from "@/tests/integration/items";
 
 const testDatabaseUrl = getTestDatabaseUrl();
 const describeWithDatabase = testDatabaseUrl ? describe : describe.skip;
@@ -443,23 +443,21 @@ describeWithDatabase("editing the Almanac (PostgreSQL)", () => {
                 typeKey: "organization",
                 name: "Acme",
             });
-            await db()
-                .insert(recordings)
-                .values({
-                    id: "rec-1",
-                    userId: OWNER,
-                    deviceSn: "SN-1",
-                    plaudFileId: "plaud-1",
-                    filename: encryptText("Weekly"),
-                    duration: 10_000,
-                    startTime: new Date("2026-09-01T10:00:00Z"),
-                    endTime: new Date("2026-09-01T10:00:10Z"),
-                    filesize: 11,
-                    fileMd5: "0".repeat(32),
-                    storageType: "local",
-                    storagePath: `${OWNER}/rec.mp3`,
-                    plaudVersion: "1",
-                });
+            await insertRecordings(db(), {
+                id: "rec-1",
+                userId: OWNER,
+                deviceSn: "SN-1",
+                plaudFileId: "plaud-1",
+                filename: encryptText("Weekly"),
+                duration: 10_000,
+                startTime: new Date("2026-09-01T10:00:00Z"),
+                endTime: new Date("2026-09-01T10:00:10Z"),
+                filesize: 11,
+                fileMd5: "0".repeat(32),
+                storageType: "local",
+                storagePath: `${OWNER}/rec.mp3`,
+                plaudVersion: "1",
+            });
             const [transcript] = await db()
                 .insert(transcriptions)
                 .values({
