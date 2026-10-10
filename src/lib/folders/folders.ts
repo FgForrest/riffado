@@ -20,6 +20,8 @@ import {
     publishKnowledgeInTx,
     withdrawKnowledgeInTx,
 } from "@/lib/knowledge/share-knowledge";
+import { blockFolderAddressesInTx } from "@/lib/mail/address-blocking";
+import { ensureFolderAddress } from "@/lib/mail/addresses";
 import {
     assertOrgScopeWritable,
     getOrgUserId,
@@ -437,6 +439,12 @@ export async function createFolder(input: {
         );
     }
     if (parent.scope === "org") await orgTreeChanged();
+    try {
+        await ensureFolderAddress(created.id, input.userId);
+    } catch (error) {
+        // The startup backfill assigns it later.
+        console.error("[mail] could not assign the folder's address:", error);
+    }
     return serializeFolder(created, parent.scope);
 }
 
@@ -754,6 +762,14 @@ export async function deleteFolder(
             }
         }
 
+        // Its addresses and its subfolders' stop working for good, before the
+        // cascade would leave them pointing nowhere.
+        await blockFolderAddressesInTx(tx, [
+            ...subtreeIds(
+                await listTreeFolders(tx, target.ownerId),
+                target.folder.id,
+            ),
+        ]);
         await tx
             .delete(recordingFolders)
             .where(

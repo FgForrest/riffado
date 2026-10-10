@@ -97,6 +97,10 @@ export const users = pgTable(
         // canceled/failed-out, etc.) this is set to now() + grace_days. The
         // billing worker deletes the account at that time. Cleared on reactivate.
         accountDeletionScheduledAt: timestamp("account_deletion_scheduled_at"),
+        // The last single sign-on, which keeps the user's mail addresses
+        // receiving (MAIL_INACTIVE_DAYS). Null: never, or not since this
+        // column came (backfilled from sessions); reads as inactive.
+        lastSsoLoginAt: timestamp("last_sso_login_at"),
         createdAt: timestamp("created_at").notNull().defaultNow(),
         updatedAt: timestamp("updated_at").notNull().defaultNow(),
     },
@@ -2778,6 +2782,9 @@ export const userSettings = pgTable("user_settings", {
     // When the user last opened their task list: tasks assigned to them
     // since then count in its badge.
     tasksSeenAt: timestamp("tasks_seen_at"),
+    // Summaries, tasks and Learn run on mail by themselves (paid by the
+    // owner); off, mail waits for a person to ask.
+    mailAutoProcess: boolean("mail_auto_process").notNull().default(true),
     topicPrompt: jsonb("topic_prompt"), // TemplateConfiguration, see lib/ai/prompt-templates.ts
     // AI output language (applies to summaries, AI-generated titles and topics).
     // null or "auto" => match transcript language (default behavior).
@@ -3456,6 +3463,308 @@ export const emailLog = pgTable(
         userKindUnique: unique("email_log_user_kind_unique").on(
             table.userId,
             table.kind,
+        ),
+    }),
+);
+
+// Inbound mail (Klepna). Addresses are virtual pipes into a pile or a folder;
+// nothing lives "in a mailbox". Everything about a message is encrypted but
+// the keyed hashes lookups run on.
+
+// A local part on MAIL_DOMAIN and where it files mail. Never deleted, so a
+// name once given out never comes back: a removed folder or account blocks
+// its addresses, and no foreign key here cascades.
+export const mailAddresses = pgTable(
+    "mail_addresses",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        // `localPartHash(localPart)`: the whole lowercase local part under
+        // MAIL_ADDRESS_HASH_SECRET, version `hashKeyVersion`.
+        localPartHash: varchar("local_part_hash", { length: 64 }).notNull(),
+        hashKeyVersion: integer("hash_key_version").notNull().default(1),
+        // Encrypted.
+        localPart: text("local_part").notNull(),
+        kind: varchar("kind", { length: 16 })
+            .$type<"mailbox" | "folder" | "secret">()
+            .notNull(),
+        // Whose namespace it is in: a user's, or the organization account's
+        // for an Organization folder. Null once that account is gone.
+        namespaceUserId: text("namespace_user_id").references(() => users.id, {
+            onDelete: "set null",
+        }),
+        // A folder address's folder; null once the folder is gone.
+        folderId: text("folder_id").references(() => recordingFolders.id, {
+            onDelete: "set null",
+        }),
+        // A secret address files like the address it extends.
+        baseAddressId: text("base_address_id").references(
+            (): AnyPgColumn => mailAddresses.id,
+            { onDelete: "set null" },
+        ),
+        createdByUserId: text("created_by_user_id").references(() => users.id, {
+            onDelete: "set null",
+        }),
+        // Encrypted: what the owner calls a secret address.
+        label: text("label"),
+        status: varchar("status", { length: 16 })
+            .$type<"active" | "paused" | "blocked">()
+            .notNull()
+            .default("active"),
+        // A folder's current address; an edited one stays as secondary.
+        primary: boolean("primary").notNull().default(true),
+        blockedAt: timestamp("blocked_at"),
+        lastReceivedAt: timestamp("last_received_at"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        // Blocked rows count: a name is given out once.
+        hashUnique: unique("mail_addresses_local_part_hash_unique").on(
+            table.localPartHash,
+        ),
+        oneMailbox: uniqueIndex("mail_addresses_one_mailbox")
+            .on(table.namespaceUserId)
+            .where(
+                sql`${table.kind} = 'mailbox' and ${table.status} <> 'blocked'`,
+            ),
+        onePrimaryFolderAddress: uniqueIndex(
+            "mail_addresses_one_primary_folder_address",
+        )
+            .on(table.folderId)
+            .where(
+                sql`${table.kind} = 'folder' and ${table.primary} and ${table.status} <> 'blocked'`,
+            ),
+        namespaceIdx: index("mail_addresses_namespace_user_id_idx").on(
+            table.namespaceUserId,
+        ),
+        folderIdx: index("mail_addresses_folder_id_idx").on(table.folderId),
+        baseIdx: index("mail_addresses_base_address_id_idx").on(
+            table.baseAddressId,
+        ),
+        createdByIdx: index("mail_addresses_created_by_user_id_idx").on(
+            table.createdByUserId,
+        ),
+        kindCheck: check(
+            "mail_addresses_kind_check",
+            sql`${table.kind} in ('mailbox', 'folder', 'secret')`,
+        ),
+        statusCheck: check(
+            "mail_addresses_status_check",
+            sql`${table.status} in ('active', 'paused', 'blocked')`,
+        ),
+        // Only a blocked address may lose what it files into: deleting a
+        // folder or an account blocks its addresses first.
+        liveCheck: check(
+            "mail_addresses_live_check",
+            sql`${table.status} = 'blocked' or (${table.namespaceUserId} is not null and (${table.kind} <> 'folder' or ${table.folderId} is not null) and (${table.kind} <> 'secret' or ${table.baseAddressId} is not null))`,
+        ),
+    }),
+);
+
+// A mail message: the `mail` kind of a Chatter item, sharing its id.
+export const mailMessages = pgTable(
+    "mail_messages",
+    {
+        id: text("id").primaryKey(),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        kind: varchar("kind", { length: 16 })
+            .$type<"mail">()
+            .notNull()
+            .default("mail"),
+        // The address it came through (the first that accepted it).
+        addressId: text("address_id").references(() => mailAddresses.id, {
+            onDelete: "set null",
+        }),
+        // Keyed hash of the raw message: one item per owner and message,
+        // whatever retries and recipients brought it again.
+        rawHash: varchar("raw_hash", { length: 64 }).notNull(),
+        // Keyed hashes of `Message-ID` and of the thread's root.
+        messageIdHash: varchar("message_id_hash", { length: 64 }),
+        threadKeyHash: varchar("thread_key_hash", { length: 64 }),
+        // The `Date` header, as claimed.
+        sentAt: timestamp("sent_at"),
+        receivedAt: timestamp("received_at").notNull(),
+        sizeBytes: integer("size_bytes").notNull(),
+        // The encrypted raw message; null once retention removed it.
+        rawStoragePath: text("raw_storage_path"),
+        // Encrypted: DKIM signatures and results, SPF, ARC (`MailAuth`).
+        auth: jsonb("auth").notNull(),
+        // A passing DKIM signature of the From domain vouches for the sender.
+        senderVerified: boolean("sender_verified").notNull(),
+        // Machine-sent (auto-replies, lists, DSNs): stored, no AI.
+        autoGenerated: boolean("auto_generated").notNull().default(false),
+        // Nothing readable (TNEF, S/MIME, PGP): stored, no AI.
+        unreadable: boolean("unreadable").notNull().default(false),
+        // Encrypted: the attachments' names, types and sizes.
+        attachments: jsonb("attachments"),
+        rawReapedAt: timestamp("raw_reaped_at"),
+        deletedAt: timestamp("deleted_at"),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        itemUserFk: foreignKey({
+            name: "mail_messages_item_user_fk",
+            columns: [table.id, table.userId],
+            foreignColumns: [chatterItems.id, chatterItems.userId],
+        }).onDelete("cascade"),
+        itemKindFk: foreignKey({
+            name: "mail_messages_item_kind_fk",
+            columns: [table.id, table.kind],
+            foreignColumns: [chatterItems.id, chatterItems.kind],
+        }).onDelete("cascade"),
+        kindCheck: check(
+            "mail_messages_kind_check",
+            sql`${table.kind} = 'mail'`,
+        ),
+        ownerRawUnique: unique("mail_messages_user_id_raw_hash_unique").on(
+            table.userId,
+            table.rawHash,
+        ),
+        messageIdIdx: index("mail_messages_user_id_message_id_hash_idx").on(
+            table.userId,
+            table.messageIdHash,
+        ),
+        threadIdx: index("mail_messages_user_id_thread_key_hash_idx").on(
+            table.userId,
+            table.threadKeyHash,
+        ),
+        addressIdx: index("mail_messages_address_id_idx").on(table.addressId),
+    }),
+);
+
+// Who a mail is from and to, and who a quoted part claims to be by, under
+// an opaque reference (`p1`, `p2`) that prompts and stored rows carry.
+export const mailParticipants = pgTable(
+    "mail_participants",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        itemId: text("item_id")
+            .notNull()
+            .references(() => mailMessages.id, { onDelete: "cascade" }),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        ref: varchar("ref", { length: 8 }).notNull(),
+        // `ParticipantRole`s.
+        roles: jsonb("roles").$type<string[]>().notNull(),
+        // `addressHash(address)`, to find a person's mail by address.
+        addressHash: varchar("address_hash", { length: 64 }),
+        // Encrypted.
+        address: text("address"),
+        name: text("name"),
+        personId: text("person_id").references(() => people.id, {
+            onDelete: "set null",
+        }),
+        // The address was proven by the sender's DKIM signature.
+        authenticated: boolean("authenticated").notNull().default(false),
+        position: integer("position").notNull().default(0),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        itemRefUnique: unique("mail_participants_item_id_ref_unique").on(
+            table.itemId,
+            table.ref,
+        ),
+        userAddressIdx: index("mail_participants_user_id_address_hash_idx").on(
+            table.userId,
+            table.addressHash,
+        ),
+        personIdx: index("mail_participants_person_id_idx").on(table.personId),
+    }),
+);
+
+// A mail's parsed content: its segments (body, signature, quoted parts),
+// as `ItemContent` reads them. Re-parsing writes a new revision.
+export const mailContents = pgTable(
+    "mail_contents",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        itemId: text("item_id")
+            .notNull()
+            .references(() => mailMessages.id, { onDelete: "cascade" }),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        revision: integer("revision").notNull().default(0),
+        parserVersion: integer("parser_version").notNull(),
+        // Encrypted `ContentSegment[]`.
+        segments: jsonb("segments").notNull(),
+        language: varchar("language", { length: 10 }),
+        // `llmInputFingerprint` of what a model reads of it.
+        fingerprint: varchar("fingerprint", { length: 64 }),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+        updatedAt: timestamp("updated_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        itemUnique: unique("mail_contents_item_id_unique").on(table.itemId),
+        userIdIdx: index("mail_contents_user_id_idx").on(table.userId),
+    }),
+);
+
+// What happened to mail sent to someone's addresses, for them to see:
+// accepted, or refused and why. No addresses or subjects; pruned.
+export const mailDeliveryLog = pgTable(
+    "mail_delivery_log",
+    {
+        id: text("id")
+            .primaryKey()
+            .$defaultFn(() => nanoid()),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        at: timestamp("at").notNull().defaultNow(),
+        addressId: text("address_id").references(() => mailAddresses.id, {
+            onDelete: "set null",
+        }),
+        // Encrypted: the From domain.
+        senderDomain: text("sender_domain"),
+        outcome: varchar("outcome", { length: 16 })
+            .$type<"accepted" | "refused" | "duplicate">()
+            .notNull(),
+        reason: varchar("reason", { length: 32 }),
+        itemId: text("item_id").references(() => chatterItems.id, {
+            onDelete: "set null",
+        }),
+    },
+    (table) => ({
+        userAtIdx: index("mail_delivery_log_user_id_at_idx").on(
+            table.userId,
+            table.at,
+        ),
+        atIdx: index("mail_delivery_log_at_idx").on(table.at),
+    }),
+);
+
+// A mail sent to an Organization address waits in its sender's pile until
+// they share it into that folder through the share gate (D2).
+export const mailPendingShares = pgTable(
+    "mail_pending_shares",
+    {
+        itemId: text("item_id")
+            .notNull()
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        folderId: text("folder_id")
+            .notNull()
+            .references(() => recordingFolders.id, { onDelete: "cascade" }),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        pk: primaryKey({ columns: [table.itemId, table.folderId] }),
+        userIdIdx: index("mail_pending_shares_user_id_idx").on(table.userId),
+        folderIdIdx: index("mail_pending_shares_folder_id_idx").on(
+            table.folderId,
         ),
     }),
 );

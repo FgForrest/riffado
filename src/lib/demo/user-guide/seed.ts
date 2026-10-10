@@ -8,6 +8,7 @@ import {
     apiCredentials,
     learnReviewItems,
     learnRuns,
+    mailAddresses,
     recordingFolders,
     recordingTasks,
     transcriptCorrections,
@@ -99,6 +100,8 @@ interface Scope {
 export async function seedUserGuideDemo(
     now = new Date(),
 ): Promise<DemoSeedResult> {
+    // The demo starts from nothing, mail addresses included.
+    await db.delete(mailAddresses);
     await db.delete(users);
     await seedCoreVocabulary();
     const orgUserId = await ensureOrgAccount();

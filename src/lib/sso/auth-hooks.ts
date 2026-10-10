@@ -3,6 +3,7 @@ import { APIError } from "better-auth/api";
 import { and, eq, ne } from "drizzle-orm";
 import { db } from "@/db";
 import { accounts, users } from "@/db/schema";
+import { ensureMailbox } from "@/lib/mail/addresses";
 import { recordSsoUserInAlmanac } from "@/lib/sso/almanac";
 import { SSO_ORG_ACCOUNT_ERROR, SSO_PROVIDER_ID } from "@/lib/sso/constants";
 
@@ -104,5 +105,16 @@ export async function afterSsoSession(session: {
         await recordSsoUserInAlmanac(user);
     } catch (error) {
         console.error("[sso] could not record the user in the Almanac:", error);
+    }
+    try {
+        // Signing in keeps the user's addresses receiving, and gives them
+        // their mailbox the first time once mail is on.
+        await db
+            .update(users)
+            .set({ lastSsoLoginAt: new Date() })
+            .where(eq(users.id, session.userId));
+        await ensureMailbox(session.userId);
+    } catch (error) {
+        console.error("[mail] could not set up the user's mailbox:", error);
     }
 }

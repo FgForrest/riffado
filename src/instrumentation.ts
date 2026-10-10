@@ -42,6 +42,10 @@ type SsoModule = {
     startSso: () => Promise<void>;
 };
 
+type MailModule = {
+    startMail: () => void;
+};
+
 type VocabularyModule = {
     startCoreVocabularySeed: () => Promise<void>;
 };
@@ -152,6 +156,10 @@ export async function register() {
     // after single sign-on is switched on.
     const { startSso } = require("./lib/sso/startup") as SsoModule;
     await startSso();
+
+    // Mailboxes and folder addresses that are missing, in the background.
+    const { startMail } = require("./lib/mail/startup") as MailModule;
+    startMail();
 
     // Before the first request too: a person's vocabulary, and a Learn run's
     // prompt, are built on the core types.

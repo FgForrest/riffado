@@ -8,6 +8,7 @@ import {
     subscriptions,
     users,
 } from "@/db/schema";
+import { blockUserAddressesInTx } from "@/lib/mail/address-blocking";
 
 export interface BillingCustomerRow {
     userId: string;
@@ -883,6 +884,8 @@ export async function deleteUser(
             }
         }
 
+        // Their mail addresses stay taken, blocked for good.
+        await blockUserAddressesInTx(tx, userId);
         const deleted = await tx
             .delete(users)
             .where(eq(users.id, userId))
