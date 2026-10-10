@@ -136,9 +136,10 @@ export function createReceiver(config: ReceiverConfig): SMTPServer {
         const { accepted } = (await precheck.json()) as { accepted: string[] };
         if (accepted.length === 0) return { code: 250, verdict: "refused" };
         const ingest = await callApp("/api/internal/mail/ingest", {
+            // fetch sends the body's length itself; undici on Node 22
+            // refuses one set by hand.
             headers: {
                 "content-type": "message/rfc822",
-                "content-length": String(raw.length),
                 "x-mail-sha256": createHash("sha256").update(raw).digest("hex"),
                 "x-mail-recipients": Buffer.from(
                     JSON.stringify(recipients),
