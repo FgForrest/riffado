@@ -12,21 +12,26 @@
  * the bridge path lands (Task 3.6).
  */
 
-import { and, asc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
+    chatterItems,
     knowledgeAliases,
     knowledgeScopeGenerations,
     knowledgeVocabularyVersion,
     learnDismissals,
     learnReviewItems,
     learnRuns,
+    mailContents,
+    mailLearnedParts,
     recordings,
     transcriptCorrections,
     transcriptions,
     transcriptSpeakers,
     users,
 } from "@/db/schema";
+import { readItemContent } from "@/lib/content/read-item-content";
+import type { ContentParticipant, ContentSegment } from "@/lib/content/types";
 import { decryptText, encryptJsonField } from "@/lib/encryption/fields";
 import { env } from "@/lib/env";
 import { AppError, ErrorCode } from "@/lib/errors";
@@ -51,6 +56,11 @@ import {
     type LearnJobPayload,
     parseLearnJobPayload,
 } from "@/lib/learn/learn-job";
+import {
+    type MailReviewCandidate,
+    mailCandidates,
+} from "@/lib/learn/mail-candidates";
+import { mailLearnParts } from "@/lib/learn/mail-parts";
 import type { LearnObject } from "@/lib/learn/output";
 import { chooseLearnPath } from "@/lib/learn/provider";
 import { runBridgePass } from "@/lib/learn/run-bridge";
@@ -94,8 +104,11 @@ export function learnFingerprintHmac(fingerprint: string): string {
     return domainLookupHash(FINGERPRINT_DOMAIN, fingerprint);
 }
 
+/** Any run: on a recording, or on a mail (no transcript). */
+type AnyRun = typeof learnRuns.$inferSelect;
+
 /** A run on a recording: it read one of its transcripts. */
-type RunRow = typeof learnRuns.$inferSelect & { transcriptionId: string };
+type RunRow = AnyRun & { transcriptionId: string };
 
 function isRecordingRun(run: typeof learnRuns.$inferSelect): run is RunRow {
     return run.transcriptionId !== null;
@@ -105,7 +118,7 @@ function isRecordingRun(run: typeof learnRuns.$inferSelect): run is RunRow {
  * What a person rejected that a run in their scope must not propose again:
  * on this recording, and new records on any.
  */
-function dismissalsFor(run: RunRow) {
+function dismissalsFor(run: AnyRun) {
     return and(
         eq(learnDismissals.userId, run.scopeUserId),
         or(
@@ -139,7 +152,7 @@ async function setStatus(
 }
 
 /** The actor's chat provider, as the Learn pass talks to it. */
-function chatFor(run: RunRow, signal: AbortSignal) {
+function chatFor(run: AnyRun, signal: AbortSignal) {
     return learnChatClients({
         actorUserId: run.actorUserId ?? "",
         recordingId: run.itemId,
@@ -185,7 +198,7 @@ type Executor = Pick<typeof db, "select">;
  */
 async function fenceOf(
     executor: Executor,
-    run: RunRow,
+    run: AnyRun,
     orgUserId: string | null,
     { lock = false }: { lock?: boolean } = {},
 ): Promise<string> {
@@ -220,16 +233,22 @@ async function fenceOf(
     for (const row of await (lock ? counted.for("share") : counted)) {
         generations.set(row.userId, row.generation);
     }
-    const answered = await executor
-        .select({
-            label: transcriptSpeakers.label,
-            personId: transcriptSpeakers.personId,
-            status: transcriptSpeakers.status,
-            markedUnknown: transcriptSpeakers.markedUnknown,
-        })
-        .from(transcriptSpeakers)
-        .where(eq(transcriptSpeakers.transcriptionId, run.transcriptionId))
-        .orderBy(asc(transcriptSpeakers.label));
+    // A mail has no speakers to answer: its participants are known by
+    // address when the mail is stored.
+    const answered = run.transcriptionId
+        ? await executor
+              .select({
+                  label: transcriptSpeakers.label,
+                  personId: transcriptSpeakers.personId,
+                  status: transcriptSpeakers.status,
+                  markedUnknown: transcriptSpeakers.markedUnknown,
+              })
+              .from(transcriptSpeakers)
+              .where(
+                  eq(transcriptSpeakers.transcriptionId, run.transcriptionId),
+              )
+              .orderBy(asc(transcriptSpeakers.label))
+        : [];
     const dismissed = await executor
         .select({ hmac: learnDismissals.fingerprintHmac })
         .from(learnDismissals)
@@ -270,7 +289,7 @@ function heardFormKey(
  * and provider).
  */
 async function heardFormsWritingName(
-    run: RunRow,
+    run: AnyRun,
     shared: boolean,
 ): Promise<Set<string>> {
     const scopes = readableScopes(
@@ -335,16 +354,8 @@ async function recorderOf(
     return person && known ? { personId: person.id, name: known.name } : null;
 }
 
-/** Everything the validation needs to know of the run's scopes, frozen now. */
-async function frameFor(
-    run: RunRow,
-    transcript: {
-        revision: number;
-        turns: NonNullable<ReturnType<typeof readTranscriptTurns>>;
-        language: string | null;
-        provider: string | null;
-    },
-): Promise<LearnRunFrame> {
+/** What a run's scopes know, frozen now: what every frame is made of. */
+async function knowledgeFrame(run: AnyRun) {
     const shared = run.view === "org";
     const view = await knowledgeView({
         kind: "recording",
@@ -354,15 +365,6 @@ async function frameFor(
     const vocabulary = await vocabularyVisibleTo(run.scopeUserId, {
         sharedOnly: shared,
     });
-    const answered = await db
-        .select({
-            label: transcriptSpeakers.label,
-            personId: transcriptSpeakers.personId,
-            status: transcriptSpeakers.status,
-            markedUnknown: transcriptSpeakers.markedUnknown,
-        })
-        .from(transcriptSpeakers)
-        .where(eq(transcriptSpeakers.transcriptionId, run.transcriptionId));
     const dismissed = await db
         .select({ hmac: learnDismissals.fingerprintHmac })
         .from(learnDismissals)
@@ -444,14 +446,7 @@ async function frameFor(
             { factId: fact.id, object: fact.object },
         );
     }
-    const recorder = await recorderOf(run, people);
     return {
-        revision: run.transcriptRevision,
-        currentRevision: transcript.revision,
-        transcriptKey: `${run.transcriptionId}@${run.transcriptRevision}`,
-        turns: transcript.turns,
-        language: transcript.language,
-        provider: transcript.provider,
         people,
         entities,
         entityTypes: new Set(newThingTypes(vocabulary).map((type) => type.key)),
@@ -460,6 +455,45 @@ async function frameFor(
                 .filter((relation) => !relation.adoptedAsKey)
                 .map((relation) => [relation.key, relation]),
         ),
+        confirmedHeardAs,
+        knownFacts,
+        foreignFacts,
+        currentFacts,
+        dismissed: new Set(dismissed.map((row) => row.hmac)),
+        fingerprintKey: learnFingerprintHmac,
+        literalKey,
+    };
+}
+
+/** Everything the validation needs to know of the run's scopes, frozen now. */
+async function frameFor(
+    run: RunRow,
+    transcript: {
+        revision: number;
+        turns: NonNullable<ReturnType<typeof readTranscriptTurns>>;
+        language: string | null;
+        provider: string | null;
+    },
+): Promise<LearnRunFrame> {
+    const known = await knowledgeFrame(run);
+    const answered = await db
+        .select({
+            label: transcriptSpeakers.label,
+            personId: transcriptSpeakers.personId,
+            status: transcriptSpeakers.status,
+            markedUnknown: transcriptSpeakers.markedUnknown,
+        })
+        .from(transcriptSpeakers)
+        .where(eq(transcriptSpeakers.transcriptionId, run.transcriptionId));
+    const recorder = await recorderOf(run, known.people);
+    return {
+        ...known,
+        revision: run.transcriptRevision,
+        currentRevision: transcript.revision,
+        transcriptKey: `${run.transcriptionId}@${run.transcriptRevision}`,
+        turns: transcript.turns,
+        language: transcript.language,
+        provider: transcript.provider,
         answeredLabels: new Map(
             answered
                 .filter(
@@ -471,10 +505,6 @@ async function frameFor(
                 ]),
         ),
         recorderPersonId: recorder?.personId ?? null,
-        confirmedHeardAs,
-        knownFacts,
-        foreignFacts,
-        currentFacts,
         // The words that already carry a confirmed correction, as everyone
         // reading the transcript in its view sees them.
         corrected: (
@@ -486,9 +516,6 @@ async function frameFor(
             charStart,
             charEnd,
         })),
-        dismissed: new Set(dismissed.map((row) => row.hmac)),
-        fingerprintKey: learnFingerprintHmac,
-        literalKey,
     };
 }
 
@@ -562,6 +589,14 @@ async function runLearnJob({
         return { skipped: run.status };
     }
     if (!isRecordingRun(run)) {
+        if (await isMailItem(run)) {
+            return runMailLearnJob(run, {
+                attempt,
+                maxAttempts,
+                signal,
+                reportProgress,
+            });
+        }
         await db
             .update(learnRuns)
             .set({ status: "cancelled", updatedAt: new Date() })
@@ -833,6 +868,354 @@ async function runLearnJob({
               )
             : caught;
         // Retried by the queue when worth it: the run waits for it.
+        const retrying = attempt < maxAttempts && isRetryableError(error);
+        await setStatus(
+            run.id,
+            retrying ? "queued" : "failed",
+            retrying
+                ? {}
+                : {
+                      errorCode:
+                          error instanceof AppError
+                              ? error.code
+                              : ErrorCode.INTERNAL_ERROR,
+                      finishedAt: new Date(),
+                  },
+        );
+        throw error;
+    }
+}
+
+/** Whether a run is on a mail. */
+async function isMailItem(run: AnyRun): Promise<boolean> {
+    const [item] = await db
+        .select({ kind: chatterItems.kind })
+        .from(chatterItems)
+        .where(eq(chatterItems.id, run.itemId))
+        .limit(1);
+    return item?.kind === "mail";
+}
+
+/**
+ * A signature's or disclaimer's fingerprint in a scope: read once, a
+ * signature once per writer, a changed one again.
+ */
+function partFingerprint(
+    segment: ContentSegment,
+    participants: readonly ContentParticipant[],
+): string {
+    const writer =
+        segment.role === "disclaimer"
+            ? ""
+            : (participants
+                  .find(
+                      (participant) =>
+                          participant.ref === segment.participantRef,
+                  )
+                  ?.address?.toLowerCase() ?? "");
+    return domainLookupHash(
+        "mail-learned-part",
+        JSON.stringify([
+            segment.role === "disclaimer" ? "disclaimer" : "signature",
+            writer,
+            segment.text.replace(/\s+/g, " ").trim().toLowerCase(),
+        ]),
+    );
+}
+
+const READ_ONCE_ROLES: ReadonlySet<string> = new Set([
+    "signature",
+    "quoted_signature",
+    "disclaimer",
+]);
+
+/**
+ * A run on a mail: its parts read as turns (`mailLearnParts`) by the
+ * fallback pass, framed as a mail, validated as a transcript's answer
+ * would be, and stored as a mail's review items, each at its place in the
+ * mail's text. Signatures and disclaimers read in the scope before are
+ * left out, and those read now remembered.
+ */
+async function runMailLearnJob(
+    run: AnyRun,
+    {
+        attempt,
+        maxAttempts,
+        signal,
+        reportProgress,
+    }: Pick<
+        Parameters<JobHandler<LearnJobPayload>["run"]>[0],
+        "attempt" | "maxAttempts" | "signal" | "reportProgress"
+    >,
+): Promise<JobResult> {
+    const claimed = await db
+        .update(learnRuns)
+        .set({
+            status: "running",
+            startedAt: new Date(),
+            updatedAt: new Date(),
+            stats: sql`coalesce(${learnRuns.stats}, '{}'::jsonb) - 'tool_calls'`,
+        })
+        .where(
+            and(
+                eq(learnRuns.id, run.id),
+                inArray(learnRuns.status, ["queued", "running"]),
+            ),
+        )
+        .returning({ id: learnRuns.id });
+    if (claimed.length === 0) return { skipped: "claimed" };
+
+    try {
+        const content = await readItemContent(run.userId, run.itemId);
+        if (!content || content.kind !== "mail") {
+            await setStatus(run.id, "cancelled");
+            return { skipped: "gone" };
+        }
+        if (content.revision !== run.transcriptRevision) {
+            await setStatus(run.id, "superseded");
+            return { skipped: "superseded" };
+        }
+        const orgUserId = await sharingOrgUserId();
+        if (!(await mayStillRun(run, orgUserId))) {
+            await setStatus(run.id, "cancelled");
+            return { skipped: "not allowed" };
+        }
+
+        // Signatures and disclaimers this scope read in another mail.
+        const fingerprints = new Map<number, string>();
+        for (const segment of content.segments) {
+            if (READ_ONCE_ROLES.has(segment.role)) {
+                fingerprints.set(
+                    segment.index,
+                    partFingerprint(segment, content.participants),
+                );
+            }
+        }
+        const readBefore =
+            fingerprints.size > 0
+                ? await db
+                      .select({ fingerprint: mailLearnedParts.fingerprint })
+                      .from(mailLearnedParts)
+                      .where(
+                          and(
+                              eq(mailLearnedParts.userId, run.scopeUserId),
+                              inArray(mailLearnedParts.fingerprint, [
+                                  ...fingerprints.values(),
+                              ]),
+                              ne(mailLearnedParts.itemId, run.itemId),
+                          ),
+                      )
+                : [];
+        const seen = new Set(readBefore.map((row) => row.fingerprint));
+        const skip = new Set(
+            [...fingerprints]
+                .filter(([, fingerprint]) => seen.has(fingerprint))
+                .map(([index]) => index),
+        );
+        const { turns, parts } = mailLearnParts(content, { skip });
+        const readNow = [...fingerprints]
+            .filter(([index]) => !skip.has(index))
+            .map(([, fingerprint]) => fingerprint);
+
+        const shared = run.view === "org";
+        const tools: LearnToolContext = {
+            read: { kind: "recording", ownerUserId: run.userId, shared },
+            budget: { remaining: TOOL_BUDGET },
+            language: content.language,
+        };
+        const vocabulary = await vocabularyVisibleTo(run.scopeUserId, {
+            sharedOnly: shared,
+        });
+        const relations: LearnRelationChoice[] =
+            vocabulary.relationTypes.filter(
+                (relation) => !relation.adoptedAsKey,
+            );
+        const entityTypes = newThingTypes(vocabulary);
+        const { chat, provider, model } = await chatFor(run, signal);
+        reportProgress({ phase: "reading" });
+        const pass =
+            turns.length > 0
+                ? await runFallbackPass({
+                      chat,
+                      lookup: {
+                          findEntities: (query) => findEntities(tools, query),
+                      },
+                      lookupBudget: TOOL_BUDGET,
+                      turns,
+                      language: content.language,
+                      relations,
+                      entityTypes,
+                      unnamedLabels: [],
+                      recorder: null,
+                      framing: "mail",
+                      signal,
+                  })
+                : null;
+        reportProgress({ phase: "checking" });
+        const baseStats = pass
+            ? {
+                  calls: pass.calls,
+                  lookups: pass.lookups,
+                  windows: pass.windows,
+                  repairs: pass.repairs,
+                  ...(pass.failedWindows > 0
+                      ? { failed_windows: pass.failedWindows }
+                      : {}),
+              }
+            : { calls: 0 };
+        // A participant whose address is a person's is answered as them.
+        const answeredLabels = new Map(
+            content.participants.flatMap((participant) =>
+                participant.personId
+                    ? [[participant.ref, participant.personId] as const]
+                    : [],
+            ),
+        );
+        for (let fenceAttempt = 1; ; fenceAttempt++) {
+            const lastAttempt = fenceAttempt >= FENCE_ATTEMPTS;
+            const fence = await fenceOf(db, run, orgUserId);
+            const frame: LearnRunFrame = {
+                ...(await knowledgeFrame(run)),
+                revision: run.transcriptRevision,
+                currentRevision: content.revision,
+                transcriptKey: `${run.itemId}@${content.revision}`,
+                turns,
+                language: content.language,
+                provider: null,
+                answeredLabels,
+                recorderPersonId: null,
+                corrected: [],
+            };
+            const validated = pass
+                ? validateLearnOutput(pass.output, frame)
+                : { superseded: false, items: [], dropped: {} };
+            const candidates = mailCandidates(
+                validated.items,
+                parts,
+                content.participants,
+            ).map((item) =>
+                lastAttempt
+                    ? ({ ...item, preTicked: false } as MailReviewCandidate)
+                    : item,
+            );
+            const stats = counts(validated.items, {
+                ...baseStats,
+                mail_items: candidates.length,
+                ...(fenceAttempt > 1
+                    ? { fence_retries: fenceAttempt - 1 }
+                    : {}),
+                ...Object.fromEntries(
+                    Object.entries(validated.dropped).map(([reason, n]) => [
+                        `dropped_${reason}`,
+                        n ?? 0,
+                    ]),
+                ),
+            });
+            const outcome = await db.transaction(async (tx) => {
+                await tx
+                    .select({ id: chatterItems.id })
+                    .from(chatterItems)
+                    .where(eq(chatterItems.id, run.itemId))
+                    .for("share");
+                const [current] = await tx
+                    .select({ revision: mailContents.revision })
+                    .from(mailContents)
+                    .where(
+                        and(
+                            eq(mailContents.itemId, run.itemId),
+                            eq(mailContents.userId, run.userId),
+                        ),
+                    )
+                    .for("share");
+                const [still] = await tx
+                    .select({ status: learnRuns.status })
+                    .from(learnRuns)
+                    .where(eq(learnRuns.id, run.id))
+                    .for("update");
+                if (!current || still?.status !== "running") {
+                    return { status: "cancelled" as const, items: 0 };
+                }
+                const finish = (
+                    status: "ready" | "finished" | "superseded" | "cancelled",
+                ) =>
+                    tx
+                        .update(learnRuns)
+                        .set({
+                            status,
+                            path: "fallback",
+                            provider,
+                            model,
+                            stats: sql`coalesce(${learnRuns.stats}, '{}'::jsonb) || ${JSON.stringify(stats)}::jsonb`,
+                            finishedAt: status === "ready" ? null : new Date(),
+                            updatedAt: new Date(),
+                        })
+                        .where(eq(learnRuns.id, run.id));
+                if (
+                    validated.superseded ||
+                    current.revision !== run.transcriptRevision
+                ) {
+                    await finish("superseded");
+                    return { status: "superseded" as const, items: 0 };
+                }
+                if (!(await mayStillRun(run, orgUserId, tx))) {
+                    await finish("cancelled");
+                    return { status: "cancelled" as const, items: 0 };
+                }
+                if (
+                    !lastAttempt &&
+                    (await fenceOf(tx, run, orgUserId, { lock: true })) !==
+                        fence
+                ) {
+                    return { status: "stale" as const, items: 0 };
+                }
+                if (candidates.length > 0) {
+                    await tx.insert(learnReviewItems).values(
+                        candidates.map((item) => ({
+                            runId: run.id,
+                            userId: run.scopeUserId,
+                            kind: item.kind,
+                            fingerprintHmac: learnFingerprintHmac(
+                                item.fingerprint,
+                            ),
+                            payload: encryptJsonField(item.payload),
+                            preTicked: item.preTicked,
+                            dependsOnLabel:
+                                "dependsOnLabel" in item
+                                    ? (item.dependsOnLabel ?? null)
+                                    : null,
+                        })),
+                    );
+                }
+                if (readNow.length > 0) {
+                    await tx
+                        .insert(mailLearnedParts)
+                        .values(
+                            readNow.map((fingerprint) => ({
+                                userId: run.scopeUserId,
+                                fingerprint,
+                                itemId: run.itemId,
+                            })),
+                        )
+                        .onConflictDoNothing();
+                }
+                const status =
+                    candidates.length > 0
+                        ? ("ready" as const)
+                        : ("finished" as const);
+                await finish(status);
+                return { status, items: candidates.length };
+            });
+            if (outcome.status === "stale") continue;
+            return { status: outcome.status, items: outcome.items };
+        }
+    } catch (caught) {
+        const error = isFinalLearnError(caught)
+            ? new AppError(
+                  ErrorCode.AI_PROVIDER_API_ERROR,
+                  caught instanceof Error ? caught.message : "Learn failed",
+                  502,
+              )
+            : caught;
         const retrying = attempt < maxAttempts && isRetryableError(error);
         await setStatus(
             run.id,

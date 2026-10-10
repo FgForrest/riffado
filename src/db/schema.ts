@@ -3773,3 +3773,26 @@ export const mailPendingShares = pgTable(
         ),
     }),
 );
+
+// A signature or disclaimer Learn has read in a scope's mail: each distinct
+// one is read once (a signature once per writer), a changed one again.
+export const mailLearnedParts = pgTable(
+    "mail_learned_parts",
+    {
+        // The scope that learned it: the owner, or the Organization.
+        userId: text("user_id")
+            .notNull()
+            .references(() => users.id, { onDelete: "cascade" }),
+        // A keyed HMAC of the part's kind, its writer's address and its text.
+        fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+        // The mail it was read in: gone, and the part may be read again.
+        itemId: text("item_id")
+            .notNull()
+            .references(() => chatterItems.id, { onDelete: "cascade" }),
+        createdAt: timestamp("created_at").notNull().defaultNow(),
+    },
+    (table) => ({
+        pk: primaryKey({ columns: [table.userId, table.fingerprint] }),
+        itemIdIdx: index("mail_learned_parts_item_id_idx").on(table.itemId),
+    }),
+);

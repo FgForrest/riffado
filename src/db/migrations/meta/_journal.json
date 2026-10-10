@@ -715,6 +715,13 @@
       "when": 1791658649324,
       "tag": "0101_chatter_kind_filter",
       "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1791664437566,
+      "tag": "0102_mail_learned_parts",
+      "breakpoints": true
     }
   ]
 }
